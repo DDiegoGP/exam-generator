@@ -49,11 +49,22 @@ def backup_excel(filepath, max_backups=10):
         os.remove(os.path.join(backup_dir, old))
 
 def guardar_excel_local(filepath, dict_of_dfs):
-    """Escribe un dict de DataFrames de vuelta a un .xlsx (una hoja por clave)."""
+    """Escribe a disco. Si filepath está vacío (modo cloud/upload), no hace nada."""
+    if not filepath:
+        return
     backup_excel(filepath)
     with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
         for sheet_name, df in dict_of_dfs.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+def generar_excel_bytes(dict_of_dfs) -> bytes:
+    """Genera el Excel en memoria (para descarga en cloud mode o backup)."""
+    import io as _io
+    buf = _io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        for sheet_name, df in dict_of_dfs.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+    return buf.getvalue()
 
 def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
     """Equivalente local de actualizar_pregunta_db para archivos Excel."""

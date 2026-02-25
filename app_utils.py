@@ -320,7 +320,7 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
 
 # ── Conexión ─────────────────────────────────────────────────────────────────
 def connect_db(path: str):
-    """Carga el Excel y actualiza session_state. Retorna (ok, mensaje)."""
+    """Carga el Excel desde ruta local y actualiza session_state."""
     try:
         dfs = lib.cargar_excel_local(path)
         df  = procesar_excel_dfs(dfs)
@@ -328,6 +328,7 @@ def connect_db(path: str):
         st.session_state.excel_dfs     = dfs
         st.session_state.df_preguntas  = df
         st.session_state.bloques       = list(dfs.keys())
+        st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state.db_connected  = True
         return True, f"{len(df)} preguntas en {len(dfs)} bloque(s)"
     except FileNotFoundError:
@@ -340,75 +341,75 @@ def connect_db(path: str):
         st.session_state.db_connected = False
         return False, f"Error al cargar: {e}"
 
+def connect_db_from_upload(uploaded_file) -> tuple:
+    """Carga el Excel desde un st.file_uploader (cloud mode). Retorna (ok, mensaje)."""
+    try:
+        import io
+        bytes_data = uploaded_file.read()
+        xls = pd.ExcelFile(io.BytesIO(bytes_data), engine='openpyxl')
+        dfs = {name: pd.read_excel(xls, sheet_name=name) for name in xls.sheet_names}
+        df  = procesar_excel_dfs(dfs)
+        st.session_state.excel_path    = ""   # sin ruta en cloud
+        st.session_state.excel_dfs     = dfs
+        st.session_state.df_preguntas  = df
+        st.session_state.bloques       = list(dfs.keys())
+        st.session_state.db_connected  = True
+        st.session_state["excel_bytes"] = bytes_data
+        st.session_state["_upload_name"] = uploaded_file.name
+        return True, f"Conectado: {uploaded_file.name}"
+    except Exception as e:
+        st.session_state.db_connected = False
+        return False, f"Error al cargar Excel: {e}"
+
 def reload_db():
-    """Recarga el Excel desde la ruta guardada (tras guardar cambios)."""
-    if st.session_state.excel_path:
-        connect_db(st.session_state.excel_path)
+    """Recarga la DB. En local: desde disco. En cloud: re-procesa dfs en memoria."""
+    path = st.session_state.get("excel_path", "")
+    if path and os.path.isfile(path):
+        connect_db(path)
+    else:
+        # Cloud/upload mode: re-procesar desde dfs ya en memoria
+        dfs = st.session_state.excel_dfs
+        if dfs:
+            df = procesar_excel_dfs(dfs)
+            st.session_state.df_preguntas  = df
+            st.session_state.bloques       = list(dfs.keys())
+            st.session_state.db_connected  = True
+            st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
 # ── Sidebar (componente compartido) ─────────────────────────────────────────
 def render_sidebar():
-    """Renderiza la barra lateral de conexión, compartida entre todas las páginas."""
+    """Barra lateral compartida. Funciona tanto en local como en Streamlit Cloud."""
     with st.sidebar:
-        st.markdown("""
-        <div style="background:linear-gradient(135deg,#1a252f,#2c3e50);
-                    border-radius:10px;padding:12px 16px;margin-bottom:14px;color:white;">
-          <div style="font-size:1.15em;font-weight:800;letter-spacing:-.01em">📝 ExamGen UCM</div>
-          <div style="font-size:0.72em;opacity:0.65;margin-top:2px">Generador de Exámenes v42</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            "<div style='background:linear-gradient(135deg,#1a252f,#2c3e50);"
+            "border-radius:10px;padding:12px 16px;margin-bottom:14px;color:white'>"
+            "<div style='font-size:1.15em;font-weight:800;letter-spacing:-.01em'>📝 ExamGen UCM</div>"
+            "<div style='font-size:0.72em;opacity:0.65;margin-top:2px'>Generador de Exámenes</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.markdown("**📚 Base de Datos**")
 
-        # ── Botón principal: explorador de archivos ──
-        if st.button("📂 Seleccionar archivo...", use_container_width=True, key="btn_file_pick"):
-            try:
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()
-                root.wm_attributes('-topmost', True)
-                initial = st.session_state.excel_path or DEFAULT_XLSX
-                init_dir = os.path.dirname(initial) if os.path.isfile(initial) else PROJECT_DIR
-                chosen = filedialog.askopenfilename(
-                    title="Seleccionar base de datos Excel",
-                    filetypes=[("Excel", "*.xlsx *.xls"), ("Todos los archivos", "*.*")],
-                    initialdir=init_dir,
-                )
-                root.destroy()
-                if chosen:
-                    st.session_state.excel_path = chosen
-                    ok, msg = connect_db(chosen)
-                    if not ok:
-                        st.session_state["_sidebar_err"] = msg
+        # ── Upload de Excel (funciona local Y en Cloud) ───────────────────────
+        uploaded = st.file_uploader(
+            "Cargar Excel (.xlsx)",
+            type=["xlsx"],
+            key="sidebar_upload",
+            help="Sube tu base de datos Excel. Los cambios se guardan en memoria "
+                 "y puedes descargar el archivo actualizado abajo.",
+            label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            # Solo reconectar si es un archivo nuevo (evita resetear cambios en cada rerun)
+            if uploaded.name != st.session_state.get("_upload_name"):
+                ok, msg = connect_db_from_upload(uploaded)
+                if ok:
                     st.rerun()
-            except Exception as e:
-                st.session_state["_sidebar_err"] = f"Error explorador: {e}"
-                st.rerun()
+                else:
+                    st.error(msg)
 
-        # Mostrar errores pendientes
-        if st.session_state.get("_sidebar_err"):
-            st.error(st.session_state.pop("_sidebar_err"))
-
-        # ── Estado de conexión ──
-        if st.session_state.db_connected:
-            fname = os.path.basename(st.session_state.excel_path)
-            df    = st.session_state.df_preguntas
-            st.markdown(
-                f'<span class="conn-ok">✅ Conectado</span><br>'
-                f'<small style="color:#555;word-break:break-all">{fname}</small>',
-                unsafe_allow_html=True,
-            )
-            st.caption(f"{len(df)} preguntas · {len(st.session_state.bloques)} bloques")
-            if not df.empty:
-                nunca = (df["usada"] == "").sum()
-                st.caption(f"🆕 Sin usar: {nunca} · 📝 Usadas: {len(df) - nunca}")
-            if st.button("🔄 Recargar", use_container_width=True, key="btn_reload"):
-                reload_db()
-                st.rerun()
-        else:
-            st.markdown('<span class="conn-wait">⏳ Sin conexión</span>', unsafe_allow_html=True)
-
-        # ── Ruta manual (respaldo / Colab) ──
-        with st.expander("✏️ Ruta manual", expanded=False):
+        # ── Ruta local directa (solo útil en local, oculta en Cloud) ─────────
+        with st.expander("📂 Ruta local directa", expanded=False):
             path_m = st.text_input(
                 "Ruta al .xlsx",
                 value=st.session_state.excel_path,
@@ -416,17 +417,53 @@ def render_sidebar():
                 label_visibility="collapsed",
                 placeholder="C:/ruta/archivo.xlsx",
             )
-            if st.button("🔌 Conectar con esta ruta", key="btn_conectar_manual",
+            if st.button("🔌 Conectar", key="btn_conectar_manual",
                          use_container_width=True):
                 ok, msg = connect_db(path_m)
                 if ok:
-                    st.success(msg)
                     st.rerun()
                 else:
                     st.error(msg)
 
+        # ── Estado de conexión ────────────────────────────────────────────────
+        if st.session_state.db_connected:
+            fname = (st.session_state.get("_upload_name")
+                     or os.path.basename(st.session_state.excel_path)
+                     or "base_datos.xlsx")
+            df = st.session_state.df_preguntas
+            st.markdown(
+                f'<span class="conn-ok">✅ Conectado</span> '
+                f'<small style="color:#555">{fname}</small>',
+                unsafe_allow_html=True,
+            )
+            st.caption(f"{len(df)} preguntas · {len(st.session_state.bloques)} bloques")
+            if not df.empty:
+                nunca = (df["usada"] == "").sum()
+                st.caption(f"🆕 Sin usar: {nunca} · 📝 Usadas: {len(df) - nunca}")
+
+            col_r, col_d = st.columns(2)
+            if col_r.button("🔄 Recargar", use_container_width=True, key="btn_reload"):
+                reload_db()
+                st.rerun()
+
+            # ── Descarga del Excel actualizado ────────────────────────────────
+            excel_bytes = st.session_state.get("excel_bytes", b"")
+            if excel_bytes:
+                col_d.download_button(
+                    "⬇️ Descargar",
+                    data=excel_bytes,
+                    file_name=fname,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="btn_download_excel",
+                )
+        else:
+            st.markdown('<span class="conn-wait">⏳ Sin conexión</span>',
+                        unsafe_allow_html=True)
+            st.caption("Sube un archivo Excel arriba para empezar.")
+
         st.divider()
-        st.caption("Generador Examenes v42 · UCM")
+        st.caption("ExamGen UCM · Física Médica")
 
 # ── Page header helper ────────────────────────────────────────────────────────
 def page_header(icon: str, title: str, subtitle: str = ""):
