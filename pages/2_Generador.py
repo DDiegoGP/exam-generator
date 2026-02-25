@@ -803,219 +803,405 @@ with tab_prev:
         st.caption("ℹ️ Para fórmulas matemáticas usa el botón **∑ MathJax** arriba. Los bloques se pueden colapsar haciendo clic en su cabecera.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 4 · EXPORTAR
+# TAB 4 · EXPORTAR  (rediseñado)
 # ─────────────────────────────────────────────────────────────────────────────
-with tab_exp:
-    st.subheader("Configuración y exportación")
 
-    # ── Presets ──────────────────────────────────────────────────────────────
-    presets = st.session_state.presets
-    preset_names = list(presets.keys())
+# ── Helper: ejecutar exportación completa en memoria ─────────────────────────
+def _ejecutar_export():
+    """Genera todos los archivos en memoria y los guarda en session_state['export_files']."""
+    cfg          = st.session_state.get("exam_cfg", {})
+    sel_actual   = get_sel_ids()
+    nombre_arch  = cfg.get("file", f"Examen_{datetime.date.today()}")
+    n_mod        = cfg.get("vers", 1)
+    exp_word     = cfg.get("exp_word", True)
+    exp_tex      = cfg.get("exp_tex",  True)
 
-    with st.expander("💾 Presets de configuración", expanded=False):
-        pr_c1, pr_c2, pr_c3, pr_c4 = st.columns([3, 1, 2, 1])
-        sel_preset = pr_c1.selectbox("Preset", ["— Seleccionar —"] + preset_names, key="preset_sel")
-        if pr_c2.button("📂 Cargar", key="btn_load_preset") and sel_preset != "— Seleccionar —":
-            cfg_p = presets.get(sel_preset, {})
-            st.session_state.exam_cfg = cfg_p
-            st.success(f"Preset '{sel_preset}' cargado.")
-            st.rerun()
-        preset_nm = pr_c3.text_input("Nombre", placeholder="Nombre del preset...", key="preset_name_input")
-        if pr_c4.button("💾 Guardar", key="btn_save_preset"):
-            if preset_nm.strip():
-                save_preset(preset_nm.strip(), st.session_state.get("exam_cfg", {}))
-                st.success(f"Preset '{preset_nm}' guardado.")
-                st.rerun()
-        if sel_preset != "— Seleccionar —":
-            if st.button(f"🗑️ Eliminar preset '{sel_preset}'", key="btn_del_preset"):
-                delete_preset(sel_preset)
-                st.success("Preset eliminado.")
-                st.rerun()
+    df_dict = st.session_state.df_preguntas.set_index("ID_Pregunta").to_dict("index")
+    pool = []
+    for pid in sel_actual:
+        if pid in df_dict:
+            item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
+            pool.append(item)
 
-    # ── Formulario de configuración ──────────────────────────────────────────
-    cfg = st.session_state.get("exam_cfg", {})
-
-    st.markdown("**Datos del examen:**")
-    e1, e2, e3 = st.columns(3)
-    inst  = e1.text_input("Institución",     value=cfg.get("inst","UCM"),           key="exp_inst")
-    asig  = e2.text_input("Asignatura",      value=cfg.get("asig","FÍSICA MÉDICA"),  key="exp_asig")
-    tipo  = e3.text_input("Tipo de examen",  value=cfg.get("tipo","EXAMEN FINAL"),   key="exp_tipo")
-    e4, e5, e6 = st.columns(3)
-    fecha = e4.text_input("Fecha",  value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
-    tiem  = e5.text_input("Tiempo", value=cfg.get("tiem","90 min"),                 key="exp_tiem")
-    nombre_archivo = e6.text_input("Nombre archivo", value=cfg.get("file", f"Examen_{datetime.date.today()}"), key="exp_file")
-
-    st.markdown("**Instrucciones y cabeceras:**")
-    instr = st.text_area("Instrucciones generales", value=cfg.get("ins","Conteste hoja..."), height=55, key="exp_ins")
-    h_cab1, h_cab2 = st.columns(2)
-    info_fund = h_cab1.text_area("Cabecera Desarrollo",  value=cfg.get("h1",""), height=55, key="exp_h1")
-    info_test = h_cab2.text_area("Cabecera Test",         value=cfg.get("h2",""), height=55, key="exp_h2")
-
-    st.markdown("**Opciones de generación:**")
-    oc1, oc2, oc3 = st.columns(3)
-    num_modelos = oc1.selectbox("Nº Modelos", [1,2,3,4], key="exp_vers")
-    orden_val = oc2.selectbox("Orden preguntas",
-        [("Aleatorio por Bloques","bloques"), ("Aleatorio Global","global"),
-         ("Manual (selección)","manual"), ("Sin barajar (ID)","secuencial")],
-        format_func=lambda x: x[0], key="exp_ord")
-    orden = orden_val[1]
-    barajar = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
-
-    st.markdown("**Marcado de soluciones:**")
-    sc1, sc2, sc3 = st.columns(3)
-    sol_bold = sc1.checkbox("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
-    sol_red  = sc2.checkbox("Color rojo", value=cfg.get("sol_red", False), key="exp_sol_red")
-    sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
-
-    st.markdown("**Anclaje de opciones:**")
-    ac1, ac2 = st.columns([1,3])
-    anclaje_auto = ac1.checkbox("Anclaje automático", value=cfg.get("anc_chk", True), key="exp_anc")
-    anclaje_extra = ac2.text_input("Frases anclaje extra (coma separadas)",
-                                    value=cfg.get("anc_txt",""), key="exp_anc_txt")
-
-    st.markdown("**Formatos de exportación:**")
-    fc1, fc2 = st.columns(2)
-    exp_word = fc1.checkbox("Word (.docx)", value=True, key="exp_word")
-    exp_tex  = fc2.checkbox("LaTeX (.tex)", value=True, key="exp_tex")
-
-    st.markdown("**Plantillas opcionales:**")
-    tc1, tc2, tc3 = st.columns(3)
-    tpl_word_file = tc1.file_uploader("Plantilla Word", type=["docx"], key="exp_tpl_word")
-    tpl_tex_file  = tc2.file_uploader("Plantilla LaTeX", type=["tex"],  key="exp_tpl_tex")
-    logo_file     = tc3.file_uploader("Logo (imagen)",   type=["png","jpg","jpeg","svg"], key="exp_logo")
-
-    ruta_salida = st.text_input("Carpeta de salida", value=cfg.get("path", OUTPUT_DIR), key="exp_path")
-
-    # Guardar cfg actualizada en session_state al cambiar campos
-    st.session_state.exam_cfg = {
-        "inst": inst, "asig": asig, "tipo": tipo, "fecha": fecha, "tiem": tiem,
-        "file": nombre_archivo, "ins": instr, "h1": info_fund, "h2": info_test,
-        "vers": num_modelos, "ord": orden, "bar": barajar,
-        "sol_bold": sol_bold, "sol_red": sol_red, "sol_ast": sol_ast,
-        "anc_chk": anclaje_auto, "anc_txt": anclaje_extra, "path": ruta_salida,
+    cfg_export = {
+        "titulo_asignatura": cfg.get("asig", ""),
+        "tipo_examen":       cfg.get("tipo", ""),
+        "entidad":           cfg.get("inst", ""),
+        "fecha":             cfg.get("fecha", ""),
+        "tiempo":            cfg.get("tiem", ""),
+        "instr_gen":         cfg.get("ins",  ""),
+        "info_fund":         cfg.get("h1",   ""),
+        "info_test":         cfg.get("h2",   ""),
+        "barajar_preguntas":  cfg.get("ord", "bloques") != "manual",
+        "barajar_respuestas": cfg.get("bar", True),
+        "frases_anclaje_extra": cfg.get("anc_txt","") if cfg.get("anc_chk", True) else "",
+        "sol_negrita": cfg.get("sol_bold", False),
+        "sol_rojo":    cfg.get("sol_red",  False),
+        "sol_ast":     cfg.get("sol_ast",  True),
+        "fundamentales_data": [
+            {"txt": q["txt"], "pts": q["pts"], "espacio": q["espacio"]}
+            for q in st.session_state.get("dev_questions", [])
+        ],
     }
+    tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
+    tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
+    if tpl_tex_bytes:
+        cfg_export["plantilla_tex_bytes"] = tpl_tex_bytes
 
+    master = lib.generar_master_examen(pool, n_mod, cfg_export)
+
+    ef = {"nombre": nombre_arch, "_zip_all": {}}
+
+    # CSV (siempre)
+    csv_data = lib.exportar_csv_bytes(master, nombre_arch)
+    ef["csv_claves"] = csv_data["claves"]
+    ef["csv_meta"]   = csv_data["metadata"]
+    ef["_zip_all"][f"{nombre_arch}_CLAVES.csv"]   = csv_data["claves"]
+    ef["_zip_all"][f"{nombre_arch}_METADATA.csv"] = csv_data["metadata"]
+
+    # Word
+    if exp_word:
+        ef["word_exam"] = lib.rellenar_plantilla_word_bytes(master, nombre_arch, cfg_export, tpl_bytes=tpl_word_bytes, modo_solucion=False)
+        ef["word_sol"]  = lib.rellenar_plantilla_word_bytes(master, nombre_arch, cfg_export, tpl_bytes=tpl_word_bytes, modo_solucion=True)
+        for letra, data in ef["word_exam"].items():
+            ef["_zip_all"][f"{nombre_arch}_MOD{letra}.docx"] = data
+        for letra, data in ef["word_sol"].items():
+            ef["_zip_all"][f"{nombre_arch}_MOD{letra}_SOL.docx"] = data
+
+    # LaTeX
+    if exp_tex:
+        ef["latex_exam"] = lib.generar_latex_strings(master, nombre_arch, cfg_export, modo_solucion=False)
+        ef["latex_sol"]  = lib.generar_latex_strings(master, nombre_arch, cfg_export, modo_solucion=True)
+        for letra, data in ef["latex_exam"].items():
+            ef["_zip_all"][f"{nombre_arch}_MOD{letra}.tex"] = data
+        for letra, data in ef["latex_sol"].items():
+            ef["_zip_all"][f"{nombre_arch}_MOD{letra}_SOL.tex"] = data
+
+    ef["zip_bytes"] = lib.generar_zip_bytes(ef["_zip_all"])
+
+    # Marcar preguntas como usadas en la DB
+    hoy = datetime.date.today().strftime("%Y-%m-%d")
+    dfs = st.session_state.excel_dfs
+    for bloque_name, df_sheet in dfs.items():
+        head    = [str(h).lower().strip() for h in df_sheet.columns]
+        idx_id  = next((i for i, h in enumerate(head) if "id_preg" in h or h == "id"), -1)
+        idx_usa = next((i for i, h in enumerate(head) if "usada" in h or "fecha" in h), -1)
+        if idx_id == -1 or idx_usa == -1: continue
+        id_col  = df_sheet.columns[idx_id]
+        usa_col = df_sheet.columns[idx_usa]
+        mask = df_sheet[id_col].astype(str).isin([str(pid) for pid in sel_actual])
+        df_sheet.loc[mask, usa_col] = hoy
+    reload_db()
+
+    # Historial
+    append_historial({
+        "fecha":        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "nombre":       nombre_arch,
+        "titulo":       cfg.get("asig", ""),
+        "asig":         cfg.get("asig", ""),
+        "tipo":         cfg.get("tipo", ""),
+        "n_preguntas":  len(sel_actual),
+        "n_modelos":    n_mod,
+        "ids":          sel_actual[:],
+        "usuario":      st.session_state.get("google_user_email", ""),
+    })
+    st.session_state.cache_examen   = pool
+    st.session_state["export_files"] = ef
+
+
+@st.dialog("✅ Confirmar exportación", width="small")
+def _dialog_confirmar_export():
+    cfg    = st.session_state.get("exam_cfg", {})
+    sel    = get_sel_ids()
+    n_mod  = cfg.get("vers", 1)
+    st.markdown(f"**{len(sel)} preguntas · {n_mod} modelo(s)**")
+    formatos = ["📊 CSV Claves + Metadatos (siempre)"]
+    if cfg.get("exp_word", True): formatos.append(f"📄 Word: {n_mod} examen(es) + {n_mod} con soluciones")
+    if cfg.get("exp_tex",  True): formatos.append(f"📑 LaTeX: {n_mod} examen(es) + {n_mod} con soluciones")
+    for f_item in formatos:
+        st.markdown(f"• {f_item}")
+    sol_lb = []
+    if cfg.get("sol_bold"): sol_lb.append("negrita")
+    if cfg.get("sol_red"):  sol_lb.append("rojo")
+    if cfg.get("sol_ast"):  sol_lb.append("asterisco (*)")
+    if sol_lb: st.caption(f"Soluciones marcadas con: {', '.join(sol_lb)}")
     st.markdown("---")
+    c1, c2 = st.columns(2)
+    if c1.button("✅ Exportar", type="primary", use_container_width=True, key="dlg_ok"):
+        with st.spinner("Generando archivos…"):
+            try:
+                _ejecutar_export()
+            except Exception as e:
+                st.error(f"Error: {e}")
+                import traceback; st.code(traceback.format_exc())
+                return
+        st.rerun()
+    if c2.button("Cancelar", use_container_width=True, key="dlg_cancel"):
+        st.rerun()
+
+
+@st.dialog("👁 Vista previa · Modelo A", width="large")
+def _dialog_preview_examen():
+    sel = get_sel_ids()
+    if not sel:
+        st.warning("No hay preguntas seleccionadas.")
+        return
+    df_q    = st.session_state.df_preguntas
+    df_dict = df_q.set_index("ID_Pregunta").to_dict("index")
+    pool_p  = []
+    for pid in sel:
+        if pid in df_dict:
+            item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
+            pool_p.append(item)
+    pc1, pc2 = st.columns(2)
+    show_sol_p = pc1.checkbox("Mostrar soluciones", value=True, key="prev_show_sol")
+    if pc2.button("∑ Renderizar LaTeX", key="prev_mjax_btn"):
+        st.session_state["_prev_mjax"] = True
+    cards_html = "".join(render_question_card_html(p, show_sol=show_sol_p, num=i+1) for i, p in enumerate(pool_p))
+    if st.session_state.get("_prev_mjax"):
+        stcomponents.html(mathjax_html(cards_html), height=650, scrolling=True)
+    else:
+        st.markdown(cards_html, unsafe_allow_html=True)
+
+
+with tab_exp:
     sel_actual = get_sel_ids()
-    n_pregs = len(sel_actual)
-    st.markdown(f"**Preguntas seleccionadas:** {n_pregs}")
-    if n_pregs == 0:
-        st.warning("⚠️ No hay preguntas seleccionadas. Ve a la pestaña Selección.")
+    n_pregs    = len(sel_actual)
+    cfg        = st.session_state.get("exam_cfg", {})
 
-    if st.button("💾 EXPORTAR EXAMEN", type="primary", key="btn_export",
-                 disabled=(n_pregs == 0)):
+    col_cfg, col_res = st.columns([3, 2], gap="large")
 
-        os.makedirs(ruta_salida, exist_ok=True)
+    with col_cfg:
 
-        # Construir pool
-        pool = []
-        df_dict = df_total.set_index("ID_Pregunta").to_dict("index")
-        for pid in sel_actual:
-            if pid in df_dict:
-                item = dict(df_dict[pid])
-                item["ID_Pregunta"] = pid
-                pool.append(item)
+        # ── 1. Identificación ──────────────────────────────────────────────────
+        with st.expander("📋 Identificación del examen", expanded=True):
+            e1, e2, e3 = st.columns(3)
+            inst  = e1.text_input("Institución",    value=cfg.get("inst", "UCM"),                  key="exp_inst")
+            asig  = e2.text_input("Asignatura",     value=cfg.get("asig", "FÍSICA MÉDICA"),         key="exp_asig")
+            tipo  = e3.text_input("Tipo de examen", value=cfg.get("tipo", "EXAMEN FINAL"),          key="exp_tipo")
+            e4, e5, e6 = st.columns(3)
+            fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
+            tiem          = e5.text_input("Tiempo",         value=cfg.get("tiem",  "90 min"),       key="exp_tiem")
+            nombre_archivo = e6.text_input("Nombre archivo", value=cfg.get("file", f"Examen_{datetime.date.today()}"), key="exp_file")
 
-        cfg_export = {
-            "titulo_asignatura": asig,
-            "tipo_examen":       tipo,
-            "entidad":           inst,
-            "fecha":             fecha,
-            "tiempo":            tiem,
-            "instr_gen":         instr,
-            "info_fund":         info_fund,
-            "info_test":         info_test,
-            "barajar_preguntas": (orden != "manual"),
-            "barajar_respuestas": barajar,
-            "frases_anclaje_extra": anclaje_extra if anclaje_auto else "",
-            "sol_negrita": sol_bold,
-            "sol_rojo":    sol_red,
-            "sol_ast":     sol_ast,
-            "fundamentales_data": [
-                {"txt": q["txt"], "pts": q["pts"], "espacio": q["espacio"]}
-                for q in st.session_state.dev_questions
-            ],
+        # ── 2. Generación ─────────────────────────────────────────────────────
+        with st.expander("⚙️ Opciones de generación", expanded=True):
+            oc1, oc2, oc3 = st.columns(3)
+            num_modelos = oc1.selectbox("Nº Modelos", [1, 2, 3, 4],
+                                        index=max(0, cfg.get("vers", 1) - 1), key="exp_vers")
+            _orden_opts = [("Aleatorio por Bloques","bloques"),("Aleatorio Global","global"),
+                           ("Manual (selección)","manual"),("Sin barajar (ID)","secuencial")]
+            _orden_idx  = next((i for i, (_, v) in enumerate(_orden_opts) if v == cfg.get("ord","bloques")), 0)
+            orden_val   = oc2.selectbox("Orden preguntas", _orden_opts, index=_orden_idx,
+                                        format_func=lambda x: x[0], key="exp_ord")
+            orden       = orden_val[1]
+            barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
+
+        # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
+        with st.expander("📄 Formatos y marcado de soluciones", expanded=True):
+            st.markdown("**Formatos de exportación:**")
+            fc1, fc2, fc3 = st.columns(3)
+            fc1.markdown("📊 **CSV** (siempre)", help="Clave de respuestas y metadatos — siempre se generan")
+            exp_word = fc2.checkbox("📄 Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
+            exp_tex  = fc3.checkbox("📑 LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
+            if exp_tex:
+                st.caption("ℹ️ LaTeX compatible con Overleaf/Prism. Requiere la clase `exam`.")
+            st.markdown("**Marcado de la versión soluciones:**")
+            sc1, sc2, sc3 = st.columns(3)
+            sol_bold = sc1.checkbox("Negrita",        value=cfg.get("sol_bold", False), key="exp_sol_bold")
+            sol_red  = sc2.checkbox("Color rojo",     value=cfg.get("sol_red",  False), key="exp_sol_red")
+            sol_ast  = sc3.checkbox("Asterisco (*)",  value=cfg.get("sol_ast",  True),  key="exp_sol_ast")
+
+        # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
+        with st.expander("📝 Instrucciones y cabeceras", expanded=True):
+            instr     = st.text_area("Instrucciones generales",
+                                     value=cfg.get("ins", "Conteste en la hoja de respuestas."),
+                                     height=70, key="exp_ins")
+            hc1, hc2  = st.columns(2)
+            info_fund = hc1.text_area("Cabecera sección desarrollo", value=cfg.get("h1", ""), height=70, key="exp_h1")
+            info_test = hc2.text_area("Cabecera sección test",       value=cfg.get("h2", ""), height=70, key="exp_h2")
+
+        # ── 5. Anclaje ────────────────────────────────────────────────────────
+        with st.expander("⚓ Anclaje de opciones", expanded=True):
+            ac1, ac2      = st.columns([1, 2])
+            anclaje_auto  = ac1.checkbox("Activar anclaje", value=cfg.get("anc_chk", True), key="exp_anc")
+            anclaje_extra = ac2.text_input("Frases extra (coma separadas)",
+                                           value=cfg.get("anc_txt", ""), key="exp_anc_txt",
+                                           disabled=not anclaje_auto)
+            if anclaje_auto:
+                _base = ["todas las anteriores","ninguna de las anteriores","ambas son correctas","son correctas","son falsas"]
+                _extra = [f.strip() for f in anclaje_extra.split(",") if f.strip()] if anclaje_extra else []
+                _todas = _base + _extra
+                st.caption("Anclan (no se barajan): " + " · ".join(f'"{f}"' for f in _todas[:5]) + ("…" if len(_todas)>5 else ""))
+
+        # ── 6. Plantillas ─────────────────────────────────────────────────────
+        with st.expander("📎 Plantillas (Word / LaTeX / Logo)", expanded=False):
+            st.caption("Se suben por sesión. Los presets guardan la configuración pero no la plantilla.")
+            tc1, tc2, tc3    = st.columns(3)
+            tpl_word_file    = tc1.file_uploader("Plantilla Word (.docx)", type=["docx"], key="exp_tpl_word")
+            tpl_tex_file     = tc2.file_uploader("Plantilla LaTeX (.tex)", type=["tex"],  key="exp_tpl_tex")
+            logo_file        = tc3.file_uploader("Logo (PNG/JPG)",         type=["png","jpg","jpeg"], key="exp_logo")
+            if tpl_word_file:
+                st.session_state["_tpl_word_bytes"] = tpl_word_file.getvalue()
+                st.session_state["_tpl_word_name"]  = tpl_word_file.name
+                tc1.success(f"✅ {tpl_word_file.name}")
+            elif st.session_state.get("_tpl_word_bytes"):
+                tc1.info(f"En memoria: {st.session_state.get('_tpl_word_name','plantilla.docx')}")
+            if tpl_tex_file:
+                st.session_state["_tpl_tex_bytes"] = tpl_tex_file.getvalue()
+                st.session_state["_tpl_tex_name"]  = tpl_tex_file.name
+                tc2.success(f"✅ {tpl_tex_file.name}")
+            elif st.session_state.get("_tpl_tex_bytes"):
+                tc2.info(f"En memoria: {st.session_state.get('_tpl_tex_name','plantilla.tex')}")
+            if logo_file:
+                import tempfile as _tmp
+                _logo_p = os.path.join(_tmp.gettempdir(), logo_file.name)
+                with open(_logo_p, "wb") as _f: _f.write(logo_file.read())
+                st.session_state["_logo_path"] = _logo_p
+                tc3.success(f"✅ {logo_file.name}")
+
+        # ── 7. Presets ────────────────────────────────────────────────────────
+        with st.expander("💾 Presets de configuración", expanded=False):
+            st.caption("Guarda y reutiliza configuraciones completas (instrucciones, datos, opciones).")
+            _presets = st.session_state.presets
+            pr1, pr2  = st.columns([3, 1])
+            _sel_pr   = pr1.selectbox("Preset", ["— Seleccionar —"] + list(_presets.keys()), key="preset_sel")
+            if pr2.button("📂 Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
+                st.session_state.exam_cfg = _presets.get(_sel_pr, {})
+                st.success(f"Preset '{_sel_pr}' cargado.")
+                st.rerun()
+            pr3, pr4  = st.columns([3, 1])
+            _pr_name  = pr3.text_input("Nombre del preset", placeholder="Ej: FM I Ordinario 2026",
+                                       key="preset_name_input", label_visibility="collapsed")
+            if pr4.button("💾 Guardar", key="btn_save_preset", use_container_width=True):
+                if _pr_name.strip():
+                    save_preset(_pr_name.strip(), st.session_state.get("exam_cfg", {}))
+                    st.success(f"Preset '{_pr_name}' guardado.")
+                    st.rerun()
+            if _sel_pr != "— Seleccionar —":
+                if st.button(f"🗑️ Eliminar '{_sel_pr}'", key="btn_del_preset"):
+                    delete_preset(_sel_pr); st.rerun()
+
+        # ── Persistir cfg en session_state ────────────────────────────────────
+        st.session_state.exam_cfg = {
+            "inst": inst, "asig": asig, "tipo": tipo, "fecha": fecha, "tiem": tiem,
+            "file": nombre_archivo, "ins": instr, "h1": info_fund, "h2": info_test,
+            "vers": num_modelos, "ord": orden, "bar": barajar,
+            "exp_word": exp_word, "exp_tex": exp_tex,
+            "sol_bold": sol_bold, "sol_red": sol_red, "sol_ast": sol_ast,
+            "anc_chk": anclaje_auto, "anc_txt": anclaje_extra,
         }
 
-        # Guardar plantillas si se subieron
-        tpl_word_path = None
-        tpl_tex_path  = None
-        logo_path     = None
+    # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────
+    with col_res:
 
-        if tpl_word_file:
-            tpl_word_path = os.path.join(tempfile.gettempdir(), tpl_word_file.name)
-            with open(tpl_word_path, "wb") as f: f.write(tpl_word_file.read())
+        # Construir textos del resumen
+        _sol_marks = []
+        if sol_bold: _sol_marks.append("negrita")
+        if sol_red:  _sol_marks.append("rojo")
+        if sol_ast:  _sol_marks.append("asterisco *")
+        _sol_str = ", ".join(_sol_marks) if _sol_marks else "sin marcar"
 
-        if tpl_tex_file:
-            tpl_tex_path = os.path.join(tempfile.gettempdir(), tpl_tex_file.name)
-            with open(tpl_tex_path, "wb") as f: f.write(tpl_tex_file.read())
-            cfg_export["plantilla_tex_path"] = tpl_tex_path
+        _fmt_parts = ["📊 CSV"]
+        if exp_word: _fmt_parts.append("📄 Word")
+        if exp_tex:  _fmt_parts.append("📑 LaTeX")
+        _fmt_str = " · ".join(_fmt_parts)
 
-        if logo_file:
-            logo_path = os.path.join(tempfile.gettempdir(), logo_file.name)
-            with open(logo_path, "wb") as f: f.write(logo_file.read())
-            cfg_export["logo_path"] = logo_path
+        _tpl_w = st.session_state.get("_tpl_word_name", "plantilla por defecto")
+        _tpl_t = st.session_state.get("_tpl_tex_name",  "plantilla por defecto")
 
-        log_msgs = []
-        progress = st.progress(0, text="Preparando...")
+        _anc_status = "activado" if anclaje_auto else "desactivado"
+        _anc_frases = ["todas las anteriores", "ninguna de las anteriores", "ambas son correctas"]
+        if anclaje_auto and anclaje_extra:
+            _anc_frases += [f.strip() for f in anclaje_extra.split(",") if f.strip()]
+        _anc_prev = " · ".join(f'"{f}"' for f in _anc_frases[:3]) + ("…" if len(_anc_frases) > 3 else "")
 
-        try:
-            # Master
-            master = lib.generar_master_examen(pool, num_modelos, cfg_export)
-            progress.progress(20, text="Generando CSVs...")
+        _tpl_rows = ""
+        if exp_word: _tpl_rows += f'<div style="opacity:0.8">📎 Word: {_tpl_w}</div>'
+        if exp_tex:  _tpl_rows += f'<div style="opacity:0.8">📎 LaTeX: {_tpl_t}</div>'
 
-            # CSV
-            lib.exportar_archivos_csv(master, ruta_salida, nombre_archivo)
-            log_msgs.append(f"✅ CSVs generados en {ruta_salida}")
-            progress.progress(40, text="CSV generado.")
+        st.markdown(
+            f"""<div style="background:linear-gradient(135deg,#1a252f,#2c3e50);color:white;
+            border-radius:12px;padding:18px 20px;margin-bottom:12px;font-size:0.87em;line-height:1.75">
+            <div style="font-size:1.05em;font-weight:800;margin-bottom:2px">{asig or '—'} · {tipo or '—'}</div>
+            <div style="opacity:0.65;font-size:0.82em;margin-bottom:10px">
+              {inst or '—'} &nbsp;·&nbsp; {fecha or '—'} &nbsp;·&nbsp; {tiem or '—'}</div>
+            <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
+            <div>📋 <b>{n_pregs}</b> preguntas &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
+            <div>📦 {_fmt_str}</div>
+            <div>✍️ Soluciones: {_sol_str}</div>
+            <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
+            <div style="opacity:0.85">⚓ Anclaje: {_anc_status}</div>
+            {'<div style="opacity:0.6;font-size:0.82em">' + _anc_prev + '</div>' if anclaje_auto else ''}
+            <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
+            {_tpl_rows}
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
-            # Word
-            if exp_word:
-                progress.progress(55, text="Generando Word...")
-                try:
-                    lib.rellenar_plantilla_word(master, ruta_salida, nombre_archivo, cfg_export,
-                                                tpl_path=tpl_word_path, modo_solucion=False)
-                    lib.rellenar_plantilla_word(master, ruta_salida, nombre_archivo, cfg_export,
-                                                tpl_path=tpl_word_path, modo_solucion=True)
-                    log_msgs.append(f"✅ Word generado ({num_modelos} modelos + soluciones)")
-                except Exception as e:
-                    log_msgs.append(f"❌ Error Word: {e}")
-                progress.progress(70, text="Word generado.")
+        if st.button("👁 Vista previa del examen", use_container_width=True, key="btn_preview_exam"):
+            _dialog_preview_examen()
 
-            # LaTeX
-            if exp_tex:
-                progress.progress(80, text="Generando LaTeX...")
-                try:
-                    lib.generar_latex(master, ruta_salida, nombre_archivo, cfg_export, modo_solucion=False)
-                    lib.generar_latex(master, ruta_salida, nombre_archivo, cfg_export, modo_solucion=True)
-                    log_msgs.append(f"✅ LaTeX generado ({num_modelos} modelos + soluciones)")
-                except Exception as e:
-                    log_msgs.append(f"❌ Error LaTeX: {e}")
-                progress.progress(95, text="LaTeX generado.")
+        st.markdown("<div style='margin:6px 0'></div>", unsafe_allow_html=True)
 
-            progress.progress(100, text="¡Exportación completada!")
+        if st.button("💾 EXPORTAR EXAMEN", type="primary", use_container_width=True,
+                     key="btn_export_main", disabled=(n_pregs == 0)):
+            _dialog_confirmar_export()
+        if n_pregs == 0:
+            st.caption("⚠️ Ve a la pestaña **Selección** para elegir preguntas.")
 
-            # Historial
-            append_historial({
-                "fecha":    datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "nombre":   nombre_archivo,
-                "asig":     asig,
-                "tipo":     tipo,
-                "n_pregs":  n_pregs,
-                "modelos":  num_modelos,
-                "ids":      sel_actual[:],
-                "ruta":     ruta_salida,
-            })
-            st.session_state.cache_examen = pool
+        # ── Botones de descarga (tras exportar) ───────────────────────────────
+        ef = st.session_state.get("export_files")
+        if ef:
+            _nef = ef.get("nombre", "examen")
+            st.markdown("---")
+            st.markdown("**⬇️ Descargas**")
 
-            st.success(f"🎉 Exportación completada en: `{ruta_salida}`")
-            for msg in log_msgs:
-                st.markdown(msg)
+            st.download_button(
+                "⬇️ Descargar TODO (.zip)",
+                data=ef["zip_bytes"],
+                file_name=f"{_nef}_completo.zip",
+                mime="application/zip",
+                use_container_width=True,
+                key="dl_zip_all",
+                type="primary",
+            )
 
-        except Exception as e:
-            st.error(f"❌ Error durante la exportación: {e}")
-            import traceback
-            st.code(traceback.format_exc())
+            if ef.get("word_exam"):
+                st.markdown("**Word:**")
+                _wc1, _wc2 = st.columns(2)
+                _wc1.download_button("📄 Exámenes",
+                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}.docx": d for l, d in ef["word_exam"].items()}),
+                    file_name=f"{_nef}_word_examenes.zip", mime="application/zip",
+                    use_container_width=True, key="dl_word_exam")
+                _wc2.download_button("📄 Soluciones",
+                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_SOL.docx": d for l, d in ef["word_sol"].items()}),
+                    file_name=f"{_nef}_word_soluciones.zip", mime="application/zip",
+                    use_container_width=True, key="dl_word_sol")
+
+            if ef.get("latex_exam"):
+                st.markdown("**LaTeX:**")
+                _lc1, _lc2 = st.columns(2)
+                _lc1.download_button("📑 Exámenes",
+                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}.tex": d for l, d in ef["latex_exam"].items()}),
+                    file_name=f"{_nef}_latex_examenes.zip", mime="application/zip",
+                    use_container_width=True, key="dl_latex_exam")
+                _lc2.download_button("📑 Soluciones",
+                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_SOL.tex": d for l, d in ef["latex_sol"].items()}),
+                    file_name=f"{_nef}_latex_soluciones.zip", mime="application/zip",
+                    use_container_width=True, key="dl_latex_sol")
+
+            st.markdown("**CSV:**")
+            _cc1, _cc2 = st.columns(2)
+            _cc1.download_button("📊 Clave",     data=ef["csv_claves"], file_name=f"{_nef}_CLAVES.csv",
+                                 mime="text/csv", use_container_width=True, key="dl_csv_claves")
+            _cc2.download_button("📊 Metadatos", data=ef["csv_meta"],   file_name=f"{_nef}_METADATA.csv",
+                                 mime="text/csv", use_container_width=True, key="dl_csv_meta")
+
+            if st.button("🔄 Nueva exportación", use_container_width=True, key="btn_clear_export"):
+                st.session_state.pop("export_files", None)
+                st.session_state.pop("_prev_mjax", None)
+                st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 · HISTORIAL

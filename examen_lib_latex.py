@@ -699,6 +699,212 @@ def rellenar_plantilla_word(master, ruta, nombre, cfg, tpl_path=None, modo_soluc
 
         doc.save(os.path.join(ruta, f"{nombre}_MOD{m['letra_version']}{sufijo}.docx"))
 
+
+# ── Variantes en memoria (para Streamlit Cloud / descarga directa) ─────────────
+
+def exportar_csv_bytes(master, nombre) -> dict:
+    """Genera los CSVs en memoria. Retorna {'claves': bytes, 'metadata': bytes}."""
+    import io as _io
+    rows_claves, rows_meta = [], []
+    for m in master:
+        version = m['letra_version']
+        for p in m['preguntas']:
+            rows_claves.append({
+                'Pregunta': p['num'], 'Versión': version, 'Respuesta': p['letra_final'],
+                'Puntos': '1,00', 'Vínculo': '0', 'Penalización': '0,33',
+                'Ponderación': '0,00', 'Máx.P.Abiertas': '0,00'
+            })
+            rows_meta.append({
+                'Modelo': m['modelo'], 'Version': version, 'Num_Examen': p['num'],
+                'ID_BaseDatos': p['ID_Pregunta'], 'Bloque': p.get('bloque', ''),
+                'Tema': p.get('Tema', ''), 'Dificultad': p.get('dificultad', ''),
+                'Enunciado_Inicio': str(p['enunciado'])[:50]
+            })
+    buf_c, buf_m = _io.BytesIO(), _io.BytesIO()
+    pd.DataFrame(rows_claves).to_csv(buf_c, index=False, encoding='utf-8-sig', sep=';')
+    pd.DataFrame(rows_meta).to_csv(buf_m, index=False, encoding='utf-8-sig', sep=';')
+    return {'claves': buf_c.getvalue(), 'metadata': buf_m.getvalue()}
+
+
+def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
+    """Genera los .tex en memoria. Retorna {letra_version: str_tex}."""
+    sufijo = "_SOL" if modo_solucion else ""
+    plantilla_tex = ""
+    tpl_bytes = cfg.get('plantilla_tex_bytes')
+    if tpl_bytes:
+        try:
+            plantilla_tex = tpl_bytes.decode('utf-8')
+        except Exception:
+            pass
+    elif cfg.get('plantilla_tex_path'):
+        try:
+            with open(cfg['plantilla_tex_path'], 'r', encoding='utf-8') as f:
+                plantilla_tex = f.read()
+        except Exception:
+            pass
+
+    _DEFAULT_TEX = r"""\documentclass[a4paper,12pt]{exam}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{geometry}
+\geometry{margin=2cm}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+\pagestyle{headandfoot}
+\firstpageheader{[[INSTITUCION]]}{[[TIPO_EXAMEN]] -- Modelo [[VERSION]]}{[[FECHA]]}
+\runningheader{[[TITULO]]}{Modelo [[VERSION]]}{Pág. \thepage/\numpages}
+\firstpagefooter{}{}{}\runningfooter{}{}{}
+
+\begin{document}
+\begin{center}
+{\Large \textbf{[[TITULO]]}} \\[6pt]
+{\large [[TIPO_EXAMEN]] -- Modelo [[VERSION]]} \\[4pt]
+[[INSTITUCION]] \hfill [[FECHA]] \hfill Tiempo: [[TIEMPO]]
+\end{center}
+\vspace{2mm}
+\noindent\textbf{Nombre:} \hrulefill \hspace{1cm} \textbf{Grupo:} \hrulefill
+\vspace{3mm}
+\noindent\textit{[[INSTRUCCIONES]]}
+[[INFO_FUNDAMENTALES]]
+[[FUNDAMENTALES]]
+[[INFO_TEST]]
+\begin{questions}
+[[PREGUNTAS]]
+\end{questions}
+\end{document}"""
+
+    if not plantilla_tex:
+        plantilla_tex = _DEFAULT_TEX
+
+    result = {}
+    for m in master:
+        tex = plantilla_tex
+        tex = tex.replace('[[TIPO_EXAMEN]]', _escape_latex(cfg.get('tipo_examen', '')))
+        tex = tex.replace('[[INSTITUCION]]', _escape_latex(cfg.get('entidad', '')))
+        tex = tex.replace('[[TITULO]]', _escape_latex(cfg.get('titulo_asignatura', '')))
+        tex = tex.replace('[[FECHA]]', _escape_latex(cfg.get('fecha', '')))
+        tex = tex.replace('[[TIEMPO]]', _escape_latex(cfg.get('tiempo', '')))
+        tex = tex.replace('[[VERSION]]', m['letra_version'])
+        tex = tex.replace('[[INSTRUCCIONES]]', _escape_latex(cfg.get('instr_gen', '')))
+        tex = tex.replace('[[INFO_FUNDAMENTALES]]', _escape_latex(cfg.get('info_fund', '')))
+        tex = tex.replace('[[INFO_TEST]]', _escape_latex(cfg.get('info_test', '')))
+        tex = tex.replace('[[LOGO]]', '')
+
+        bloque_fund = ""
+        if cfg.get('fundamentales_data'):
+            bloque_fund = r"\begin{enumerate}" + "\n"
+            for c in cfg['fundamentales_data']:
+                bloque_fund += r"\item \textbf{" + _escape_latex(c['txt']) + r"} (" + str(c['pts']) + " pts)\n"
+                esp = c.get('espacio', 'Automático')
+                h = "5cm"
+                if "10" in esp: h = "8cm"
+                elif "Media" in esp: h = "12cm"
+                elif "Cara" in esp: h = "18cm"
+                if modo_solucion:
+                    bloque_fund += r"\par \textit{[Espacio (" + esp + r")]} \vspace{1cm}" + "\n"
+                else:
+                    bloque_fund += r"\par \framebox{\begin{minipage}[t][" + h + r"]{\linewidth} \end{minipage}} \vspace{0.5cm}" + "\n"
+            bloque_fund += r"\end{enumerate}" + "\n"
+        tex = tex.replace('[[FUNDAMENTALES]]', bloque_fund)
+
+        bloque_test = ""
+        for p in m['preguntas']:
+            bloque_test += r"\question " + _escape_latex(p['enunciado']) + "\n"
+            ops = p['opciones_finales']
+            letra_corr = p['letra_final']
+            idx_corr = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_corr, 0)
+            bloque_test += r"\begin{choices}" + "\n"
+            for i in range(4):
+                txt_op = _escape_latex(ops[i])
+                if modo_solucion and i == idx_corr:
+                    if cfg.get('sol_negrita'): txt_op = r"\textbf{" + txt_op + "}"
+                    if cfg.get('sol_rojo'):    txt_op = r"\textcolor{red}{" + txt_op + "}"
+                    if cfg.get('sol_ast'):     txt_op = txt_op + " *"
+                    bloque_test += r"\CorrectChoice " + txt_op + "\n"
+                else:
+                    bloque_test += r"\choice " + txt_op + "\n"
+            bloque_test += r"\end{choices}" + "\n"
+        tex = tex.replace('[[PREGUNTAS]]', bloque_test)
+        result[m['letra_version']] = tex
+    return result
+
+
+def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solucion=False) -> dict:
+    """Genera los .docx en memoria. Retorna {letra_version: bytes_docx}."""
+    import io as _io
+    result = {}
+    for m in master:
+        doc = Document(_io.BytesIO(tpl_bytes)) if tpl_bytes else Document()
+        if not tpl_bytes:
+            _setup_word_styles(doc, cfg, m['letra_version'])
+        replacements = {
+            '[[TIPO_EXAMEN]]': cfg.get('tipo_examen', ''), '[[INSTITUCION]]': cfg.get('entidad', ''),
+            '[[TITULO]]': cfg.get('titulo_asignatura', ''), '[[FECHA]]': cfg.get('fecha', ''),
+            '[[TIEMPO]]': cfg.get('tiempo', ''), '[[VERSION]]': m['letra_version'],
+            '[[INSTRUCCIONES]]': cfg.get('instr_gen', ''), '[[INFO_FUNDAMENTALES]]': cfg.get('info_fund', ''),
+            '[[INFO_TEST]]': cfg.get('info_test', '')
+        }
+        for p in doc.paragraphs:
+            for key, val in replacements.items():
+                _replace_in_paragraph(p, key, val)
+        for p in list(doc.paragraphs):
+            if '[[FUNDAMENTALES]]' in p.text:
+                p.text = ""
+                insert_after = p
+                if cfg.get('fundamentales_data'):
+                    for c in cfg['fundamentales_data']:
+                        p_fund = _insert_paragraph_after(insert_after, f"{c['txt']} ({c['pts']} pts)")
+                        p_fund.runs[0].bold = True
+                        insert_after = p_fund
+                        if not modo_solucion:
+                            esp = c.get('espacio', 'Automático')
+                            tbl = _insert_table_after(insert_after, rows=1, cols=1, doc=doc)
+                            tbl.style = 'Table Grid'
+                            lines = 3 if "5" in esp else 6 if "10" in esp else 10
+                            for _ in range(lines): tbl.rows[0].cells[0].add_paragraph()
+                            sep_p_el = tbl._tbl.makeelement('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p', {})
+                            tbl._tbl.addnext(sep_p_el)
+                            from docx.text.paragraph import Paragraph
+                            insert_after = Paragraph(sep_p_el, doc.element.body)
+            if '[[PREGUNTAS]]' in p.text:
+                p.text = ""
+                insert_after = p
+                for preg in m['preguntas']:
+                    p_enun = _insert_paragraph_after(insert_after)
+                    r_num = p_enun.add_run(f"{preg['num']}. {preg['enunciado']}")
+                    r_num.bold = True; r_num.font.name = 'Calibri'; r_num.font.size = Pt(11)
+                    insert_after = p_enun
+                    ops = preg['opciones_finales']
+                    letra_corr = preg['letra_final']
+                    idx_corr = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_corr, 0)
+                    for i, l in enumerate(['a', 'b', 'c', 'd']):
+                        p_op = _insert_paragraph_after(insert_after, f"    {l}) {ops[i]}")
+                        if modo_solucion and i == idx_corr:
+                            if cfg.get('sol_negrita'): p_op.runs[0].bold = True
+                            if cfg.get('sol_rojo'):    p_op.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+                            if cfg.get('sol_ast'):     p_op.add_run(" *")
+                        insert_after = p_op
+        buf = _io.BytesIO()
+        doc.save(buf)
+        result[m['letra_version']] = buf.getvalue()
+    return result
+
+
+def generar_zip_bytes(files_dict: dict) -> bytes:
+    """Empaqueta archivos en un ZIP en memoria. files_dict: {nombre_archivo: bytes_o_str}."""
+    import io as _io, zipfile
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for fname, data in files_dict.items():
+            if isinstance(data, str):
+                data = data.encode('utf-8')
+            zf.writestr(fname, data)
+    return buf.getvalue()
+
+
 def cargar_examen_csv(path):
     # Detectar separador leyendo la primera línea
     with open(path, 'r', encoding='utf-8-sig', errors='replace') as f:
