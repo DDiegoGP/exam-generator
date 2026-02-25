@@ -341,6 +341,53 @@ def connect_db(path: str):
         st.session_state.db_connected = False
         return False, f"Error al cargar: {e}"
 
+def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
+    """Carga la DB desde Google Sheets usando token OAuth 2.0. Retorna (ok, mensaje)."""
+    try:
+        import gspread
+        from google.oauth2.credentials import Credentials
+
+        creds = Credentials(
+            token=token.get("access_token"),
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets.readonly",
+                "https://www.googleapis.com/auth/drive.readonly",
+            ],
+        )
+        gc = gspread.authorize(creds)
+
+        # Extraer ID del spreadsheet desde la URL
+        m = re.search(r"/spreadsheets/d/([a-zA-Z0-9\-_]+)", spreadsheet_url)
+        if not m:
+            return False, "URL de Google Sheets no válida. Debe ser del tipo: https://docs.google.com/spreadsheets/d/..."
+        spreadsheet_id = m.group(1)
+
+        sh = gc.open_by_key(spreadsheet_id)
+        dfs = {}
+        for ws in sh.worksheets():
+            records = ws.get_all_records(numericise_ignore=["all"])
+            if records:
+                dfs[ws.title] = pd.DataFrame(records)
+
+        if not dfs:
+            return False, "La hoja de cálculo está vacía o no tiene datos tabulares"
+
+        df = procesar_excel_dfs(dfs)
+        st.session_state.excel_path    = ""
+        st.session_state.excel_dfs     = dfs
+        st.session_state.df_preguntas  = df
+        st.session_state.bloques       = list(dfs.keys())
+        st.session_state.db_connected  = True
+        st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
+        st.session_state["_gsheets_url"]  = spreadsheet_url
+        st.session_state["_gsheets_title"] = sh.title
+        st.session_state["_upload_name"]   = f"GSheets: {sh.title}"
+        return True, f"Conectado: {sh.title} · {len(df)} preguntas en {len(dfs)} hoja(s)"
+    except Exception as e:
+        st.session_state.db_connected = False
+        return False, f"Error al conectar Google Sheets: {e}"
+
+
 def connect_db_from_upload(uploaded_file) -> tuple:
     """Carga el Excel desde un st.file_uploader (cloud mode). Retorna (ok, mensaje)."""
     try:
@@ -376,6 +423,88 @@ def reload_db():
             st.session_state.db_connected  = True
             st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
+# ── Google Sheets OAuth section ───────────────────────────────────────────────
+def _render_gsheets_oauth():
+    """
+    Sección de Google Sheets en el sidebar via OAuth 2.0.
+    Solo se renderiza si 'GOOGLE_OAUTH' está configurado en st.secrets.
+    """
+    try:
+        from streamlit_oauth import OAuth2Component
+    except ImportError:
+        st.caption("⚠️ streamlit-oauth no instalado")
+        return
+
+    cfg = st.secrets.get("GOOGLE_OAUTH", {})
+    if not cfg.get("client_id"):
+        return  # No configurado, sección oculta
+
+    st.markdown("**🔗 Google Sheets**")
+
+    SCOPES = (
+        "openid profile email "
+        "https://www.googleapis.com/auth/spreadsheets.readonly "
+        "https://www.googleapis.com/auth/drive.readonly"
+    )
+
+    oauth = OAuth2Component(
+        client_id=cfg["client_id"],
+        client_secret=cfg["client_secret"],
+        authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
+        token_endpoint="https://oauth2.googleapis.com/token",
+        refresh_token_endpoint="https://oauth2.googleapis.com/token",
+        revoke_token_endpoint="https://oauth2.googleapis.com/revoke",
+    )
+
+    if "google_token" not in st.session_state:
+        result = oauth.authorize_button(
+            "🔐 Iniciar sesión con Google",
+            scope=SCOPES,
+            redirect_uri=cfg["redirect_uri"],
+            key="google_oauth_btn",
+            use_container_width=True,
+            extras_params={"access_type": "offline", "prompt": "select_account"},
+        )
+        if result and "token" in result:
+            st.session_state["google_token"] = result["token"]
+            # Intentar extraer email del token (si incluye id_token / userinfo)
+            id_info = result["token"].get("userinfo", {})
+            st.session_state["google_user_email"] = id_info.get("email", "")
+            st.rerun()
+    else:
+        email = st.session_state.get("google_user_email", "")
+        if email:
+            st.caption(f"🟢 {email}")
+        else:
+            st.caption("🟢 Sesión Google activa")
+
+        gs_url = st.text_input(
+            "URL hoja de cálculo",
+            value=st.session_state.get("_gsheets_url", ""),
+            key="sidebar_gsheets_url",
+            label_visibility="collapsed",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+        )
+
+        gc1, gc2 = st.columns(2)
+        if gc1.button("📥 Cargar", key="btn_load_gsheets", use_container_width=True):
+            with st.spinner("Conectando…"):
+                ok, msg = connect_db_from_gsheets(
+                    st.session_state["google_token"], gs_url
+                )
+            if ok:
+                st.rerun()
+            else:
+                st.error(msg)
+
+        if gc2.button("🚪 Salir", key="btn_logout_google", use_container_width=True):
+            for k in ("google_token", "google_user_email", "_gsheets_url", "_gsheets_title"):
+                st.session_state.pop(k, None)
+            st.rerun()
+
+    st.divider()
+
+
 # ── Sidebar (componente compartido) ─────────────────────────────────────────
 def render_sidebar():
     """Barra lateral compartida. Funciona tanto en local como en Streamlit Cloud."""
@@ -388,7 +517,11 @@ def render_sidebar():
             "</div>",
             unsafe_allow_html=True,
         )
-        st.markdown("**📚 Base de Datos**")
+
+        # ── Google Sheets OAuth (si está configurado) ─────────────────────────
+        _render_gsheets_oauth()
+
+        st.markdown("**📚 Base de Datos Excel**")
 
         # ── Upload de Excel (funciona local Y en Cloud) ───────────────────────
         uploaded = st.file_uploader(
