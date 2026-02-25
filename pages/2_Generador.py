@@ -530,10 +530,9 @@ with tab_sel:
 # TAB 2 · DESARROLLO
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_dev:
-    st.subheader("Preguntas de desarrollo / abiertas")
-    st.caption("Estas preguntas se incluirán como PARTE I del examen (cuestiones abiertas).")
+    st.title("✍️ Preguntas de Desarrollo")
+    st.caption("Se incluirán como PARTE I del examen (cuestiones abiertas). Admiten LaTeX: escribe $fórmula$ o $$bloque$$.")
 
-    # Obtener / inicializar lista de preguntas de desarrollo
     dev_qs: list = st.session_state.dev_questions
 
     if st.button("➕ Añadir pregunta de desarrollo", key="btn_add_dev"):
@@ -543,29 +542,52 @@ with tab_dev:
 
     to_delete = []
     for i, q in enumerate(dev_qs):
-        with st.container():
-            col_txt, col_pts, col_esp, col_del = st.columns([5, 1, 2, 1])
-            new_txt = col_txt.text_area(f"Pregunta {i+1}", value=q["txt"],
-                                         height=70, key=f"dev_txt_{i}",
-                                         label_visibility="collapsed",
-                                         placeholder="Enunciado de la pregunta de desarrollo...")
-            new_pts = col_pts.number_input("Pts", value=float(q["pts"]),
-                                            min_value=0.0, step=0.5, key=f"dev_pts_{i}",
-                                            label_visibility="collapsed")
-            new_esp = col_esp.selectbox("Espacio",
-                                         ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"],
-                                         index=["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"].index(q.get("espacio","Automático")),
-                                         key=f"dev_esp_{i}",
-                                         label_visibility="collapsed")
-            if col_del.button("🗑️", key=f"dev_del_{i}"):
+        with st.container(border=True):
+            col_hdr, col_del = st.columns([6, 1])
+            col_hdr.markdown(f"**Pregunta de desarrollo {i+1}**")
+            if col_del.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
                 to_delete.append(i)
-            # Actualizar en session_state
+
+            new_txt = st.text_area(
+                "Enunciado",
+                value=q["txt"],
+                height=100,
+                key=f"dev_txt_{i}",
+                label_visibility="collapsed",
+                placeholder="Enunciado de la pregunta... Puedes usar LaTeX: $E = mc^2$ o $$\\frac{d}{dx}f(x)$$",
+            )
+
+            c_pts, c_esp, c_prev = st.columns([1, 2, 2])
+            new_pts = c_pts.number_input("Puntos", value=float(q["pts"]),
+                                          min_value=0.0, step=0.5, key=f"dev_pts_{i}",
+                                          label_visibility="collapsed")
+            new_esp = c_esp.selectbox(
+                "Espacio respuesta",
+                ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"],
+                index=["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"].index(q.get("espacio","Automático")),
+                key=f"dev_esp_{i}", label_visibility="collapsed",
+            )
+            if c_prev.button("∑ Preview LaTeX", key=f"dev_prev_{i}", use_container_width=True):
+                st.session_state[f"_dev_mjax_{i}"] = not st.session_state.get(f"_dev_mjax_{i}", False)
+
             dev_qs[i] = {"txt": new_txt, "pts": new_pts, "espacio": new_esp}
+
+            # MathJax preview inline
+            if st.session_state.get(f"_dev_mjax_{i}") and new_txt.strip():
+                pts_s = f"{new_pts} pt{'s' if new_pts != 1 else ''}"
+                preview_html = (
+                    f'<div class="q-card">'
+                    f'<div class="q-head"><span class="q-num">D{i+1}</span>'
+                    f'<span><span class="tag tag-n">{pts_s}</span></span></div>'
+                    f'<div class="q-enun">{new_txt}</div>'
+                    f'</div>'
+                )
+                stcomponents.html(mathjax_html(preview_html), height=180, scrolling=False)
 
     if to_delete:
         for i in sorted(to_delete, reverse=True):
             dev_qs.pop(i)
-        st.session_state.dev_questions = dev_qs
+            st.session_state.dev_questions = dev_qs
         st.rerun()
 
     if dev_qs:
@@ -943,7 +965,8 @@ def _dialog_confirmar_export():
 @st.dialog("👁 Vista previa · Modelo A", width="large")
 def _dialog_preview_examen():
     sel = get_sel_ids()
-    if not sel:
+    dev_qs = st.session_state.get("dev_questions", [])
+    if not sel and not dev_qs:
         st.warning("No hay preguntas seleccionadas.")
         return
     df_q    = st.session_state.df_preguntas
@@ -953,12 +976,39 @@ def _dialog_preview_examen():
         if pid in df_dict:
             item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
             pool_p.append(item)
+
+    # Keys distintas a las de tab_prev para evitar conflicto
     pc1, pc2 = st.columns(2)
-    show_sol_p = pc1.checkbox("Mostrar soluciones", value=True, key="prev_show_sol")
-    if pc2.button("∑ Renderizar LaTeX", key="prev_mjax_btn"):
-        st.session_state["_prev_mjax"] = True
-    cards_html = "".join(render_question_card_html(p, show_sol=show_sol_p, num=i+1) for i, p in enumerate(pool_p))
-    if st.session_state.get("_prev_mjax"):
+    show_sol_p = pc1.checkbox("Mostrar soluciones", value=True, key="_dlg_show_sol")
+    if pc2.button("∑ Renderizar LaTeX", key="_dlg_mjax_btn"):
+        st.session_state["_dlg_mjax"] = True
+
+    html_parts = []
+
+    # Sección desarrollo
+    if dev_qs:
+        html_parts.append('<div class="bloque-header">✍️ PARTE I — Preguntas de Desarrollo</div>')
+        for i, q in enumerate(dev_qs):
+            pts_str = f"{q.get('pts', 1)} pt{'s' if float(q.get('pts',1)) != 1 else ''}"
+            esp_str = q.get("espacio", "Automático")
+            html_parts.append(
+                f'<div class="q-card">'
+                f'<div class="q-head"><span class="q-num">D{i+1}</span>'
+                f'<span><span class="tag tag-n">{pts_str}</span>'
+                f'<span class="tag tag-n" style="margin-left:4px">{esp_str}</span></span></div>'
+                f'<div class="q-enun">{q.get("txt","")}</div>'
+                f'</div>'
+            )
+
+    # Sección test
+    if pool_p:
+        html_parts.append('<div class="bloque-header">📋 PARTE II — Preguntas Test</div>')
+        for i, p in enumerate(pool_p):
+            html_parts.append(render_question_card_html(p, show_sol=show_sol_p, num=i+1))
+
+    cards_html = "".join(html_parts)
+
+    if st.session_state.get("_dlg_mjax"):
         stcomponents.html(mathjax_html(cards_html), height=650, scrolling=True)
     else:
         st.markdown(cards_html, unsafe_allow_html=True)
@@ -1107,8 +1157,16 @@ with tab_exp:
         if exp_tex:  _fmt_parts.append("📑 LaTeX")
         _fmt_str = " · ".join(_fmt_parts)
 
-        _tpl_w = st.session_state.get("_tpl_word_name", "plantilla por defecto")
-        _tpl_t = st.session_state.get("_tpl_tex_name",  "plantilla por defecto")
+        _tpl_w = st.session_state.get("_tpl_word_name", "por defecto")
+        _tpl_t = st.session_state.get("_tpl_tex_name",  "por defecto")
+
+        _orden_labels = {"bloques": "Aleatorio por bloques", "global": "Aleatorio global",
+                         "manual": "Manual (selección)", "secuencial": "Sin barajar (ID)"}
+        _orden_label = _orden_labels.get(orden, orden)
+        _barajar_str = "Sí" if barajar else "No"
+
+        _n_dev = len(st.session_state.get("dev_questions", []))
+        _dev_str = f" + {_n_dev} desarrollo" if _n_dev else ""
 
         _anc_status = "activado" if anclaje_auto else "desactivado"
         _anc_frases = ["todas las anteriores", "ninguna de las anteriores", "ambas son correctas"]
@@ -1127,7 +1185,9 @@ with tab_exp:
             <div style="opacity:0.65;font-size:0.82em;margin-bottom:10px">
               {inst or '—'} &nbsp;·&nbsp; {fecha or '—'} &nbsp;·&nbsp; {tiem or '—'}</div>
             <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
-            <div>📋 <b>{n_pregs}</b> preguntas &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
+            <div>📋 <b>{n_pregs}</b> test{_dev_str} &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
+            <div>🔀 {_orden_label}</div>
+            <div>🃏 Barajar respuestas: {_barajar_str}</div>
             <div>📦 {_fmt_str}</div>
             <div>✍️ Soluciones: {_sol_str}</div>
             <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
