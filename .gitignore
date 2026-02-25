@@ -1,0 +1,46 @@
+# ── Datos — nunca en el repo ──────────────────────────────────────────────────
+*.xlsx
+*.xls
+*.csv
+*.json          # credentials, secrets
+Output/
+_backups/
+
+# ── Archivos del notebook (legado, no parte de la app Streamlit) ──────────────
+Generador_Examenes_v9.ipynb
+_cell4.py
+_cell6.py
+_cell8.py
+_build_notebook.py
+_shared_styles.py
+_temp_cell2_source.txt
+
+# ── Scripts temporales de parche ──────────────────────────────────────────────
+_patch_*.py
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# ── Entornos virtuales ────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+
+# ── Streamlit local secrets (nunca en el repo) ────────────────────────────────
+.streamlit/secrets.toml
+
+# ── VS Code ───────────────────────────────────────────────────────────────────
+.vscode/
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+nul
+iniciar_app.bat
