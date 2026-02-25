@@ -527,11 +527,36 @@ with tab_sel:
                 unsafe_allow_html=True,
             )
 
+# ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 · DESARROLLO
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _dev_md_to_html(text):
+    """Markdown (**bold**, *italic*) + LaTeX ($...$, $$...$$) → HTML para preview."""
+    # Proteger secciones math antes de parsear markdown
+    math_parts = []
+    def save(m):
+        math_parts.append(m.group(0))
+        return f'\x00M{len(math_parts)-1}\x00'
+    text = re.sub(r'\$\$.+?\$\$', save, text, flags=re.DOTALL)
+    text = re.sub(r'\$.+?\$', save, text)
+    # Markdown → HTML
+    text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', text)
+    # Restaurar math
+    for idx, mp in enumerate(math_parts):
+        text = text.replace(f'\x00M{idx}\x00', mp)
+    return text.replace('\n', '<br>')
+
+
+_ESP_LABELS = ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"]
+
 with tab_dev:
     st.title("✍️ Preguntas de Desarrollo")
-    st.caption("Se incluirán como PARTE I del examen (cuestiones abiertas). Admiten LaTeX: escribe $fórmula$ o $$bloque$$.")
+    st.caption(
+        "Se incluirán como **PARTE I** del examen. "
+        "Formato: `**negrita**` · `*cursiva*` · `$LaTeX inline$` · `$$bloque$$`"
+    )
 
     dev_qs: list = st.session_state.dev_questions
 
@@ -543,46 +568,58 @@ with tab_dev:
     to_delete = []
     for i, q in enumerate(dev_qs):
         with st.container(border=True):
-            col_hdr, col_del = st.columns([6, 1])
-            col_hdr.markdown(f"**Pregunta de desarrollo {i+1}**")
-            if col_del.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
-                to_delete.append(i)
-
-            new_txt = st.text_area(
-                "Enunciado",
-                value=q["txt"],
-                height=100,
-                key=f"dev_txt_{i}",
-                label_visibility="collapsed",
-                placeholder="Enunciado de la pregunta... Puedes usar LaTeX: $E = mc^2$ o $$\\frac{d}{dx}f(x)$$",
+            # ── Cabecera: título + controles ──────────────────────────────────
+            ch, cp, ce, cd = st.columns([3, 1, 2, 1])
+            ch.markdown(f"**Pregunta {i+1}**")
+            new_pts = cp.number_input(
+                "pts", value=float(q["pts"]), min_value=0.0, step=0.5,
+                key=f"dev_pts_{i}", help="Puntuación"
             )
-
-            c_pts, c_esp, c_prev = st.columns([1, 2, 2])
-            new_pts = c_pts.number_input("Puntos", value=float(q["pts"]),
-                                          min_value=0.0, step=0.5, key=f"dev_pts_{i}",
-                                          label_visibility="collapsed")
-            new_esp = c_esp.selectbox(
-                "Espacio respuesta",
-                ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"],
-                index=["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"].index(q.get("espacio","Automático")),
+            new_esp = ce.selectbox(
+                "Espacio respuesta", _ESP_LABELS,
+                index=_ESP_LABELS.index(q.get("espacio", "Automático")),
                 key=f"dev_esp_{i}", label_visibility="collapsed",
             )
-            if c_prev.button("∑ Preview LaTeX", key=f"dev_prev_{i}", use_container_width=True):
-                st.session_state[f"_dev_mjax_{i}"] = not st.session_state.get(f"_dev_mjax_{i}", False)
+            if cd.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
+                to_delete.append(i)
+
+            # ── Split: editor | preview ───────────────────────────────────────
+            col_edit, col_prev = st.columns(2, gap="medium")
+
+            with col_edit:
+                new_txt = st.text_area(
+                    "Enunciado",
+                    value=q["txt"],
+                    height=160,
+                    key=f"dev_txt_{i}",
+                    label_visibility="collapsed",
+                    placeholder=(
+                        "Escribe el enunciado...\n\n"
+                        "Negrita: **texto**\n"
+                        "Cursiva: *texto*\n"
+                        "Fórmula inline: $E = mc^2$\n"
+                        "Fórmula bloque: $$\\frac{d}{dx}f(x)$$"
+                    ),
+                )
+
+            with col_prev:
+                if new_txt.strip():
+                    body = _dev_md_to_html(new_txt)
+                else:
+                    body = '<span style="color:#bbb;font-style:italic">El preview aparece aquí al escribir…</span>'
+                prev_html = f"""
+<div style="font-family:Calibri,sans-serif;font-size:11pt;line-height:1.6;
+            padding:12px 16px;background:#fff;border:1px solid #ddd;
+            border-radius:6px;min-height:160px;color:#111;box-sizing:border-box">
+  <div style="color:#aaa;font-size:8pt;text-transform:uppercase;letter-spacing:.06em;
+              border-bottom:1px solid #eee;padding-bottom:5px;margin-bottom:10px">
+    Vista previa · Word / LaTeX
+  </div>
+  {body}
+</div>"""
+                stcomponents.html(mathjax_html(prev_html), height=200, scrolling=False)
 
             dev_qs[i] = {"txt": new_txt, "pts": new_pts, "espacio": new_esp}
-
-            # MathJax preview inline
-            if st.session_state.get(f"_dev_mjax_{i}") and new_txt.strip():
-                pts_s = f"{new_pts} pt{'s' if new_pts != 1 else ''}"
-                preview_html = (
-                    f'<div class="q-card">'
-                    f'<div class="q-head"><span class="q-num">D{i+1}</span>'
-                    f'<span><span class="tag tag-n">{pts_s}</span></span></div>'
-                    f'<div class="q-enun">{new_txt}</div>'
-                    f'</div>'
-                )
-                stcomponents.html(mathjax_html(preview_html), height=180, scrolling=False)
 
     if to_delete:
         for i in sorted(to_delete, reverse=True):
@@ -981,8 +1018,8 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
 .ep-q { margin-bottom:10px; page-break-inside:avoid; }
 .ep-q-stem { margin:0 0 5px 0; }
 .ep-q-num { font-weight:bold; }
-.ep-options { margin:3px 0 3px 22px; display:flex; flex-wrap:wrap; gap:4px 28px; font-size:10.5pt; }
-.ep-opt { padding:1px 4px; }
+.ep-options { margin:3px 0 3px 22px; font-size:10.5pt; }
+.ep-opt { display:block; padding:1px 4px; }
 .ep-opt.correct { font-weight:bold; color:#1a7a2e; }
 .ep-space-box { border:1px solid #999; margin:5px 0 12px 22px; border-radius:3px; background:#fafafa; }
 </style>""")
