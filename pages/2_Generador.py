@@ -962,6 +962,122 @@ def _dialog_confirmar_export():
         st.rerun()
 
 
+def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
+    """Genera HTML que imita el aspecto del examen impreso."""
+    html = []
+    html.append("""<style>
+.ep-wrap { max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:#111; background:#fff; padding:24px 32px; border:1px solid #ccc; border-radius:6px; }
+.ep-header { text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:14px; }
+.ep-inst { font-size:12pt; font-weight:bold; }
+.ep-title { font-size:15pt; font-weight:bold; margin:4px 0; }
+.ep-subtitle { font-size:12pt; }
+.ep-meta { font-size:9.5pt; color:#444; margin-top:4px; }
+.ep-nameline { display:flex; gap:16px; align-items:baseline; margin:12px 0 6px 0; font-size:11pt; border-top:1px solid #aaa; padding-top:10px; }
+.ep-nameline .ep-underline { flex:1; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
+.ep-nameline .ep-underline-short { width:120px; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
+.ep-instr { background:#f7f7f7; border:1px solid #bbb; border-radius:4px; padding:8px 12px; font-size:10pt; font-style:italic; margin:10px 0 14px 0; }
+.ep-part { font-size:12pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:5px 12px; margin:16px 0 8px 0; border-radius:4px; }
+.ep-part-info { font-size:10pt; font-style:italic; color:#444; margin-bottom:8px; }
+.ep-q { margin-bottom:10px; page-break-inside:avoid; }
+.ep-q-stem { margin:0 0 5px 0; }
+.ep-q-num { font-weight:bold; }
+.ep-options { margin:3px 0 3px 22px; display:flex; flex-wrap:wrap; gap:4px 28px; font-size:10.5pt; }
+.ep-opt { padding:1px 4px; }
+.ep-opt.correct { font-weight:bold; color:#1a7a2e; }
+.ep-space-box { border:1px solid #999; margin:5px 0 12px 22px; border-radius:3px; background:#fafafa; }
+</style>""")
+
+    html.append('<div class="ep-wrap">')
+
+    # ── Cabecera ──────────────────────────────────────────────────────────────
+    inst  = cfg.get("inst", "")
+    asig  = cfg.get("asig", "")
+    tipo  = cfg.get("tipo", "Examen")
+    fecha = cfg.get("fecha", "")
+    tiem  = cfg.get("tiem", "")
+
+    html.append('<div class="ep-header">')
+    if inst:
+        html.append(f'<div class="ep-inst">{inst}</div>')
+    html.append(f'<div class="ep-title">{asig}</div>')
+    html.append(f'<div class="ep-subtitle">{tipo} &mdash; Modelo {modelo}</div>')
+    meta_parts = []
+    if fecha: meta_parts.append(fecha)
+    if tiem:  meta_parts.append(f"Tiempo: {tiem}")
+    if meta_parts:
+        html.append(f'<div class="ep-meta">{" &nbsp;|&nbsp; ".join(meta_parts)}</div>')
+    html.append('</div>')  # ep-header
+
+    # ── Nombre / Grupo ────────────────────────────────────────────────────────
+    html.append(
+        '<div class="ep-nameline">'
+        '<b>Nombre:&nbsp;</b><span class="ep-underline"></span>'
+        '&nbsp;&nbsp;<b>Grupo:&nbsp;</b><span class="ep-underline-short"></span>'
+        '</div>'
+    )
+
+    # ── Instrucciones generales ───────────────────────────────────────────────
+    instr = cfg.get("ins", "")
+    if instr:
+        html.append(f'<div class="ep-instr">{instr}</div>')
+
+    # ── PARTE I: Desarrollo ───────────────────────────────────────────────────
+    if dev_qs:
+        info_fund = cfg.get("h1", "")
+        html.append('<div class="ep-part">PARTE I &mdash; PREGUNTAS DE DESARROLLO</div>')
+        if info_fund:
+            html.append(f'<div class="ep-part-info">{info_fund}</div>')
+        for i, q in enumerate(dev_qs):
+            pts  = q.get("pts", 1)
+            esp  = q.get("espacio", "Automático")
+            txt  = q.get("txt", "")
+            heights = {"5 líneas": 70, "10 líneas": 130, "media cara": 200, "cara completa": 360}
+            box_h = next((v for k, v in heights.items() if k.lower() in esp.lower()), 100)
+            html.append(
+                f'<div class="ep-q">'
+                f'<div class="ep-q-stem">'
+                f'<span class="ep-q-num">{i+1}.</span>'
+                f' <em style="font-size:9.5pt;color:#555">({pts} pt{"s" if float(pts) != 1 else ""})</em>'
+                f'<span style="margin-left:6px">{txt}</span>'
+                f'</div>'
+                f'<div class="ep-space-box" style="min-height:{box_h}px"></div>'
+                f'</div>'
+            )
+
+    # ── PARTE II: Test ────────────────────────────────────────────────────────
+    if pool_p:
+        info_test = cfg.get("h2", "")
+        html.append('<div class="ep-part">PARTE II &mdash; PREGUNTAS TEST</div>')
+        if info_test:
+            html.append(f'<div class="ep-part-info">{info_test}</div>')
+        for i, p in enumerate(pool_p):
+            enun      = p.get("enunciado", "")
+            ops_list  = p.get("opciones_list", ["", "", "", ""])
+            letra_c   = p.get("letra_correcta", "A")
+            idx_c     = {"A": 0, "B": 1, "C": 2, "D": 3}.get(letra_c, 0)
+            labels    = ["a", "b", "c", "d"]
+            html.append(f'<div class="ep-q">')
+            html.append(
+                f'<div class="ep-q-stem">'
+                f'<span class="ep-q-num">{i+1}.</span>'
+                f'<span style="margin-left:6px">{enun}</span>'
+                f'</div>'
+            )
+            html.append('<div class="ep-options">')
+            for j, lbl in enumerate(labels):
+                if j < len(ops_list):
+                    txt = ops_list[j]
+                    is_c = show_sol and j == idx_c
+                    css  = 'ep-opt correct' if is_c else 'ep-opt'
+                    mark = " ✓" if is_c else ""
+                    html.append(f'<span class="{css}">{lbl})&nbsp;{txt}{mark}</span>')
+            html.append('</div>')  # ep-options
+            html.append('</div>')  # ep-q
+
+    html.append('</div>')  # ep-wrap
+    return "\n".join(html)
+
+
 @st.dialog("👁 Vista previa · Modelo A", width="large")
 def _dialog_preview_examen():
     sel = get_sel_ids()
@@ -977,41 +1093,21 @@ def _dialog_preview_examen():
             item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
             pool_p.append(item)
 
-    # Keys distintas a las de tab_prev para evitar conflicto
+    cfg = st.session_state.get("exam_cfg", {})
+
     pc1, pc2 = st.columns(2)
     show_sol_p = pc1.checkbox("Mostrar soluciones", value=True, key="_dlg_show_sol")
-    if pc2.button("∑ Renderizar LaTeX", key="_dlg_mjax_btn"):
+    render_mjax = pc2.button("∑ Renderizar LaTeX", key="_dlg_mjax_btn")
+    if render_mjax:
         st.session_state["_dlg_mjax"] = True
 
-    html_parts = []
-
-    # Sección desarrollo
-    if dev_qs:
-        html_parts.append('<div class="bloque-header">✍️ PARTE I — Preguntas de Desarrollo</div>')
-        for i, q in enumerate(dev_qs):
-            pts_str = f"{q.get('pts', 1)} pt{'s' if float(q.get('pts',1)) != 1 else ''}"
-            esp_str = q.get("espacio", "Automático")
-            html_parts.append(
-                f'<div class="q-card">'
-                f'<div class="q-head"><span class="q-num">D{i+1}</span>'
-                f'<span><span class="tag tag-n">{pts_str}</span>'
-                f'<span class="tag tag-n" style="margin-left:4px">{esp_str}</span></span></div>'
-                f'<div class="q-enun">{q.get("txt","")}</div>'
-                f'</div>'
-            )
-
-    # Sección test
-    if pool_p:
-        html_parts.append('<div class="bloque-header">📋 PARTE II — Preguntas Test</div>')
-        for i, p in enumerate(pool_p):
-            html_parts.append(render_question_card_html(p, show_sol=show_sol_p, num=i+1))
-
-    cards_html = "".join(html_parts)
+    exam_html = _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=show_sol_p, modelo="A")
 
     if st.session_state.get("_dlg_mjax"):
-        stcomponents.html(mathjax_html(cards_html), height=650, scrolling=True)
+        stcomponents.html(mathjax_html(exam_html), height=700, scrolling=True)
     else:
-        st.markdown(cards_html, unsafe_allow_html=True)
+        st.caption("Pulsa **∑ Renderizar LaTeX** para ver fórmulas matemáticas renderizadas.")
+        stcomponents.html(exam_html, height=700, scrolling=True)
 
 
 with tab_exp:

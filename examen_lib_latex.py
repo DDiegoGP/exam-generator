@@ -379,6 +379,45 @@ def _escape_latex(text):
         text = text.replace(f'\x00MATH{i}\x00', mp)
     return text
 
+
+def _parse_markdown_runs(paragraph, text, font_name='Calibri', font_size=None):
+    """Añade runs con formato bold/italic al párrafo parseando **bold** y *italic* markdown."""
+    import re as _re
+    from docx.shared import Pt
+    parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', str(text))
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith('**') and part.endswith('**') and len(part) > 4:
+            run = paragraph.add_run(part[2:-2])
+            run.bold = True
+        elif part.startswith('*') and part.endswith('*') and len(part) > 2:
+            run = paragraph.add_run(part[1:-1])
+            run.italic = True
+        else:
+            paragraph.add_run(part)
+    for run in paragraph.runs:
+        if font_name: run.font.name = font_name
+        if font_size: run.font.size = Pt(font_size)
+
+
+def _markdown_to_latex(text):
+    """Convierte **bold** y *italic* markdown a LaTeX \\textbf{}/\\textit{}. Escapa el resto."""
+    import re as _re
+    parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', str(text))
+    result = ""
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith('**') and part.endswith('**') and len(part) > 4:
+            result += r'\textbf{' + _escape_latex(part[2:-2]) + '}'
+        elif part.startswith('*') and part.endswith('*') and len(part) > 2:
+            result += r'\textit{' + _escape_latex(part[1:-1]) + '}'
+        else:
+            result += _escape_latex(part)
+    return result
+
+
 # --- EXPORTAR ---
 def generar_master_examen(pool, num_modelos, cfg):
     master = []
@@ -507,7 +546,7 @@ def generar_latex(master, ruta, nombre, cfg, modo_solucion=False):
         if cfg.get('fundamentales_data'):
             bloque_fund = r"\begin{enumerate}" + "\n"
             for c in cfg['fundamentales_data']:
-                bloque_fund += r"\item \textbf{" + _escape_latex(c['txt']) + r"} (" + str(c['pts']) + " pts)\n"
+                bloque_fund += r"\item " + _markdown_to_latex(c['txt']) + r" (" + str(c['pts']) + " pts)\n"
                 esp = c.get('espacio','Automático'); h = "5cm"
                 if "10" in esp: h="8cm"
                 elif "Media" in esp: h="12cm"
@@ -664,8 +703,10 @@ def rellenar_plantilla_word(master, ruta, nombre, cfg, tpl_path=None, modo_soluc
                 insert_after = p
                 if cfg.get('fundamentales_data'):
                     for c in cfg['fundamentales_data']:
-                        p_fund = _insert_paragraph_after(insert_after, f"{c['txt']} ({c['pts']} pts)")
-                        p_fund.runs[0].bold = True
+                        p_fund = _insert_paragraph_after(insert_after)
+                        _parse_markdown_runs(p_fund, c['txt'], font_name='Calibri', font_size=11)
+                        r_pts = p_fund.add_run(f"  ({c['pts']} pts)")
+                        r_pts.italic = True; r_pts.font.name = 'Calibri'; r_pts.font.size = Pt(10)
                         insert_after = p_fund
                         if not modo_solucion:
                             esp = c.get('espacio','Automático')
@@ -797,7 +838,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         if cfg.get('fundamentales_data'):
             bloque_fund = r"\begin{enumerate}" + "\n"
             for c in cfg['fundamentales_data']:
-                bloque_fund += r"\item \textbf{" + _escape_latex(c['txt']) + r"} (" + str(c['pts']) + " pts)\n"
+                bloque_fund += r"\item " + _markdown_to_latex(c['txt']) + r" (" + str(c['pts']) + " pts)\n"
                 esp = c.get('espacio', 'Automático')
                 h = "5cm"
                 if "10" in esp: h = "8cm"
@@ -856,8 +897,10 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
                 insert_after = p
                 if cfg.get('fundamentales_data'):
                     for c in cfg['fundamentales_data']:
-                        p_fund = _insert_paragraph_after(insert_after, f"{c['txt']} ({c['pts']} pts)")
-                        p_fund.runs[0].bold = True
+                        p_fund = _insert_paragraph_after(insert_after)
+                        _parse_markdown_runs(p_fund, c['txt'], font_name='Calibri', font_size=11)
+                        r_pts = p_fund.add_run(f"  ({c['pts']} pts)")
+                        r_pts.italic = True; r_pts.font.name = 'Calibri'; r_pts.font.size = Pt(10)
                         insert_after = p_fund
                         if not modo_solucion:
                             esp = c.get('espacio', 'Automático')
