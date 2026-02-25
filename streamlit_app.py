@@ -15,11 +15,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from app_utils import init_session_state, render_sidebar, APP_CSS
+from app_utils import init_session_state, render_sidebar, handle_oauth_callback, APP_CSS
 import os
 
 # ── Inicializar estado ────────────────────────────────────────────────────────
 init_session_state()
+
+# ── Completar flujo OAuth si venimos de Google ────────────────────────────────
+handle_oauth_callback()
 
 # ── CSS global + estilos home ─────────────────────────────────────────────────
 st.markdown(APP_CSS, unsafe_allow_html=True)

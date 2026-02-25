@@ -23,7 +23,7 @@ sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
 from app_utils import (
-    init_session_state, render_sidebar, APP_CSS, page_header,
+    init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     connect_db, reload_db,
     bloques_disponibles, temas_de_bloque,
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
@@ -32,6 +32,7 @@ from app_utils import (
 # ── Configuración ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Gestor DB · Exámenes UCM", page_icon="🗄️", layout="wide")
 init_session_state()
+handle_oauth_callback()
 st.markdown(APP_CSS, unsafe_allow_html=True)
 render_sidebar()
 

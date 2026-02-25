@@ -423,60 +423,110 @@ def reload_db():
             st.session_state.db_connected  = True
             st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
-# ── Google Sheets OAuth section ───────────────────────────────────────────────
-def _render_gsheets_oauth():
+# ── Google OAuth helpers (flujo manual, sin popup) ────────────────────────────
+import urllib.parse
+
+_GSHEETS_SCOPES = (
+    "openid profile email "
+    "https://www.googleapis.com/auth/spreadsheets.readonly "
+    "https://www.googleapis.com/auth/drive.readonly"
+)
+
+
+def _google_oauth_url(cfg: dict) -> str:
+    """Genera la URL de autorización de Google para redirigir al usuario."""
+    params = {
+        "client_id":     cfg["client_id"],
+        "redirect_uri":  cfg["redirect_uri"],
+        "response_type": "code",
+        "scope":         _GSHEETS_SCOPES,
+        "access_type":   "offline",
+        "prompt":        "select_account",
+    }
+    return "https://accounts.google.com/o/oauth2/auth?" + urllib.parse.urlencode(params)
+
+
+def _exchange_code(code: str, cfg: dict) -> dict:
+    """Intercambia el código de autorización por un token de acceso."""
+    import requests as req
+    r = req.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code":          code,
+            "client_id":     cfg["client_id"],
+            "client_secret": cfg["client_secret"],
+            "redirect_uri":  cfg["redirect_uri"],
+            "grant_type":    "authorization_code",
+        },
+        timeout=15,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def _google_userinfo(access_token: str) -> dict:
+    """Obtiene email y nombre del usuario autenticado."""
+    import requests as req
+    r = req.get(
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=10,
+    )
+    return r.json() if r.ok else {}
+
+
+def handle_oauth_callback():
     """
-    Sección de Google Sheets en el sidebar via OAuth 2.0.
-    Solo se renderiza si 'GOOGLE_OAUTH' está configurado en st.secrets.
+    Detecta si la URL contiene ?code= (callback de Google) y completa el flujo.
+    Llamar al inicio de CADA página, antes de render_sidebar().
     """
     try:
-        from streamlit_oauth import OAuth2Component
-    except ImportError:
-        st.caption("⚠️ streamlit-oauth no instalado")
-        return
+        cfg = st.secrets.get("GOOGLE_OAUTH", {})
+        if not cfg.get("client_id"):
+            return
+        params = st.query_params
+        if "code" not in params:
+            return
+        # Evitar doble intercambio si ya estamos autenticados
+        if "google_token" in st.session_state:
+            st.query_params.clear()
+            return
+        code = params["code"]
+        with st.spinner("Completando autenticación con Google…"):
+            token    = _exchange_code(code, cfg)
+            userinfo = _google_userinfo(token.get("access_token", ""))
+        st.session_state["google_token"]      = token
+        st.session_state["google_user_email"] = userinfo.get("email", "")
+        st.query_params.clear()
+        st.rerun()
+    except Exception as e:
+        st.error(f"Error en autenticación Google: {e}")
+        st.query_params.clear()
 
+
+# ── Google Sheets OAuth section (sidebar) ────────────────────────────────────
+def _render_gsheets_oauth():
+    """
+    Sección Google Sheets en el sidebar.
+    Solo se renderiza si 'GOOGLE_OAUTH' está configurado en st.secrets.
+    """
     cfg = st.secrets.get("GOOGLE_OAUTH", {})
     if not cfg.get("client_id"):
-        return  # No configurado, sección oculta
+        return  # No configurado: sección invisible
 
     st.markdown("**🔗 Google Sheets**")
 
-    SCOPES = (
-        "openid profile email "
-        "https://www.googleapis.com/auth/spreadsheets.readonly "
-        "https://www.googleapis.com/auth/drive.readonly"
-    )
-
-    oauth = OAuth2Component(
-        client_id=cfg["client_id"],
-        client_secret=cfg["client_secret"],
-        authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
-        token_endpoint="https://oauth2.googleapis.com/token",
-        refresh_token_endpoint="https://oauth2.googleapis.com/token",
-        revoke_token_endpoint="https://oauth2.googleapis.com/revoke",
-    )
-
     if "google_token" not in st.session_state:
-        result = oauth.authorize_button(
+        oauth_url = _google_oauth_url(cfg)
+        st.link_button(
             "🔐 Iniciar sesión con Google",
-            scope=SCOPES,
-            redirect_uri=cfg["redirect_uri"],
-            key="google_oauth_btn",
+            url=oauth_url,
             use_container_width=True,
-            extras_params={"access_type": "offline", "prompt": "select_account"},
         )
-        if result and "token" in result:
-            st.session_state["google_token"] = result["token"]
-            # Intentar extraer email del token (si incluye id_token / userinfo)
-            id_info = result["token"].get("userinfo", {})
-            st.session_state["google_user_email"] = id_info.get("email", "")
-            st.rerun()
+        st.caption("Redirige a Google y vuelve automáticamente.")
     else:
         email = st.session_state.get("google_user_email", "")
-        if email:
-            st.caption(f"🟢 {email}")
-        else:
-            st.caption("🟢 Sesión Google activa")
+        st.caption(f"🟢 {email}" if email else "🟢 Sesión Google activa")
 
         gs_url = st.text_input(
             "URL hoja de cálculo",
