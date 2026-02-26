@@ -66,8 +66,18 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         corr_idx  = corr_opts.index(corr_cur) if corr_cur in corr_opts else 0
         ed_corr   = st.selectbox("Respuesta correcta", corr_opts, index=corr_idx, key="dlg_corr")
 
-        ed_usada = st.text_input("Usada (fecha)", value=str(row.get("usada", "") or ""),
-                                  key="dlg_usada", placeholder="YYYY-MM-DD o vacío")
+        # Fecha de uso — date_input con soporte a vacío
+        import datetime as _dt
+        _usada_raw = str(row.get("usada", "") or "").strip()
+        _usada_val = None
+        if _usada_raw and _usada_raw not in ('nan', 'NaT', 'None'):
+            try: _usada_val = _dt.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
+            except Exception: pass
+        ed_usada_date = st.date_input("Usada (fecha)", value=_usada_val, key="dlg_usada",
+                                       help="Deja en blanco si la pregunta no ha sido usada")
+        ed_usada = ed_usada_date.strftime("%Y-%m-%d") if ed_usada_date else ""
+        if ed_usada and st.button("🗑 Borrar fecha", key="dlg_usada_clear"):
+            ed_usada = ""
         ed_notas = st.text_area("Notas", value=str(row.get("notas", "") or ""),
                                  height=70, key="dlg_notas")
 
@@ -91,7 +101,7 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             "opciones":   ed_ops,
             "correcta":   ed_corr,
             "dificultad": ed_dif,
-            "usada":      ed_usada.strip(),
+            "usada":      ed_usada,
             "notas":      ed_notas.strip(),
         }
         ok, msg = lib.actualizar_pregunta_excel_local(
@@ -333,32 +343,39 @@ with tab_imp:
                 st.session_state[f"stg_sel_{i}"] = False
             st.rerun()
 
-        # Cabecera de columnas
-        h0, h1, h2, h3, h4 = st.columns([0.5, 0.5, 7, 0.8, 0.7])
-        h0.markdown("**✓**"); h1.markdown("**#**")
-        h2.markdown("**Enunciado**"); h3.markdown("**Resp.**"); h4.markdown("**Edit**")
-        st.divider()
+        # Inyectar CSS para apretar el espacio entre filas de la lista
+        st.markdown("""<style>
+div[data-testid="stHorizontalBlock"] > div { padding-top:2px!important; padding-bottom:2px!important; }
+div[data-testid="stCheckbox"] { margin-top:4px!important; }
+</style>""", unsafe_allow_html=True)
 
+        # Cabecera
+        h0, h2, h3, h4 = st.columns([0.5, 8, 0.8, 0.7])
+        h0.markdown("<span style='font-size:0.8em;color:#888'>✓</span>", unsafe_allow_html=True)
+        h2.markdown("<span style='font-size:0.8em;color:#888'>Enunciado</span>", unsafe_allow_html=True)
+        h3.markdown("<span style='font-size:0.8em;color:#888'>Resp.</span>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin:4px 0'>", unsafe_allow_html=True)
+
+        _BADGE = {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}
         for i, q in enumerate(staging):
-            c_sel, c_num, c_enun, c_resp, c_edit = st.columns([0.5, 0.5, 7, 0.8, 0.7])
+            c_sel, c_enun, c_resp, c_edit = st.columns([0.5, 8, 0.8, 0.7])
 
             c_sel.checkbox("", value=st.session_state.get(f"stg_sel_{i}", True),
                            key=f"stg_sel_{i}", label_visibility="collapsed")
-            c_num.markdown(f"<span style='color:#aaa;font-size:0.8em'>{i+1}</span>", unsafe_allow_html=True)
 
-            warns     = q.get("_warnings", [])
-            warn_icon = " ⚠️" if warns else ""
-            enun_short = q["enunciado"][:80] + ("…" if len(q["enunciado"]) > 80 else "")
+            warns      = q.get("_warnings", [])
+            warn_icon  = " <span style='color:#e67e22'>⚠</span>" if warns else ""
+            enun_short = q["enunciado"][:85] + ("…" if len(q["enunciado"]) > 85 else "")
             c_enun.markdown(
-                f"<span style='font-size:0.88em'>{enun_short}"
-                f"<span style='color:#e67e22'>{warn_icon}</span></span>",
+                f"<span style='font-size:0.85em;line-height:1.3'>"
+                f"<b style='color:#999;font-size:0.8em'>{i+1}.</b> {enun_short}{warn_icon}</span>",
                 unsafe_allow_html=True
             )
 
-            color = {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}.get(q["letra_correcta"], "#555")
+            col = _BADGE.get(q["letra_correcta"], "#555")
             c_resp.markdown(
-                f"<span style='background:{color};color:white;padding:1px 6px;"
-                f"border-radius:4px;font-size:0.82em;font-weight:bold'>{q['letra_correcta']}</span>",
+                f"<span style='background:{col};color:#fff;padding:1px 7px;"
+                f"border-radius:10px;font-size:0.82em;font-weight:bold'>{q['letra_correcta']}</span>",
                 unsafe_allow_html=True
             )
 

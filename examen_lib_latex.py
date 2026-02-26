@@ -322,17 +322,37 @@ def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad
             return t == t.upper() and any(c.isalpha() for c in t)
         return False  # 'Siempre la primera' → default A
 
+    # Estilos de sección/título que hay que ignorar
+    _HEADING_STYLES = {
+        'Heading 1', 'Heading 2', 'Heading 3', 'Heading 4', 'Heading 5',
+        'Title', 'Subtitle', 'TOC Heading',
+    }
+
     for para in doc.paragraphs:
         txt = para.text.strip()
-        if not txt: continue
+        if not txt:
+            continue
+        # Saltar encabezados con estilo Word de título/sección
+        style_name = (getattr(para.style, 'name', '') or '').strip()
+        if style_name in _HEADING_STYLES:
+            continue
+        # Saltar líneas sospechosas de ser encabezados/pies de página:
+        # muy cortas (y que no sean una opción a/b/c/d), o solo números
+        if len(txt) < 5 and not re_opt_explicit.match(txt):
+            continue
+
         m_p = re_preg.match(txt)
         if m_p:
+            # Enunciado tiene que tener algo de sustancia
+            enun_candidato = m_p.group(2).strip()
+            if len(enun_candidato) < 8:
+                continue
             if current_preg:
                 while len(current_preg['opciones_list']) < 4: current_preg['opciones_list'].append("")
                 current_preg['opciones_list'] = current_preg['opciones_list'][:4]
                 preguntas.append(current_preg)
             current_preg = {
-                'enunciado': m_p.group(2).strip(), 'opciones_list': [],
+                'enunciado': enun_candidato, 'opciones_list': [],
                 'letra_correcta': 'A', 'bloque': bloque_destino,
                 'tema': tema_destino, 'dificultad': dificultad_destino,
                 '_warnings': []
@@ -372,43 +392,57 @@ def parse_pdf_bytes(pdf_bytes, bloque_destino='', tema_destino='1', dificultad_d
     except ImportError:
         raise ImportError("Instala pdfplumber: pip install pdfplumber")
 
-    re_preg = re.compile(r'^\s*(\d+)[\.\-\)]+\s*(.+)')
-    re_opt  = re.compile(r'^\s*([a-dA-D])[\.\-\)]+\s*(.+)', re.IGNORECASE)
-    re_ans  = re.compile(r'^ANSWER[:\s]+([A-D])', re.IGNORECASE)
+    re_preg    = re.compile(r'^\s*(\d+)[\.\-\)]+\s*(.+)')
+    re_opt     = re.compile(r'^\s*([a-dA-D])[\.\-\)]+\s*(.+)', re.IGNORECASE)
+    re_ans     = re.compile(r'^ANSWER[:\s]+([A-D])', re.IGNORECASE)
+    re_pagnum  = re.compile(r'^(pág(ina)?\.?|page?\.?|p\.)\s*\d+', re.IGNORECASE)
 
-    # Extraer líneas con info de bold por carácter
-    raw_lines = []   # list of (text, is_bold)
+    def _extract_page_lines(page):
+        """Devuelve lista de (texto, is_bold) recortando el área de encabezado y pie."""
+        # Recortar ~7% superior e inferior para saltar encabezados/pies de página
+        margin_v = page.height * 0.07
+        try:
+            body = page.within_bbox((0, margin_v, page.width, page.height - margin_v))
+        except Exception:
+            body = page
+        chars = body.chars or []
+        lines = []
+        if not chars:
+            txt = body.extract_text() or ""
+            return [(l.rstrip(), False) for l in txt.splitlines()]
+        chars_sorted = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
+        cur_y, cur_text, cur_bold = None, "", False
+        for ch in chars_sorted:
+            y = round(ch['top'], 1)
+            if cur_y is None:
+                cur_y = y
+            if abs(y - cur_y) > 3:
+                lines.append((cur_text.rstrip(), cur_bold))
+                cur_text, cur_bold, cur_y = "", False, y
+            cur_text += ch.get('text', '')
+            if 'Bold' in (ch.get('fontname') or ''):
+                cur_bold = True
+        if cur_text.strip():
+            lines.append((cur_text.rstrip(), cur_bold))
+        return lines
+
+    raw_lines = []
     with pdfplumber.open(_io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
-            # Agrupar caracteres en líneas
-            chars = page.chars or []
-            if not chars:
-                # Fallback: extract_text sin info de formato
-                txt = page.extract_text() or ""
-                for line in txt.splitlines():
-                    raw_lines.append((line.rstrip(), False))
-                continue
-            # Ordenar por top (y) luego x
-            chars_sorted = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
-            cur_y, cur_text, cur_bold = None, "", False
-            for ch in chars_sorted:
-                y = round(ch['top'], 1)
-                if cur_y is None:
-                    cur_y = y
-                if abs(y - cur_y) > 3:  # nueva línea
-                    raw_lines.append((cur_text.rstrip(), cur_bold))
-                    cur_text, cur_bold, cur_y = "", False, y
-                cur_text += ch.get('text', '')
-                if 'Bold' in (ch.get('fontname') or ''):
-                    cur_bold = True
-            if cur_text.strip():
-                raw_lines.append((cur_text.rstrip(), cur_bold))
+            raw_lines.extend(_extract_page_lines(page))
 
     preguntas = []
     current   = None
     for line_txt, line_bold in raw_lines:
         txt = line_txt.strip()
         if not txt:
+            continue
+        # Filtrar líneas que probablemente son encabezados o pies de página
+        if len(txt) < 5 and not re_opt.match(txt):   # muy corta y no es opción
+            continue
+        if re_pagnum.match(txt):                       # patrón "Página X / Page X"
+            continue
+        if txt.isdigit():                              # número solo (nº de página)
             continue
         m_ans  = re_ans.match(txt)
         m_preg = re_preg.match(txt)
@@ -421,12 +455,15 @@ def parse_pdf_bytes(pdf_bytes, bloque_destino='', tema_destino='1', dificultad_d
                 current['opciones_list'] = current['opciones_list'][:4]
                 preguntas.append(current); current = None
         elif m_preg and not m_opt:
+            enun_cand = m_preg.group(2).strip()
+            if len(enun_cand) < 8:   # demasiado corto para ser una pregunta real
+                continue
             if current:
                 while len(current['opciones_list']) < 4: current['opciones_list'].append("")
                 current['opciones_list'] = current['opciones_list'][:4]
                 preguntas.append(current)
             current = {
-                'enunciado': m_preg.group(2).strip(), 'opciones_list': [],
+                'enunciado': enun_cand, 'opciones_list': [],
                 'letra_correcta': 'A', 'bloque': bloque_destino,
                 'tema': tema_destino, 'dificultad': dificultad_destino, '_warnings': []
             }
