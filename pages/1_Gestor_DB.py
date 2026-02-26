@@ -66,17 +66,18 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         corr_idx  = corr_opts.index(corr_cur) if corr_cur in corr_opts else 0
         ed_corr   = st.selectbox("Respuesta correcta", corr_opts, index=corr_idx, key="dlg_corr")
 
-        # Fecha de uso — date_input con soporte a vacío
+        # Fecha de uso — checkbox + date_input
         import datetime as _dt
         _usada_raw = str(row.get("usada", "") or "").strip()
         _usada_val = None
         if _usada_raw and _usada_raw not in ('nan', 'NaT', 'None'):
             try: _usada_val = _dt.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
             except Exception: pass
-        ed_usada_date = st.date_input("Usada (fecha)", value=_usada_val, key="dlg_usada",
-                                       help="Deja en blanco si la pregunta no ha sido usada")
-        ed_usada = ed_usada_date.strftime("%Y-%m-%d") if ed_usada_date else ""
-        if ed_usada and st.button("🗑 Borrar fecha", key="dlg_usada_clear"):
+        ed_tiene_fecha = st.checkbox("Pregunta ya usada", value=(_usada_val is not None), key="dlg_tiene_usada")
+        if ed_tiene_fecha:
+            ed_usada_date = st.date_input("Fecha de uso", value=_usada_val or _dt.date.today(), key="dlg_usada")
+            ed_usada = ed_usada_date.strftime("%Y-%m-%d")
+        else:
             ed_usada = ""
         ed_notas = st.text_area("Notas", value=str(row.get("notas", "") or ""),
                                  height=70, key="dlg_notas")
@@ -157,10 +158,11 @@ def _dialog_editar_staging():
         if _usada_raw and _usada_raw not in ('nan', 'NaT', 'None'):
             try: _usada_val = _dt.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
             except Exception: pass
-        ed_usada_date = st.date_input("Usada (fecha)", value=_usada_val, key="stg_dlg_usada",
-                                      help="Opcional — si ya fue usada en un examen anterior")
-        ed_usada = ed_usada_date.strftime("%Y-%m-%d") if ed_usada_date else ""
-        if ed_usada and st.button("🗑 Borrar fecha", key="stg_dlg_usada_clear"):
+        ed_tiene_fecha = st.checkbox("Pregunta ya usada", value=(_usada_val is not None), key="stg_dlg_tiene_usada")
+        if ed_tiene_fecha:
+            ed_usada_date = st.date_input("Fecha de uso", value=_usada_val or _dt.date.today(), key="stg_dlg_usada")
+            ed_usada = ed_usada_date.strftime("%Y-%m-%d")
+        else:
             ed_usada = ""
 
     with dc2:
