@@ -151,6 +151,18 @@ def _dialog_editar_staging():
         ed_corr   = st.radio("Respuesta correcta", corr_opts, index=corr_idx,
                              horizontal=True, key="stg_dlg_corr")
 
+        import datetime as _dt
+        _usada_raw = str(q.get("usada", "") or "").strip()
+        _usada_val = None
+        if _usada_raw and _usada_raw not in ('nan', 'NaT', 'None'):
+            try: _usada_val = _dt.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
+            except Exception: pass
+        ed_usada_date = st.date_input("Usada (fecha)", value=_usada_val, key="stg_dlg_usada",
+                                      help="Opcional — si ya fue usada en un examen anterior")
+        ed_usada = ed_usada_date.strftime("%Y-%m-%d") if ed_usada_date else ""
+        if ed_usada and st.button("🗑 Borrar fecha", key="stg_dlg_usada_clear"):
+            ed_usada = ""
+
     with dc2:
         ed_enun  = st.text_area("Enunciado", value=str(q.get("enunciado", "")),
                                 height=130, key="stg_dlg_enun")
@@ -172,7 +184,8 @@ def _dialog_editar_staging():
         staging[idx] = {**q,
             "enunciado": ed_enun.strip(), "opciones_list": ed_ops,
             "letra_correcta": ed_corr, "bloque": ed_blq,
-            "tema": ed_tema, "dificultad": ed_dif, "_warnings": [],
+            "tema": ed_tema, "dificultad": ed_dif,
+            "usada": ed_usada, "_warnings": [],
         }
         st.session_state.import_staging = staging
         st.session_state["_staging_edit_idx"] = None
@@ -408,6 +421,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     "bloque":         staging[i].get("bloque", bloque_imp),
                     "tema":           str(staging[i].get("tema", tema_imp)),
                     "dificultad":     staging[i].get("dificultad", dif_imp),
+                    "usada":          staging[i].get("usada", ""),
                 }
                 is_dup, _ = lib.check_for_similar_enunciado(p_data["enunciado"], df_total)
                 if is_dup: skipped += 1; continue
@@ -423,6 +437,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     elif "dificultad" in cl:             new_row[col] = p_data["dificultad"]
                     elif "correcta" in cl or "resp" in cl: new_row[col] = p_data["letra_correcta"]
                     elif "enunciado" in cl:              new_row[col] = p_data["enunciado"]
+                    elif "usada" in cl or "fecha" in cl: new_row[col] = p_data["usada"]
                 enun_idx = next((ci for ci, c in enumerate(blk_df.columns) if "enunciado" in str(c).lower()), None)
                 if enun_idx is not None:
                     for j, op in enumerate(p_data["opciones_list"][:4]):
