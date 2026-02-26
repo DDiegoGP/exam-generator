@@ -282,10 +282,11 @@ with tab_imp:
     dif_imp    = c3.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="imp_dif")
     fmt_imp    = c4.selectbox("Formato", ["Word (.docx)", "Aiken (.txt)"], key="imp_fmt")
 
+    _MARCAS_WORD = ["Negrita", "Color (cualquiera)", "Subrayado", "Asterisco (*)", "MAYÚSCULAS", "Siempre la primera"]
     if "Word" in fmt_imp:
         marca_imp = st.selectbox(
             "¿Cómo está marcada la respuesta correcta en el Word?",
-            lib._MARCA_OPCIONES, index=0, key="imp_marca",
+            _MARCAS_WORD, index=0, key="imp_marca",
             help="Negrita = opción en negrita · Color = cualquier color · Asterisco = texto empieza/termina con * · etc."
         )
     else:
