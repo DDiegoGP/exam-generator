@@ -278,19 +278,42 @@ def parse_aiken(text, bloque_destino='', tema_destino='1', dificultad_destino='M
     return preguntas
 
 # --- IMPORTACIÓN WORD ---
-def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad_destino='Media'):
-    """Parsea un .docx con preguntas numeradas. Devuelve lista normalizada."""
+_MARCA_OPCIONES = ["Negrita", "Color (cualquiera)", "Subrayado", "Asterisco (*)", "MAYÚSCULAS", "Siempre la primera"]
+
+def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad_destino='Media', marca_correcta='Negrita'):
+    """Parsea un .docx con preguntas numeradas. Devuelve lista normalizada.
+    marca_correcta: uno de _MARCA_OPCIONES — define cómo está marcada la opción correcta.
+    """
     doc = Document(filepath)
     preguntas = []
     current_preg = None
     re_preg = re.compile(r'^\s*(\d+)[\.\-\)]+\s*(.+)', re.DOTALL)
     re_opt_explicit = re.compile(r'^\s*([a-dA-D])[\.\-\)]+\s*(.+)', re.IGNORECASE)
 
+    def _es_correcta(para, texto):
+        if marca_correcta == 'Negrita':
+            return any(r.bold for r in para.runs if r.text.strip())
+        if marca_correcta == 'Color (cualquiera)':
+            for r in para.runs:
+                try:
+                    if r.font.color.type is not None and r.font.color.rgb != RGBColor(0, 0, 0):
+                        return True
+                except Exception:
+                    pass
+            return False
+        if marca_correcta == 'Subrayado':
+            return any(r.underline for r in para.runs if r.text.strip())
+        if marca_correcta == 'Asterisco (*)':
+            t = texto.strip()
+            return t.startswith('*') or t.endswith('*')
+        if marca_correcta == 'MAYÚSCULAS':
+            t = texto.strip()
+            return t == t.upper() and any(c.isalpha() for c in t)
+        return False  # 'Siempre la primera' → default A
+
     for para in doc.paragraphs:
         txt = para.text.strip()
         if not txt: continue
-        is_bold = any(run.bold for run in para.runs)
-
         m_p = re_preg.match(txt)
         if m_p:
             if current_preg:
@@ -304,15 +327,16 @@ def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad
                 '_warnings': []
             }
             continue
-
         if current_preg:
             m_o = re_opt_explicit.match(txt)
-            texto_opcion = m_o.group(2).strip() if m_o else (txt if len(current_preg['opciones_list']) < 4 else "")
-            if texto_opcion:
-                current_preg['opciones_list'].append(texto_opcion)
-                if is_bold:
+            texto_op = m_o.group(2).strip() if m_o else (txt if len(current_preg['opciones_list']) < 4 else "")
+            # Limpiar marcador asterisco del texto si aplica
+            clean_op = texto_op.strip().strip('*').strip() if marca_correcta == 'Asterisco (*)' else texto_op
+            if clean_op:
+                current_preg['opciones_list'].append(clean_op)
+                if _es_correcta(para, texto_op):
                     idx = len(current_preg['opciones_list']) - 1
-                    current_preg['letra_correcta'] = ['A','B','C','D'][idx] if idx < 4 else 'A'
+                    current_preg['letra_correcta'] = ['A', 'B', 'C', 'D'][idx] if idx < 4 else 'A'
 
     if current_preg:
         while len(current_preg['opciones_list']) < 4: current_preg['opciones_list'].append("")

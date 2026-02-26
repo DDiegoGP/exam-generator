@@ -108,6 +108,70 @@ def _dialog_editar_pregunta(pid: str, row: dict):
     if sc3.button("✖ Cancelar", use_container_width=True, key="dlg_cancel"):
         st.rerun()
 
+
+@st.dialog("✏️ Editar pregunta importada", width="large")
+def _dialog_editar_staging():
+    """Modal completo para revisar/editar una pregunta del staging de importación."""
+    idx      = st.session_state.get("_staging_edit_idx", 0)
+    staging  = st.session_state.import_staging
+    if not staging or idx >= len(staging):
+        st.error("Pregunta no encontrada."); st.rerun(); return
+
+    q = staging[idx]
+    bloques_list = bloques_disponibles()
+
+    st.markdown(f"**Pregunta {idx + 1} de {len(staging)}**")
+    st.markdown("---")
+
+    dc1, dc2 = st.columns([1, 2])
+    with dc1:
+        blq_idx = bloques_list.index(q.get("bloque", "")) if q.get("bloque", "") in bloques_list else 0
+        ed_blq  = st.selectbox("Bloque", bloques_list, index=blq_idx, key="stg_dlg_bloque")
+        temas_d = temas_de_bloque(ed_blq) or [str(i) for i in range(1, 51)]
+        tem_cur = str(q.get("tema", "1"))
+        tem_idx = temas_d.index(tem_cur) if tem_cur in temas_d else 0
+        ed_tema = st.selectbox("Tema", temas_d, index=tem_idx, key="stg_dlg_tema")
+        dif_opts = ["Facil", "Media", "Dificil"]
+        dif_cur  = str(q.get("dificultad", "Media")).capitalize()
+        dif_idx  = dif_opts.index(dif_cur) if dif_cur in dif_opts else 1
+        ed_dif   = st.selectbox("Dificultad", dif_opts, index=dif_idx, key="stg_dlg_dif")
+        corr_opts = ["A", "B", "C", "D"]
+        corr_cur  = str(q.get("letra_correcta", "A")).upper()
+        corr_idx  = corr_opts.index(corr_cur) if corr_cur in corr_opts else 0
+        ed_corr   = st.radio("Respuesta correcta", corr_opts, index=corr_idx,
+                             horizontal=True, key="stg_dlg_corr")
+
+    with dc2:
+        ed_enun  = st.text_area("Enunciado", value=str(q.get("enunciado", "")),
+                                height=130, key="stg_dlg_enun")
+        st.markdown("**Opciones** (la correcta marcada con ✓):")
+        ops_orig = q.get("opciones_list", ["", "", "", ""])
+        ed_ops   = []
+        for li, ll in enumerate(["A", "B", "C", "D"]):
+            v     = ops_orig[li] if li < len(ops_orig) else ""
+            label = f"Opción {ll} ✓" if ll == ed_corr else f"Opción {ll}"
+            ed_ops.append(st.text_input(label, value=v, key=f"stg_dlg_op{ll}"))
+
+    warns = q.get("_warnings", [])
+    if warns:
+        st.warning("Avisos: " + " | ".join(warns))
+
+    st.markdown("---")
+    sc1, sc2 = st.columns(2)
+    if sc1.button("💾 Guardar", type="primary", use_container_width=True, key="stg_dlg_save"):
+        staging[idx] = {**q,
+            "enunciado": ed_enun.strip(), "opciones_list": ed_ops,
+            "letra_correcta": ed_corr, "bloque": ed_blq,
+            "tema": ed_tema, "dificultad": ed_dif, "_warnings": [],
+        }
+        st.session_state.import_staging = staging
+        st.session_state["_staging_edit_idx"] = None
+        st.rerun()
+    if sc2.button("✖ Cancelar", use_container_width=True, key="stg_dlg_cancel"):
+        st.session_state["_staging_edit_idx"] = None
+        st.rerun()
+
+
 st.title("🗄️ Gestor de Base de Datos")
 st.caption(f"{len(st.session_state.df_preguntas)} preguntas · {len(st.session_state.bloques)} bloques"
            if st.session_state.db_connected else "Sin conexión a la base de datos")
@@ -211,15 +275,23 @@ with tab_add:
 with tab_imp:
     st.subheader("Importar preguntas")
 
-    col_imp_cfg, col_imp_btn = st.columns([3, 1])
-    with col_imp_cfg:
-        c1, c2, c3, c4 = st.columns(4)
-        bloque_imp = c1.selectbox("Bloque destino", bloques, key="imp_bloque")
-        tema_imp   = c2.selectbox("Tema", temas_de_bloque(bloque_imp) or [str(i) for i in range(1,51)], key="imp_tema")
-        dif_imp    = c3.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="imp_dif")
-        fmt_imp    = c4.selectbox("Formato", ["Word (.docx)", "Aiken (.txt)"], key="imp_fmt")
+    # ── Configuración ─────────────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    bloque_imp = c1.selectbox("Bloque destino", bloques, key="imp_bloque")
+    tema_imp   = c2.selectbox("Tema", temas_de_bloque(bloque_imp) or [str(i) for i in range(1, 51)], key="imp_tema")
+    dif_imp    = c3.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="imp_dif")
+    fmt_imp    = c4.selectbox("Formato", ["Word (.docx)", "Aiken (.txt)"], key="imp_fmt")
 
-    accept = ".docx" if "Word" in fmt_imp else ".txt"
+    if "Word" in fmt_imp:
+        marca_imp = st.selectbox(
+            "¿Cómo está marcada la respuesta correcta en el Word?",
+            lib._MARCA_OPCIONES, index=0, key="imp_marca",
+            help="Negrita = opción en negrita · Color = cualquier color · Asterisco = texto empieza/termina con * · etc."
+        )
+    else:
+        marca_imp = "Negrita"  # no aplica a Aiken (usa ANSWER:)
+
+    accept  = ".docx" if "Word" in fmt_imp else ".txt"
     up_file = st.file_uploader("Subir archivo", type=[accept.lstrip(".")], key="imp_uploader")
 
     if st.button("👁️ Previsualizar", key="btn_preview_imp") and up_file is not None:
@@ -227,118 +299,102 @@ with tab_imp:
             if "Word" in fmt_imp:
                 import tempfile
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tf:
-                    tf.write(up_file.read())
-                    tmp_path = tf.name
-                preguntas = lib.procesar_archivo_docx(tmp_path, bloque_imp, tema_imp, dif_imp)
+                    tf.write(up_file.read()); tmp_path = tf.name
+                preguntas = lib.procesar_archivo_docx(tmp_path, bloque_imp, tema_imp, dif_imp, marca_imp)
                 os.unlink(tmp_path)
             else:
                 text = up_file.read().decode("utf-8", errors="replace")
                 preguntas = lib.parse_aiken(text, bloque_imp, tema_imp, dif_imp)
-
             st.session_state.import_staging = preguntas
-            st.success(f"Detectadas {len(preguntas)} preguntas. Revisa y selecciona las que quieres importar.")
+            st.session_state["_staging_edit_idx"] = None
+            st.success(f"Detectadas **{len(preguntas)}** preguntas. Revisa, edita si es necesario e importa.")
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
 
-    # Tabla de staging
+    # ── Lista de staging ──────────────────────────────────────────────────────
     staging = st.session_state.get("import_staging", [])
     if staging:
-        st.markdown(f"**{len(staging)} preguntas detectadas** – Selecciona las que deseas importar:")
+        # Cabecera de columnas
+        h0, h1, h2, h3, h4, h5 = st.columns([0.5, 0.5, 6, 0.8, 2, 0.7])
+        h0.markdown("**✓**"); h1.markdown("**#**"); h2.markdown("**Enunciado**")
+        h3.markdown("**Resp.**"); h4.markdown("**Bloque / Avisos**"); h5.markdown("**Edit**")
+        st.divider()
 
-        # Usar data_editor para la previsualización/edición
-        staging_df = pd.DataFrame([
-            {
-                "✓": True,
-                "Enunciado": p["enunciado"][:80] + ("…" if len(p["enunciado"]) > 80 else ""),
-                "Correcta": p["letra_correcta"],
-                "Bloque": p.get("bloque", bloque_imp),
-                "Tema": p.get("tema", tema_imp),
-                "Dif.": p.get("dificultad", dif_imp),
-                "⚠️": " | ".join(p.get("_warnings", [])),
-                "_idx": i,
-            }
-            for i, p in enumerate(staging)
-        ])
+        for i, q in enumerate(staging):
+            c_sel, c_num, c_enun, c_resp, c_info, c_edit = st.columns([0.5, 0.5, 6, 0.8, 2, 0.7])
 
-        edited = st.data_editor(
-            staging_df.drop(columns=["_idx"]),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "✓": st.column_config.CheckboxColumn("✓", width="small"),
-                "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
-                "Correcta": st.column_config.SelectboxColumn("Resp.", options=["A","B","C","D"], width="small"),
-                "Bloque":   st.column_config.SelectboxColumn("Bloque", options=bloques),
-                "Tema":     st.column_config.TextColumn("Tema", width="small"),
-                "Dif.":     st.column_config.SelectboxColumn("Dif.", options=["Facil","Media","Dificil"]),
-                "⚠️":       st.column_config.TextColumn("Avisos", width="medium"),
-            },
-            key="staging_editor",
-        )
+            c_sel.checkbox("", value=True, key=f"stg_sel_{i}", label_visibility="collapsed")
+            c_num.markdown(f"<span style='color:#888;font-size:0.85em'>{i+1}</span>", unsafe_allow_html=True)
 
-        sel_count = int(edited["✓"].sum()) if "✓" in edited.columns else 0
-        st.caption(f"Seleccionadas: {sel_count} de {len(staging)}")
+            enun_short = q["enunciado"][:90] + ("…" if len(q["enunciado"]) > 90 else "")
+            c_enun.markdown(f"<span style='font-size:0.9em'>{enun_short}</span>", unsafe_allow_html=True)
 
-        if st.button(f"📥 Importar seleccionadas ({sel_count})", type="primary", key="btn_imp_sel",
-                     disabled=(sel_count == 0)):
-            imported = 0
-            skipped  = 0
+            color = {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}.get(q["letra_correcta"], "#555")
+            c_resp.markdown(
+                f"<span style='background:{color};color:white;padding:2px 7px;"
+                f"border-radius:4px;font-size:0.85em;font-weight:bold'>{q['letra_correcta']}</span>",
+                unsafe_allow_html=True
+            )
+
+            warns = q.get("_warnings", [])
+            blq_short = str(q.get("bloque", ""))[:18]
+            info_txt  = f"<span style='font-size:0.8em;color:#555'>{blq_short}</span>"
+            if warns:
+                info_txt += f" <span style='color:#e67e22;font-size:0.78em'>⚠️ {' | '.join(warns)}</span>"
+            c_info.markdown(info_txt, unsafe_allow_html=True)
+
+            if c_edit.button("✏️", key=f"stg_edit_{i}", help="Ver / editar pregunta completa"):
+                st.session_state["_staging_edit_idx"] = i
+                _dialog_editar_staging()
+
+        st.divider()
+
+        # Abre el dialog si hubo rerun con _staging_edit_idx pendiente
+        if st.session_state.get("_staging_edit_idx") is not None:
+            _dialog_editar_staging()
+
+        sel_ids   = [i for i in range(len(staging)) if st.session_state.get(f"stg_sel_{i}", True)]
+        sel_count = len(sel_ids)
+        st.caption(f"Seleccionadas: **{sel_count}** de {len(staging)}")
+
+        c_imp, c_clr = st.columns([3, 1])
+        if c_imp.button(f"📥 Importar seleccionadas ({sel_count})", type="primary",
+                        key="btn_imp_sel", disabled=(sel_count == 0)):
+            imported = 0; skipped = 0
             excel_path = st.session_state.excel_path
             excel_dfs  = st.session_state.excel_dfs
 
-            for i, row_e in edited.iterrows():
-                if not row_e["✓"]:
-                    continue
-                p = staging[staging_df.iloc[i]["_idx"]] if i < len(staging_df) else staging[i]
-
-                # Aplicar ediciones de la tabla
+            for i in sel_ids:
                 p_data = {
-                    "enunciado":     staging[i]["enunciado"],  # enunciado completo
-                    "opciones_list": staging[i]["opciones_list"],
-                    "letra_correcta": row_e["Correcta"],
-                    "bloque":        row_e["Bloque"],
-                    "tema":          str(row_e["Tema"]),
-                    "dificultad":    row_e["Dif."],
+                    "enunciado":      staging[i]["enunciado"],
+                    "opciones_list":  staging[i]["opciones_list"],
+                    "letra_correcta": staging[i]["letra_correcta"],
+                    "bloque":         staging[i].get("bloque", bloque_imp),
+                    "tema":           str(staging[i].get("tema", tema_imp)),
+                    "dificultad":     staging[i].get("dificultad", dif_imp),
                 }
-
-                # Deduplicar
                 is_dup, _ = lib.check_for_similar_enunciado(p_data["enunciado"], df_total)
-                if is_dup:
-                    skipped += 1
-                    continue
-
-                # Guardar en Excel
-                blk = p_data["bloque"]
+                if is_dup: skipped += 1; continue
+                blk    = p_data["bloque"]
                 blk_df = excel_dfs.get(blk)
-                if blk_df is None:
-                    skipped += 1
-                    continue
-
+                if blk_df is None: skipped += 1; continue
                 nid, _ = lib.generar_siguiente_id(df_total, blk, p_data["tema"])
                 new_row = {col: "" for col in blk_df.columns}
                 new_row["ID_Pregunta"] = nid
                 for col in blk_df.columns:
                     cl = str(col).lower()
-                    if "tema" in cl and "id" not in cl:
-                        new_row[col] = p_data["tema"]
-                    elif "dificultad" in cl:
-                        new_row[col] = p_data["dificultad"]
-                    elif "correcta" in cl or "resp" in cl:
-                        new_row[col] = p_data["letra_correcta"]
-                    elif "enunciado" in cl:
-                        new_row[col] = p_data["enunciado"]
+                    if "tema" in cl and "id" not in cl: new_row[col] = p_data["tema"]
+                    elif "dificultad" in cl:             new_row[col] = p_data["dificultad"]
+                    elif "correcta" in cl or "resp" in cl: new_row[col] = p_data["letra_correcta"]
+                    elif "enunciado" in cl:              new_row[col] = p_data["enunciado"]
                 enun_idx = next((ci for ci, c in enumerate(blk_df.columns) if "enunciado" in str(c).lower()), None)
                 if enun_idx is not None:
                     for j, op in enumerate(p_data["opciones_list"][:4]):
                         oi = enun_idx + 1 + j
-                        if oi < len(blk_df.columns):
-                            new_row[blk_df.columns[oi]] = op
+                        if oi < len(blk_df.columns): new_row[blk_df.columns[oi]] = op
                     ci = enun_idx + 5
-                    if ci < len(blk_df.columns):
-                        new_row[blk_df.columns[ci]] = p_data["letra_correcta"]
-
+                    if ci < len(blk_df.columns): new_row[blk_df.columns[ci]] = p_data["letra_correcta"]
                 excel_dfs[blk] = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
-                # Actualizar df en memoria para generar_siguiente_id correcto
                 df_total = pd.concat([df_total, pd.DataFrame([{
                     "ID_Pregunta": nid, "bloque": blk, "Tema": p_data["tema"],
                     "enunciado": p_data["enunciado"], "opciones_list": p_data["opciones_list"],
@@ -351,12 +407,11 @@ with tab_imp:
                 lib.guardar_excel_local(excel_path, excel_dfs)
                 st.success(f"✅ {imported} pregunta(s) importada(s). {skipped} duplicada(s) omitida(s).")
                 st.session_state.import_staging = []
-                reload_db()
-                st.rerun()
+                reload_db(); st.rerun()
             else:
                 st.warning(f"No se importó ninguna pregunta. {skipped} duplicada(s) omitida(s).")
 
-        if st.button("🗑️ Limpiar previsualización", key="btn_clear_staging"):
+        if c_clr.button("🗑️ Limpiar", key="btn_clear_staging"):
             st.session_state.import_staging = []
             st.rerun()
 
