@@ -280,34 +280,41 @@ with tab_imp:
     bloque_imp = c1.selectbox("Bloque destino", bloques, key="imp_bloque")
     tema_imp   = c2.selectbox("Tema", temas_de_bloque(bloque_imp) or [str(i) for i in range(1, 51)], key="imp_tema")
     dif_imp    = c3.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="imp_dif")
-    fmt_imp    = c4.selectbox("Formato", ["Word (.docx)", "Aiken (.txt)"], key="imp_fmt")
+    fmt_imp    = c4.selectbox("Formato", ["Word (.docx)", "PDF (.pdf)", "Aiken (.txt)"], key="imp_fmt")
 
-    _MARCAS_WORD = ["Negrita", "Color (cualquiera)", "Subrayado", "Asterisco (*)", "MAYÚSCULAS", "Siempre la primera"]
-    if "Word" in fmt_imp:
+    es_word = "Word" in fmt_imp
+    es_pdf  = "PDF"  in fmt_imp
+    if es_word or es_pdf:
         marca_imp = st.selectbox(
-            "¿Cómo está marcada la respuesta correcta en el Word?",
-            _MARCAS_WORD, index=0, key="imp_marca",
-            help="Negrita = opción en negrita · Color = cualquier color · Asterisco = texto empieza/termina con * · etc."
+            "¿Cómo está marcada la respuesta correcta?",
+            lib.MARCAS_CORRECTA_WORD, index=0, key="imp_marca",
+            help="Negrita · Resaltado · Color · Subrayado · Asterisco · MAYÚSCULAS · Siempre la primera"
         )
     else:
-        marca_imp = "Negrita"  # no aplica a Aiken (usa ANSWER:)
+        marca_imp = "Negrita"  # Aiken usa ANSWER:
 
-    accept  = ".docx" if "Word" in fmt_imp else ".txt"
-    up_file = st.file_uploader("Subir archivo", type=[accept.lstrip(".")], key="imp_uploader")
+    ext_map = {"Word (.docx)": "docx", "PDF (.pdf)": "pdf", "Aiken (.txt)": "txt"}
+    accept  = ext_map.get(fmt_imp, "txt")
+    up_file = st.file_uploader("Subir archivo", type=[accept], key="imp_uploader")
 
     if st.button("👁️ Previsualizar", key="btn_preview_imp") and up_file is not None:
         try:
-            if "Word" in fmt_imp:
+            if es_word:
                 import tempfile
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tf:
                     tf.write(up_file.read()); tmp_path = tf.name
                 preguntas = lib.procesar_archivo_docx(tmp_path, bloque_imp, tema_imp, dif_imp, marca_imp)
                 os.unlink(tmp_path)
+            elif es_pdf:
+                preguntas = lib.parse_pdf_bytes(up_file.read(), bloque_imp, tema_imp, dif_imp, marca_imp)
             else:
                 text = up_file.read().decode("utf-8", errors="replace")
                 preguntas = lib.parse_aiken(text, bloque_imp, tema_imp, dif_imp)
             st.session_state.import_staging = preguntas
             st.session_state["_staging_edit_idx"] = None
+            # Inicializar todas las selecciones a True
+            for i in range(len(preguntas)):
+                st.session_state[f"stg_sel_{i}"] = True
             st.success(f"Detectadas **{len(preguntas)}** preguntas. Revisa, edita si es necesario e importa.")
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
@@ -315,34 +322,45 @@ with tab_imp:
     # ── Lista de staging ──────────────────────────────────────────────────────
     staging = st.session_state.get("import_staging", [])
     if staging:
+        # Botones de selección masiva
+        ba, bd = st.columns(2)
+        if ba.button("☑ Seleccionar todas", key="stg_sel_all", use_container_width=True):
+            for i in range(len(staging)):
+                st.session_state[f"stg_sel_{i}"] = True
+            st.rerun()
+        if bd.button("☐ Deseleccionar todas", key="stg_desel_all", use_container_width=True):
+            for i in range(len(staging)):
+                st.session_state[f"stg_sel_{i}"] = False
+            st.rerun()
+
         # Cabecera de columnas
-        h0, h1, h2, h3, h4, h5 = st.columns([0.5, 0.5, 6, 0.8, 2, 0.7])
-        h0.markdown("**✓**"); h1.markdown("**#**"); h2.markdown("**Enunciado**")
-        h3.markdown("**Resp.**"); h4.markdown("**Bloque / Avisos**"); h5.markdown("**Edit**")
+        h0, h1, h2, h3, h4 = st.columns([0.5, 0.5, 7, 0.8, 0.7])
+        h0.markdown("**✓**"); h1.markdown("**#**")
+        h2.markdown("**Enunciado**"); h3.markdown("**Resp.**"); h4.markdown("**Edit**")
         st.divider()
 
         for i, q in enumerate(staging):
-            c_sel, c_num, c_enun, c_resp, c_info, c_edit = st.columns([0.5, 0.5, 6, 0.8, 2, 0.7])
+            c_sel, c_num, c_enun, c_resp, c_edit = st.columns([0.5, 0.5, 7, 0.8, 0.7])
 
-            c_sel.checkbox("", value=True, key=f"stg_sel_{i}", label_visibility="collapsed")
-            c_num.markdown(f"<span style='color:#888;font-size:0.85em'>{i+1}</span>", unsafe_allow_html=True)
+            c_sel.checkbox("", value=st.session_state.get(f"stg_sel_{i}", True),
+                           key=f"stg_sel_{i}", label_visibility="collapsed")
+            c_num.markdown(f"<span style='color:#aaa;font-size:0.8em'>{i+1}</span>", unsafe_allow_html=True)
 
-            enun_short = q["enunciado"][:90] + ("…" if len(q["enunciado"]) > 90 else "")
-            c_enun.markdown(f"<span style='font-size:0.9em'>{enun_short}</span>", unsafe_allow_html=True)
-
-            color = {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}.get(q["letra_correcta"], "#555")
-            c_resp.markdown(
-                f"<span style='background:{color};color:white;padding:2px 7px;"
-                f"border-radius:4px;font-size:0.85em;font-weight:bold'>{q['letra_correcta']}</span>",
+            warns     = q.get("_warnings", [])
+            warn_icon = " ⚠️" if warns else ""
+            enun_short = q["enunciado"][:80] + ("…" if len(q["enunciado"]) > 80 else "")
+            c_enun.markdown(
+                f"<span style='font-size:0.88em'>{enun_short}"
+                f"<span style='color:#e67e22'>{warn_icon}</span></span>",
                 unsafe_allow_html=True
             )
 
-            warns = q.get("_warnings", [])
-            blq_short = str(q.get("bloque", ""))[:18]
-            info_txt  = f"<span style='font-size:0.8em;color:#555'>{blq_short}</span>"
-            if warns:
-                info_txt += f" <span style='color:#e67e22;font-size:0.78em'>⚠️ {' | '.join(warns)}</span>"
-            c_info.markdown(info_txt, unsafe_allow_html=True)
+            color = {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}.get(q["letra_correcta"], "#555")
+            c_resp.markdown(
+                f"<span style='background:{color};color:white;padding:1px 6px;"
+                f"border-radius:4px;font-size:0.82em;font-weight:bold'>{q['letra_correcta']}</span>",
+                unsafe_allow_html=True
+            )
 
             if c_edit.button("✏️", key=f"stg_edit_{i}", help="Ver / editar pregunta completa"):
                 st.session_state["_staging_edit_idx"] = i

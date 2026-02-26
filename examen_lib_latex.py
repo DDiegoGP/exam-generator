@@ -277,13 +277,15 @@ def parse_aiken(text, bloque_destino='', tema_destino='1', dificultad_destino='M
             p['_warnings'].append("Menos de 4 opciones detectadas")
     return preguntas
 
-# --- IMPORTACIÓN WORD ---
-_MARCA_OPCIONES = ["Negrita", "Color (cualquiera)", "Subrayado", "Asterisco (*)", "MAYÚSCULAS", "Siempre la primera"]
+# --- IMPORTACIÓN WORD / PDF ---
+MARCAS_CORRECTA_WORD = [
+    "Negrita", "Resaltado (highlight)", "Color (cualquiera)",
+    "Subrayado", "Asterisco (*)", "MAYÚSCULAS", "Siempre la primera"
+]
 
 def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad_destino='Media', marca_correcta='Negrita'):
-    """Parsea un .docx con preguntas numeradas. Devuelve lista normalizada.
-    marca_correcta: uno de _MARCA_OPCIONES — define cómo está marcada la opción correcta.
-    """
+    """Parsea un .docx con preguntas numeradas. Devuelve lista normalizada."""
+    from docx.enum.text import WD_COLOR_INDEX
     doc = Document(filepath)
     preguntas = []
     current_preg = None
@@ -293,6 +295,15 @@ def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad
     def _es_correcta(para, texto):
         if marca_correcta == 'Negrita':
             return any(r.bold for r in para.runs if r.text.strip())
+        if marca_correcta == 'Resaltado (highlight)':
+            for r in para.runs:
+                try:
+                    hc = r.font.highlight_color
+                    if hc is not None and hc not in (WD_COLOR_INDEX.AUTO, WD_COLOR_INDEX.WHITE, None):
+                        return True
+                except Exception:
+                    pass
+            return False
         if marca_correcta == 'Color (cualquiera)':
             for r in para.runs:
                 try:
@@ -347,6 +358,107 @@ def procesar_archivo_docx(filepath, bloque_destino, tema_destino='1', dificultad
         if len([o for o in p['opciones_list'] if o.strip()]) < 4:
             p['_warnings'].append("Menos de 4 opciones detectadas")
     return preguntas
+
+def parse_pdf_bytes(pdf_bytes, bloque_destino='', tema_destino='1', dificultad_destino='Media', marca_correcta='Negrita'):
+    """Parsea un PDF digital (bytes) con preguntas numeradas. Usa pdfplumber.
+    Detecta: preguntas numeradas (1. / 1) / 1-) y opciones (a) / A. / A-)
+    Para 'Negrita': intenta detectar fontname con 'Bold'.
+    Para 'Asterisco (*)' y 'MAYÚSCULAS': igual que Word.
+    Para el resto de marcas o si no se detecta: la correcta queda como A (editar manualmente).
+    """
+    import io as _io
+    try:
+        import pdfplumber
+    except ImportError:
+        raise ImportError("Instala pdfplumber: pip install pdfplumber")
+
+    re_preg = re.compile(r'^\s*(\d+)[\.\-\)]+\s*(.+)')
+    re_opt  = re.compile(r'^\s*([a-dA-D])[\.\-\)]+\s*(.+)', re.IGNORECASE)
+    re_ans  = re.compile(r'^ANSWER[:\s]+([A-D])', re.IGNORECASE)
+
+    # Extraer líneas con info de bold por carácter
+    raw_lines = []   # list of (text, is_bold)
+    with pdfplumber.open(_io.BytesIO(pdf_bytes)) as pdf:
+        for page in pdf.pages:
+            # Agrupar caracteres en líneas
+            chars = page.chars or []
+            if not chars:
+                # Fallback: extract_text sin info de formato
+                txt = page.extract_text() or ""
+                for line in txt.splitlines():
+                    raw_lines.append((line.rstrip(), False))
+                continue
+            # Ordenar por top (y) luego x
+            chars_sorted = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
+            cur_y, cur_text, cur_bold = None, "", False
+            for ch in chars_sorted:
+                y = round(ch['top'], 1)
+                if cur_y is None:
+                    cur_y = y
+                if abs(y - cur_y) > 3:  # nueva línea
+                    raw_lines.append((cur_text.rstrip(), cur_bold))
+                    cur_text, cur_bold, cur_y = "", False, y
+                cur_text += ch.get('text', '')
+                if 'Bold' in (ch.get('fontname') or ''):
+                    cur_bold = True
+            if cur_text.strip():
+                raw_lines.append((cur_text.rstrip(), cur_bold))
+
+    preguntas = []
+    current   = None
+    for line_txt, line_bold in raw_lines:
+        txt = line_txt.strip()
+        if not txt:
+            continue
+        m_ans  = re_ans.match(txt)
+        m_preg = re_preg.match(txt)
+        m_opt  = re_opt.match(txt)
+
+        if m_ans:
+            if current:
+                current['letra_correcta'] = m_ans.group(1).upper()
+                while len(current['opciones_list']) < 4: current['opciones_list'].append("")
+                current['opciones_list'] = current['opciones_list'][:4]
+                preguntas.append(current); current = None
+        elif m_preg and not m_opt:
+            if current:
+                while len(current['opciones_list']) < 4: current['opciones_list'].append("")
+                current['opciones_list'] = current['opciones_list'][:4]
+                preguntas.append(current)
+            current = {
+                'enunciado': m_preg.group(2).strip(), 'opciones_list': [],
+                'letra_correcta': 'A', 'bloque': bloque_destino,
+                'tema': tema_destino, 'dificultad': dificultad_destino, '_warnings': []
+            }
+        elif m_opt and current:
+            texto_op = m_opt.group(2).strip()
+            clean_op = texto_op.strip().strip('*').strip() if marca_correcta == 'Asterisco (*)' else texto_op
+            if clean_op:
+                current['opciones_list'].append(clean_op)
+                idx = len(current['opciones_list']) - 1
+                es_c = False
+                if   marca_correcta == 'Negrita'       and line_bold:           es_c = True
+                elif marca_correcta == 'Asterisco (*)'  and (texto_op.startswith('*') or texto_op.endswith('*')): es_c = True
+                elif marca_correcta == 'MAYÚSCULAS'    and texto_op == texto_op.upper() and any(c.isalpha() for c in texto_op): es_c = True
+                if es_c:
+                    current['letra_correcta'] = ['A','B','C','D'][idx] if idx < 4 else 'A'
+        elif current and not m_preg:
+            # Línea de continuación del enunciado
+            if not current['opciones_list']:
+                current['enunciado'] += ' ' + txt
+
+    if current:
+        while len(current['opciones_list']) < 4: current['opciones_list'].append("")
+        current['opciones_list'] = current['opciones_list'][:4]
+        preguntas.append(current)
+
+    for p in preguntas:
+        if len([o for o in p['opciones_list'] if o.strip()]) < 4:
+            p['_warnings'].append("Menos de 4 opciones detectadas")
+        if p['letra_correcta'] == 'A' and marca_correcta not in ('Siempre la primera', 'Asterisco (*)', 'MAYÚSCULAS'):
+            p['_warnings'].append("Respuesta A por defecto — verifica")
+    return preguntas
+
 
 # --- DB UPDATE ---
 def actualizar_pregunta_db(sheet, pid, datos, idx_usada_ignorado):
