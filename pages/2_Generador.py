@@ -970,10 +970,12 @@ def _ejecutar_export():
         cfg_adapt["modo_compacto"]     = False  # nunca compacto en adaptada
         if exp_word:
             adapt_word = lib.rellenar_plantilla_word_bytes(master, nombre_arch, cfg_adapt, modo_solucion=False)
+            ef["word_adapt"] = adapt_word
             for letra, data in adapt_word.items():
                 ef["_zip_all"][f"{nombre_arch}_MOD{letra}_ADAPT.docx"] = data
         if exp_tex:
             adapt_latex = lib.generar_latex_strings(master, nombre_arch, cfg_adapt, modo_solucion=False)
+            ef["latex_adapt"] = adapt_latex
             for letra, data in adapt_latex.items():
                 ef["_zip_all"][f"{nombre_arch}_MOD{letra}_ADAPT.tex"] = data
 
@@ -1516,6 +1518,11 @@ with tab_exp:
                     data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_SOL.docx": d for l, d in ef["word_sol"].items()}),
                     file_name=f"{_nef}_word_soluciones.zip", mime="application/zip",
                     use_container_width=True, key="dl_word_sol")
+                if ef.get("word_adapt"):
+                    st.download_button("♿ Adaptada (Word)",
+                        data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.docx": d for l, d in ef["word_adapt"].items()}),
+                        file_name=f"{_nef}_word_adaptada.zip", mime="application/zip",
+                        use_container_width=True, key="dl_word_adapt")
 
             if ef.get("latex_exam"):
                 st.markdown("**LaTeX:**")
@@ -1528,6 +1535,11 @@ with tab_exp:
                     data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_SOL.tex": d for l, d in ef["latex_sol"].items()}),
                     file_name=f"{_nef}_latex_soluciones.zip", mime="application/zip",
                     use_container_width=True, key="dl_latex_sol")
+                if ef.get("latex_adapt"):
+                    st.download_button("♿ Adaptada (LaTeX)",
+                        data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.tex": d for l, d in ef["latex_adapt"].items()}),
+                        file_name=f"{_nef}_latex_adaptada.zip", mime="application/zip",
+                        use_container_width=True, key="dl_latex_adapt")
 
             st.markdown("**CSV:**")
             _cc1, _cc2 = st.columns(2)
