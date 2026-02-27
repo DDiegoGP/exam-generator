@@ -1107,26 +1107,7 @@ def _setup_word_styles(doc, cfg, version):
     bot_d.set(qn('w:space'), '1');    bot_d.set(qn('w:color'), pri_hex)
     pBdr_d.append(bot_d); pPr_d.append(pBdr_d)
 
-    # ── INSTRUCCIONES (fondo suave, borde izquierdo coloreado) ────────────────
-    instr_txt = cfg.get('instr_gen', '').strip()
-    if instr_txt:
-        p_ins = doc.add_paragraph()
-        pPr_ins = p_ins._p.get_or_add_pPr()
-        shd_ins = OxmlElement('w:shd')
-        shd_ins.set(qn('w:val'), 'clear'); shd_ins.set(qn('w:color'), 'auto')
-        shd_ins.set(qn('w:fill'), bg_hex)
-        pPr_ins.append(shd_ins)
-        pBdr_ins = OxmlElement('w:pBdr')
-        left_b   = OxmlElement('w:left')
-        left_b.set(qn('w:val'), 'single'); left_b.set(qn('w:sz'), '18')
-        left_b.set(qn('w:space'), '4');    left_b.set(qn('w:color'), pri_hex)
-        pBdr_ins.append(left_b); pPr_ins.append(pBdr_ins)
-        r_ins = p_ins.add_run(instr_txt)
-        r_ins.italic = True; r_ins.font.size = Pt(font_size - 1); r_ins.font.name = font_name
-        p_ins.paragraph_format.space_before = Pt(0)
-        p_ins.paragraph_format.space_after  = Pt(8)
-
-    # ── CAJA DATOS DEL ALUMNO (después de instrucciones, con encabezado) ──────
+    # ── CAJA DATOS DEL ALUMNO (con encabezado coloreado) ─────────────────────
     if campos_alumno:
         tbl_a = doc.add_table(rows=1, cols=2)
         tbl_a.style = 'Table Grid'
@@ -1177,6 +1158,25 @@ def _setup_word_styles(doc, cfg, version):
                 p_e.paragraph_format.space_after  = Pt(4)
 
         doc.add_paragraph()
+
+    # ── INSTRUCCIONES (fondo suave, borde izquierdo coloreado) ────────────────
+    instr_txt = cfg.get('instr_gen', '').strip()
+    if instr_txt:
+        p_ins = doc.add_paragraph()
+        pPr_ins = p_ins._p.get_or_add_pPr()
+        shd_ins = OxmlElement('w:shd')
+        shd_ins.set(qn('w:val'), 'clear'); shd_ins.set(qn('w:color'), 'auto')
+        shd_ins.set(qn('w:fill'), bg_hex)
+        pPr_ins.append(shd_ins)
+        pBdr_ins = OxmlElement('w:pBdr')
+        left_b   = OxmlElement('w:left')
+        left_b.set(qn('w:val'), 'single'); left_b.set(qn('w:sz'), '18')
+        left_b.set(qn('w:space'), '4');    left_b.set(qn('w:color'), pri_hex)
+        pBdr_ins.append(left_b); pPr_ins.append(pBdr_ins)
+        r_ins = p_ins.add_run(instr_txt)
+        r_ins.italic = True; r_ins.font.size = Pt(font_size - 1); r_ins.font.name = font_name
+        p_ins.paragraph_format.space_before = Pt(0)
+        p_ins.paragraph_format.space_after  = Pt(8)
 
     # ── Aplicar interlineado a todos los párrafos ya añadidos ─────────────────
     if linespread != 1.0:
