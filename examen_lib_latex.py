@@ -924,182 +924,268 @@ def _replace_in_paragraph(paragraph, key, val):
         runs[ri].text = ''
 
 def _setup_word_styles(doc, cfg, version):
-    """Configura documento Word moderno con color scheme, fuente y campos configurables."""
-    from docx.shared import Cm, RGBColor as _RGB
+    """Configura documento Word moderno: banner título con fondo, logo, caja alumno con encabezado."""
+    from docx.shared import Cm, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
-    import copy
 
-    scheme = cfg.get('color_scheme', 'azul')
-    cs     = _WORD_COLOR_SCHEMES.get(scheme, _WORD_COLOR_SCHEMES['azul'])
-    pri    = _RGB(*cs['primary'])
-    sec    = _RGB(*cs['secondary'])
-    bg_rgb = _RGB(*cs['bg'])
+    scheme   = cfg.get('color_scheme', 'azul')
+    cs       = _WORD_COLOR_SCHEMES.get(scheme, _WORD_COLOR_SCHEMES['azul'])
+    pri      = RGBColor(*cs['primary'])
+    sec      = RGBColor(*cs['secondary'])
+    pri_hex  = '%02X%02X%02X' % cs['primary']
+    sec_hex  = '%02X%02X%02X' % cs['secondary']
+    bg_hex   = '%02X%02X%02X' % cs['bg']
+    white    = RGBColor(255, 255, 255)
 
-    font_key  = cfg.get('tipografia', 'cm')
-    font_name = _WORD_FONTS.get(font_key, 'Calibri')
-    font_size = int(cfg.get('font_size', 12))
+    # Colores de texto claro para usar sobre fondo de color primario
+    _lite = {'azul': (RGBColor(189,215,238), RGBColor(214,232,248)),
+             'ucm':  (RGBColor(235,200,205), RGBColor(248,225,230)),
+             'byn':  (RGBColor(200,200,200), RGBColor(225,225,225))}
+    lite1, lite2 = _lite.get(scheme, _lite['azul'])   # lite1=institución, lite2=tipo/modelo
+
+    font_key   = cfg.get('tipografia', 'cm')
+    font_name  = _WORD_FONTS.get(font_key, 'Calibri')
+    font_size  = int(cfg.get('font_size', 12))
     linespread = float(cfg.get('linespread', 1.0))
-
+    logo_path  = cfg.get('logo_path', '')
     campos_alumno = cfg.get('campos_alumno', ['nombre', 'dni', 'grupo', 'firma'])
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+    def _shd_cell(cell, hex_col):
+        tcPr = cell._tc.get_or_add_tcPr()
+        shd  = OxmlElement('w:shd')
+        shd.set(qn('w:val'), 'clear'); shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'), hex_col)
+        tcPr.append(shd)
+
+    def _no_borders_table(table):
+        tbl   = table._tbl
+        tblPr = tbl.tblPr
+        if tblPr is None:
+            tblPr = OxmlElement('w:tblPr')
+            tbl.insert(0, tblPr)
+        tblBd = OxmlElement('w:tblBorders')
+        for bn in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+            b = OxmlElement(f'w:{bn}')
+            b.set(qn('w:val'), 'none')
+            tblBd.append(b)
+        tblPr.append(tblBd)
+
+    def _cell_font(run, size=None, bold=False, color=None):
+        run.font.name = font_name
+        run.font.size = Pt(size or font_size)
+        run.font.bold = bold
+        if color: run.font.color.rgb = color
 
     # ── Márgenes ──────────────────────────────────────────────────────────────
     for sec_obj in doc.sections:
-        sec_obj.top_margin    = Cm(2.5)
-        sec_obj.bottom_margin = Cm(2.5)
-        sec_obj.left_margin   = Cm(2.5)
-        sec_obj.right_margin  = Cm(2.5)
+        sec_obj.top_margin      = Cm(2.5)
+        sec_obj.bottom_margin   = Cm(2.5)
+        sec_obj.left_margin     = Cm(2.5)
+        sec_obj.right_margin    = Cm(2.5)
         sec_obj.header_distance = Cm(1.2)
 
     # ── Fuente por defecto ─────────────────────────────────────────────────────
-    normal = doc.styles['Normal']
-    normal.font.name = font_name
-    normal.font.size = Pt(font_size)
+    doc.styles['Normal'].font.name = font_name
+    doc.styles['Normal'].font.size = Pt(font_size)
 
-    # ── Header (texto centrado, pequeño, color secundario) ────────────────────
-    header  = doc.sections[0].header
-    hp      = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+    # ── Header Word (texto pequeño, separador inferior) ───────────────────────
+    header = doc.sections[0].header
+    hp = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
     hp.clear()
     parts_h = []
-    if cfg.get('entidad', ''):     parts_h.append(cfg['entidad'])
+    if cfg.get('entidad', ''):           parts_h.append(cfg['entidad'])
     if cfg.get('titulo_asignatura', ''): parts_h.append(cfg['titulo_asignatura'])
     parts_h.append(f"Modelo {version}")
     rh = hp.add_run("  ·  ".join(parts_h))
     rh.font.name = font_name; rh.font.size = Pt(8); rh.font.color.rgb = sec
     hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    # Línea bajo el header
-    pPr = hp._p.get_or_add_pPr()
-    pBdr = OxmlElement('w:pBdr')
-    bot  = OxmlElement('w:bottom')
-    bot.set(qn('w:val'), 'single'); bot.set(qn('w:sz'), '4')
-    bot.set(qn('w:space'), '1'); bot.set(qn('w:color'), '%02X%02X%02X' % cs['secondary'])
-    pBdr.append(bot); pPr.append(pBdr)
+    pPr_h  = hp._p.get_or_add_pPr()
+    pBdr_h = OxmlElement('w:pBdr')
+    bot_h  = OxmlElement('w:bottom')
+    bot_h.set(qn('w:val'), 'single'); bot_h.set(qn('w:sz'), '4')
+    bot_h.set(qn('w:space'), '1');    bot_h.set(qn('w:color'), sec_hex)
+    pBdr_h.append(bot_h); pPr_h.append(pBdr_h)
 
-    # ── Footer (página centrada) ───────────────────────────────────────────────
+    # ── Footer (nº de página centrado) ────────────────────────────────────────
     footer = doc.sections[0].footer
-    fp     = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
     fp.clear()
-    # Insertar campo PAGE
-    run_fp = fp.add_run()
-    fld    = OxmlElement('w:fldChar'); fld.set(qn('w:fldCharType'), 'begin')
-    run_fp._r.append(fld)
-    run2   = fp.add_run()
-    instr  = OxmlElement('w:instrText'); instr.text = ' PAGE '
-    run2._r.append(instr)
-    run3   = fp.add_run()
-    fld2   = OxmlElement('w:fldChar'); fld2.set(qn('w:fldCharType'), 'end')
-    run3._r.append(fld2)
+    r1 = fp.add_run()
+    fld_b = OxmlElement('w:fldChar'); fld_b.set(qn('w:fldCharType'), 'begin')
+    r1._r.append(fld_b)
+    r2 = fp.add_run()
+    instr_el = OxmlElement('w:instrText'); instr_el.text = ' PAGE '
+    r2._r.append(instr_el)
+    r3 = fp.add_run()
+    fld_e = OxmlElement('w:fldChar'); fld_e.set(qn('w:fldCharType'), 'end')
+    r3._r.append(fld_e)
     fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for r in fp.runs: r.font.size = Pt(8); r.font.color.rgb = sec
 
-    # ── Bloque de cabecera del examen ─────────────────────────────────────────
-    # Fila de título en color primario
-    p_titulo = doc.add_paragraph()
-    p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r_tit = p_titulo.add_run(cfg.get('titulo_asignatura', ''))
-    r_tit.bold = True; r_tit.font.size = Pt(font_size + 4)
-    r_tit.font.name = font_name; r_tit.font.color.rgb = pri
+    # ── BANNER TÍTULO (tabla sin bordes con fondo de color primario) ───────────
+    has_logo = bool(logo_path and os.path.isfile(logo_path))
+    tbl_ban  = doc.add_table(rows=1, cols=2 if has_logo else 1)
+    _no_borders_table(tbl_ban)
 
-    # Subtítulo: tipo + modelo
+    if has_logo:
+        logo_cell = tbl_ban.rows[0].cells[0]
+        _shd_cell(logo_cell, pri_hex)
+        # Fijar ancho de columna logo (~3 cm = 1701 twips)
+        tcPr_l = logo_cell._tc.get_or_add_tcPr()
+        tcW_l  = OxmlElement('w:tcW')
+        tcW_l.set(qn('w:w'), '1701'); tcW_l.set(qn('w:type'), 'dxa')
+        tcPr_l.append(tcW_l)
+        p_logo = logo_cell.paragraphs[0]
+        p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_logo.paragraph_format.space_before = Pt(10)
+        p_logo.paragraph_format.space_after  = Pt(10)
+        try:
+            p_logo.add_run().add_picture(logo_path, height=Cm(1.5))
+        except Exception:
+            pass  # Ignorar si el logo no se puede cargar
+
+    tit_cell = tbl_ban.rows[0].cells[-1]
+    _shd_cell(tit_cell, pri_hex)
+
+    # Línea 1: institución (letra pequeña, color claro)
+    p0 = tit_cell.paragraphs[0]
+    p0.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p0.paragraph_format.space_before = Pt(10)
+    p0.paragraph_format.space_after  = Pt(2)
+    if cfg.get('entidad', ''):
+        r0 = p0.add_run(cfg['entidad'].upper())
+        _cell_font(r0, size=font_size - 2, color=lite1)
+
+    # Línea 2: asignatura (grande, negrita, blanca)
+    p1 = tit_cell.add_paragraph()
+    p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p1.paragraph_format.space_before = Pt(2)
+    p1.paragraph_format.space_after  = Pt(4)
+    r1b = p1.add_run(cfg.get('titulo_asignatura', ''))
+    _cell_font(r1b, size=font_size + 5, bold=True, color=white)
+
+    # Línea 3: tipo + modelo (mediana, color suave)
     sub_parts = []
     if cfg.get('tipo_examen', ''): sub_parts.append(cfg['tipo_examen'])
     sub_parts.append(f"Modelo {version}")
-    p_sub = doc.add_paragraph()
-    p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r_sub = p_sub.add_run("  —  ".join(sub_parts))
-    r_sub.font.size = Pt(font_size + 1); r_sub.font.name = font_name; r_sub.font.color.rgb = sec
+    p2 = tit_cell.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p2.paragraph_format.space_before = Pt(0)
+    p2.paragraph_format.space_after  = Pt(10)
+    r2b = p2.add_run("  —  ".join(sub_parts))
+    _cell_font(r2b, size=font_size, color=lite2)
 
-    # Línea de info: institución | fecha | tiempo
+    # ── FRANJA INFO (fecha · tiempo sobre fondo suave) ─────────────────────────
     info_parts = []
-    if cfg.get('entidad', ''):  info_parts.append(cfg['entidad'])
-    if cfg.get('fecha', ''):    info_parts.append(cfg['fecha'])
-    if cfg.get('tiempo', ''):   info_parts.append(f"Tiempo: {cfg['tiempo']}")
+    if cfg.get('fecha', ''):  info_parts.append(cfg['fecha'])
+    if cfg.get('tiempo', ''): info_parts.append(f"Tiempo: {cfg['tiempo']}")
     if info_parts:
         p_info = doc.add_paragraph()
         p_info.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r_info = p_info.add_run("  ·  ".join(info_parts))
-        r_info.font.size = Pt(font_size - 1); r_info.font.name = font_name; r_info.font.color.rgb = sec
+        p_info.paragraph_format.space_before = Pt(0)
+        p_info.paragraph_format.space_after  = Pt(4)
+        pPr_i = p_info._p.get_or_add_pPr()
+        shd_i = OxmlElement('w:shd')
+        shd_i.set(qn('w:val'), 'clear'); shd_i.set(qn('w:color'), 'auto')
+        shd_i.set(qn('w:fill'), bg_hex)
+        pPr_i.append(shd_i)
+        r_info = p_info.add_run("     ·     ".join(info_parts))
+        r_info.font.name = font_name; r_info.font.size = Pt(font_size - 1)
+        r_info.font.color.rgb = sec
 
-    # Línea divisoria bajo cabecera
+    # ── DIVISORIA GRUESA ──────────────────────────────────────────────────────
     p_div = doc.add_paragraph()
-    pPr2  = p_div._p.get_or_add_pPr()
-    pBdr2 = OxmlElement('w:pBdr')
-    bot2  = OxmlElement('w:bottom'); bot2.set(qn('w:val'), 'single')
-    bot2.set(qn('w:sz'), '12'); bot2.set(qn('w:space'), '1')
-    bot2.set(qn('w:color'), '%02X%02X%02X' % cs['primary'])
-    pBdr2.append(bot2); pPr2.append(pBdr2)
+    p_div.paragraph_format.space_before = Pt(2)
+    p_div.paragraph_format.space_after  = Pt(6)
+    pPr_d  = p_div._p.get_or_add_pPr()
+    pBdr_d = OxmlElement('w:pBdr')
+    bot_d  = OxmlElement('w:bottom')
+    bot_d.set(qn('w:val'), 'single'); bot_d.set(qn('w:sz'), '12')
+    bot_d.set(qn('w:space'), '1');    bot_d.set(qn('w:color'), pri_hex)
+    pBdr_d.append(bot_d); pPr_d.append(pBdr_d)
 
-    # ── Caja de datos del alumno ───────────────────────────────────────────────
+    # ── INSTRUCCIONES (fondo suave, borde izquierdo coloreado) ────────────────
+    instr_txt = cfg.get('instr_gen', '').strip()
+    if instr_txt:
+        p_ins = doc.add_paragraph()
+        pPr_ins = p_ins._p.get_or_add_pPr()
+        shd_ins = OxmlElement('w:shd')
+        shd_ins.set(qn('w:val'), 'clear'); shd_ins.set(qn('w:color'), 'auto')
+        shd_ins.set(qn('w:fill'), bg_hex)
+        pPr_ins.append(shd_ins)
+        pBdr_ins = OxmlElement('w:pBdr')
+        left_b   = OxmlElement('w:left')
+        left_b.set(qn('w:val'), 'single'); left_b.set(qn('w:sz'), '18')
+        left_b.set(qn('w:space'), '4');    left_b.set(qn('w:color'), pri_hex)
+        pBdr_ins.append(left_b); pPr_ins.append(pBdr_ins)
+        r_ins = p_ins.add_run(instr_txt)
+        r_ins.italic = True; r_ins.font.size = Pt(font_size - 1); r_ins.font.name = font_name
+        p_ins.paragraph_format.space_before = Pt(0)
+        p_ins.paragraph_format.space_after  = Pt(8)
+
+    # ── CAJA DATOS DEL ALUMNO (después de instrucciones, con encabezado) ──────
     if campos_alumno:
-        doc.add_paragraph()
-        tbl_a = doc.add_table(rows=1 + (1 if any(f in campos_alumno for f in ['dni','grupo','firma']) else 0), cols=2)
+        tbl_a = doc.add_table(rows=1, cols=2)
         tbl_a.style = 'Table Grid'
-        # Fila Nombre (full width si solo nombre, sino primera fila)
+
+        # Fila 0: encabezado "DATOS DEL ALUMNO" (fondo primario, texto blanco)
+        hdr_cell = tbl_a.rows[0].cells[0].merge(tbl_a.rows[0].cells[1])
+        _shd_cell(hdr_cell, pri_hex)
+        p_hdr = hdr_cell.paragraphs[0]
+        p_hdr.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p_hdr.paragraph_format.space_before = Pt(3)
+        p_hdr.paragraph_format.space_after  = Pt(3)
+        r_hdr = p_hdr.add_run("DATOS DEL ALUMNO")
+        _cell_font(r_hdr, size=font_size - 1, bold=True, color=white)
+
+        # Fila nombre (merged, ancho completo)
         if 'nombre' in campos_alumno:
-            cell = tbl_a.rows[0].cells[0].merge(tbl_a.rows[0].cells[1])
-            p_n  = cell.paragraphs[0]
-            r_nl = p_n.add_run("Nombre y Apellidos: ")
-            r_nl.bold = True; r_nl.font.name = font_name; r_nl.font.size = Pt(font_size)
-            p_n.add_run("_" * 60)
+            row_n  = tbl_a.add_row()
+            cell_n = row_n.cells[0].merge(row_n.cells[1])
+            p_n    = cell_n.paragraphs[0]
+            r_nl   = p_n.add_run("Nombre y Apellidos: ")
+            _cell_font(r_nl, bold=True)
+            p_n.add_run("_" * 58)
             p_n.paragraph_format.space_before = Pt(4)
             p_n.paragraph_format.space_after  = Pt(4)
 
-        row2_cols = [f for f in ['dni', 'grupo', 'firma'] if f in campos_alumno]
-        if row2_cols and len(tbl_a.rows) > 1:
-            row2 = tbl_a.rows[1]
-            labels = {'dni': 'DNI/NIU', 'grupo': 'Grupo', 'firma': 'Firma'}
-            if len(row2_cols) == 1:
-                cell = row2.cells[0].merge(row2.cells[1])
-                lbl  = labels[row2_cols[0]]
-                p_c  = cell.paragraphs[0]
-                r_c  = p_c.add_run(f"{lbl}: ")
-                r_c.bold = True; r_c.font.name = font_name; r_c.font.size = Pt(font_size)
-                p_c.add_run("_" * 30)
+        # Filas para dni / grupo / firma (2 por fila)
+        extra  = [f for f in ('dni', 'grupo', 'firma') if f in campos_alumno]
+        labels = {'dni': 'DNI/NIU', 'grupo': 'Grupo', 'firma': 'Firma'}
+        for i in range(0, len(extra), 2):
+            chunk = extra[i:i+2]
+            row_e = tbl_a.add_row()
+            if len(chunk) == 1:
+                cell_e = row_e.cells[0].merge(row_e.cells[1])
+                p_e    = cell_e.paragraphs[0]
+                r_e    = p_e.add_run(f"{labels[chunk[0]]}: ")
+                _cell_font(r_e, bold=True)
+                p_e.add_run("_" * 45)
             else:
-                for ci, fname in enumerate(row2_cols[:2]):
-                    p_c = row2.cells[ci].paragraphs[0]
-                    r_c = p_c.add_run(f"{labels[fname]}: ")
-                    r_c.bold = True; r_c.font.name = font_name; r_c.font.size = Pt(font_size)
-                    p_c.add_run("_" * 25)
-                if len(row2_cols) == 3:
-                    # Tercero añadido en nueva fila
-                    new_row = tbl_a.add_row()
-                    p_c3    = new_row.cells[0].merge(new_row.cells[1]).paragraphs[0]
-                    r_c3    = p_c3.add_run(f"{labels[row2_cols[2]]}: ")
-                    r_c3.bold = True; r_c3.font.name = font_name; r_c3.font.size = Pt(font_size)
-                    p_c3.add_run("_" * 30)
+                for ci, fname in enumerate(chunk):
+                    p_e = row_e.cells[ci].paragraphs[0]
+                    r_e = p_e.add_run(f"{labels[fname]}: ")
+                    _cell_font(r_e, bold=True)
+                    p_e.add_run("_" * 22)
+                    p_e.paragraph_format.space_before = Pt(4)
+                    p_e.paragraph_format.space_after  = Pt(4)
+            if len(chunk) == 1:
+                p_e.paragraph_format.space_before = Pt(4)
+                p_e.paragraph_format.space_after  = Pt(4)
+
         doc.add_paragraph()
 
-    # ── Instrucciones ─────────────────────────────────────────────────────────
-    instr = cfg.get('instr_gen', '').strip()
-    if instr:
-        p_ins = doc.add_paragraph()
-        # Fondo gris claro con borde izquierdo de color
-        pPr_ins = p_ins._p.get_or_add_pPr()
-        shd = OxmlElement('w:shd')
-        shd.set(qn('w:val'), 'clear'); shd.set(qn('w:color'), 'auto')
-        shd.set(qn('w:fill'), '%02X%02X%02X' % cs['bg'])
-        pPr_ins.append(shd)
-        pBdr_ins = OxmlElement('w:pBdr')
-        left_b   = OxmlElement('w:left'); left_b.set(qn('w:val'), 'single')
-        left_b.set(qn('w:sz'), '18'); left_b.set(qn('w:space'), '4')
-        left_b.set(qn('w:color'), '%02X%02X%02X' % cs['primary'])
-        pBdr_ins.append(left_b); pPr_ins.append(pBdr_ins)
-        r_ins = p_ins.add_run(instr)
-        r_ins.italic = True; r_ins.font.size = Pt(font_size - 1); r_ins.font.name = font_name
-        doc.add_paragraph()
-
-    # Aplicar interlineado a todos los párrafos ya añadidos
+    # ── Aplicar interlineado a todos los párrafos ya añadidos ─────────────────
     if linespread != 1.0:
-        from docx.oxml import OxmlElement as _OE
-        from docx.oxml.ns import qn as _qn
         line_val = str(int(linespread * 240))
         for p in doc.paragraphs:
             pPr_s = p._p.get_or_add_pPr()
-            spng  = _OE('w:spacing')
-            spng.set(_qn('w:line'), line_val)
-            spng.set(_qn('w:lineRule'), 'auto')
+            spng  = OxmlElement('w:spacing')
+            spng.set(qn('w:line'), line_val)
+            spng.set(qn('w:lineRule'), 'auto')
             pPr_s.append(spng)
 
     doc.add_paragraph("[[FUNDAMENTALES]]")
