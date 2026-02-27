@@ -901,6 +901,20 @@ def _ejecutar_export():
             {"txt": q["txt"], "pts": q["pts"], "espacio": q["espacio"]}
             for q in st.session_state.get("dev_questions", [])
         ],
+        # Estilo visual
+        "color_scheme":  cfg.get("color_scheme", "azul"),
+        "tipografia":    cfg.get("tipografia",   "cm"),
+        "font_size":     cfg.get("font_size",    12),
+        "linespread":    1.0,
+        "modo_compacto": cfg.get("modo_compacto", False),
+        # Puntos y penalización
+        "pts_fund":      cfg.get("pts_fund", ""),
+        "pts_test":      cfg.get("pts_test", ""),
+        "penalizacion":  cfg.get("penalizacion", ""),
+        # Diseño
+        "campos_alumno":  cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"]),
+        "opciones_cols":  cfg.get("opciones_cols", 1),
+        "logo_path":      st.session_state.get("_logo_path", ""),
     }
     tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
     tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
@@ -927,7 +941,7 @@ def _ejecutar_export():
         for letra, data in ef["word_sol"].items():
             ef["_zip_all"][f"{nombre_arch}_MOD{letra}_SOL.docx"] = data
 
-    # LaTeX
+    # LaTeX (+ bundle .sty)
     if exp_tex:
         ef["latex_exam"] = lib.generar_latex_strings(master, nombre_arch, cfg_export, modo_solucion=False)
         ef["latex_sol"]  = lib.generar_latex_strings(master, nombre_arch, cfg_export, modo_solucion=True)
@@ -935,6 +949,33 @@ def _ejecutar_export():
             ef["_zip_all"][f"{nombre_arch}_MOD{letra}.tex"] = data
         for letra, data in ef["latex_sol"].items():
             ef["_zip_all"][f"{nombre_arch}_MOD{letra}_SOL.tex"] = data
+        # Bundlear .sty personalizado
+        sty_bytes = lib._generar_sty(cfg_export)
+        if sty_bytes:
+            ef["_zip_all"]["estilo_examen_moderno_v2.sty"] = sty_bytes
+        # Logo si existe
+        _logo_p = st.session_state.get("_logo_path", "")
+        if _logo_p and os.path.isfile(_logo_p):
+            import os as _os
+            with open(_logo_p, "rb") as _lf:
+                ef["_zip_all"][_os.path.basename(_logo_p)] = _lf.read()
+
+    # Versión adaptada
+    if cfg.get("adapt_enabled", False) and (exp_word or exp_tex):
+        cfg_adapt = dict(cfg_export)
+        cfg_adapt["font_size"]         = int(cfg.get("adapt_font_size", 14))
+        cfg_adapt["linespread"]        = float(cfg.get("adapt_spacing", "1.5"))
+        cfg_adapt["adapt_espacio_pct"] = int(cfg.get("adapt_espacio_pct", 50))
+        cfg_adapt["adaptada_id"]       = cfg.get("adapt_id", "VERSIÓN ADAPTADA")
+        cfg_adapt["modo_compacto"]     = False  # nunca compacto en adaptada
+        if exp_word:
+            adapt_word = lib.rellenar_plantilla_word_bytes(master, nombre_arch, cfg_adapt, modo_solucion=False)
+            for letra, data in adapt_word.items():
+                ef["_zip_all"][f"{nombre_arch}_MOD{letra}_ADAPT.docx"] = data
+        if exp_tex:
+            adapt_latex = lib.generar_latex_strings(master, nombre_arch, cfg_adapt, modo_solucion=False)
+            for letra, data in adapt_latex.items():
+                ef["_zip_all"][f"{nombre_arch}_MOD{letra}_ADAPT.tex"] = data
 
     ef["zip_bytes"] = lib.generar_zip_bytes(ef["_zip_all"])
 
@@ -1179,6 +1220,17 @@ with tab_exp:
                                         format_func=lambda x: x[0], key="exp_ord")
             orden       = orden_val[1]
             barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
+            oc4, oc5    = st.columns(2)
+            _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
+            _cols_opt   = oc4.radio("Disposición opciones test", ["1 columna", "2 columnas"],
+                                    index=_cols_idx, horizontal=True, key="exp_opcols")
+            opciones_cols = 1 if _cols_opt == "1 columna" else 2
+            _campos_def   = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
+            _campos_map   = {"nombre": "Nombre", "dni": "DNI/NIU", "grupo": "Grupo", "firma": "Firma"}
+            _campos_sel   = oc5.multiselect("Campos del alumno", list(_campos_map.keys()),
+                                            default=_campos_def,
+                                            format_func=lambda x: _campos_map[x], key="exp_campos")
+            campos_alumno = _campos_sel
 
         # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
         with st.expander("📄 Formatos y marcado de soluciones", expanded=True):
@@ -1188,7 +1240,7 @@ with tab_exp:
             exp_word = fc2.checkbox("📄 Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
             exp_tex  = fc3.checkbox("📑 LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
             if exp_tex:
-                st.caption("ℹ️ LaTeX compatible con Overleaf/Prism. Requiere la clase `exam`.")
+                st.caption("ℹ️ LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
             st.markdown("**Marcado de la versión soluciones:**")
             sc1, sc2, sc3 = st.columns(3)
             sol_bold = sc1.checkbox("Negrita",        value=cfg.get("sol_bold", False), key="exp_sol_bold")
@@ -1203,6 +1255,85 @@ with tab_exp:
             hc1, hc2  = st.columns(2)
             info_fund = hc1.text_area("Cabecera sección desarrollo", value=cfg.get("h1", ""), height=70, key="exp_h1")
             info_test = hc2.text_area("Cabecera sección test",       value=cfg.get("h2", ""), height=70, key="exp_h2")
+
+        # ── 4b. Estilo visual ─────────────────────────────────────────────────
+        with st.expander("🎨 Estilo visual", expanded=False):
+            _scheme_opts  = {"azul": "Azul profesional", "ucm": "Colores UCM (granate)", "byn": "Blanco y Negro"}
+            _scheme_cur   = cfg.get("color_scheme", "azul")
+            _scheme_idx   = list(_scheme_opts.keys()).index(_scheme_cur) if _scheme_cur in _scheme_opts else 0
+            sv1, sv2      = st.columns(2)
+            color_scheme  = sv1.selectbox("Esquema de color", list(_scheme_opts.keys()),
+                                          index=_scheme_idx, format_func=lambda x: _scheme_opts[x],
+                                          key="exp_color_scheme")
+            _font_opts    = {"cm": "Computer Modern (LaTeX)", "palatino": "Palatino / Georgia",
+                             "times": "Times New Roman", "libertine": "Linux Libertine",
+                             "helvet": "Helvetica / Arial", "garamond": "Garamond"}
+            _font_cur     = cfg.get("tipografia", "cm")
+            _font_idx     = list(_font_opts.keys()).index(_font_cur) if _font_cur in _font_opts else 0
+            tipografia    = sv2.selectbox("Tipografía", list(_font_opts.keys()),
+                                          index=_font_idx, format_func=lambda x: _font_opts[x],
+                                          key="exp_tipografia")
+            sv3, sv4      = st.columns(2)
+            _size_opts    = [10, 11, 12]
+            _size_cur     = int(cfg.get("font_size", 12))
+            _size_idx     = _size_opts.index(_size_cur) if _size_cur in _size_opts else 2
+            font_size_val = sv3.selectbox("Tamaño de letra", _size_opts,
+                                          index=_size_idx, format_func=lambda x: f"{x} pt",
+                                          key="exp_font_size")
+            modo_compacto = sv4.checkbox("Modo compacto LaTeX",
+                                         value=cfg.get("modo_compacto", False), key="exp_compacto",
+                                         help="Encabezado pequeño, más preguntas en página 1")
+
+        # ── 4c. Puntos y penalización ─────────────────────────────────────────
+        with st.expander("📊 Puntos y penalización", expanded=False):
+            st.caption("Si dejas un campo vacío, ese dato no aparece en el examen.")
+            pp1, pp2, pp3 = st.columns(3)
+            pts_fund_val  = pp1.text_input("Puntos desarrollo", value=cfg.get("pts_fund", ""),
+                                           key="exp_pts_fund", placeholder="ej: 4")
+            pts_test_val  = pp2.text_input("Puntos test",       value=cfg.get("pts_test", ""),
+                                           key="exp_pts_test", placeholder="ej: 6")
+            _pen_opts     = ["Sin penalización", "−1/3", "−1/4", "−1/5", "−0,25", "Personalizado"]
+            _pen_cur      = cfg.get("penalizacion", "Sin penalización")
+            _pen_idx      = _pen_opts.index(_pen_cur) if _pen_cur in _pen_opts else 0
+            penalizacion_sel = pp3.selectbox("Penalización", _pen_opts, index=_pen_idx, key="exp_pen")
+            if penalizacion_sel == "Personalizado":
+                penalizacion_val = st.text_input("Valor personalizado", value=cfg.get("pen_custom", ""),
+                                                 key="exp_pen_custom", placeholder="ej: −0.2")
+            else:
+                penalizacion_val = "" if penalizacion_sel == "Sin penalización" else penalizacion_sel
+
+        # ── 4d. Versión adaptada ──────────────────────────────────────────────
+        with st.expander("♿ Versión adaptada", expanded=False):
+            adapt_enabled = st.checkbox("Generar versión adaptada adicional",
+                                        value=cfg.get("adapt_enabled", False), key="exp_adapt_on")
+            if adapt_enabled:
+                ad1, ad2, ad3 = st.columns(3)
+                _asize_opts  = [12, 14, 16, 18]
+                _asize_cur   = int(cfg.get("adapt_font_size", 14))
+                _asize_idx   = _asize_opts.index(_asize_cur) if _asize_cur in _asize_opts else 1
+                adapt_fsize  = ad1.selectbox("Tamaño letra", _asize_opts, index=_asize_idx,
+                                             format_func=lambda x: f"{x} pt", key="exp_adapt_size")
+                _aspac_opts  = {"1.0": "Normal", "1.5": "1,5×", "2.0": "Doble"}
+                _aspac_cur   = str(cfg.get("adapt_spacing", "1.5"))
+                _aspac_idx   = list(_aspac_opts.keys()).index(_aspac_cur) if _aspac_cur in _aspac_opts else 1
+                adapt_spac   = ad2.selectbox("Interlineado", list(_aspac_opts.keys()),
+                                             index=_aspac_idx, format_func=lambda x: _aspac_opts[x],
+                                             key="exp_adapt_spac")
+                _aextra_opts = {"0": "Normal", "25": "+25%", "50": "+50%", "100": "+100%"}
+                _aextra_cur  = str(cfg.get("adapt_espacio_pct", "50"))
+                _aextra_idx  = list(_aextra_opts.keys()).index(_aextra_cur) if _aextra_cur in _aextra_opts else 2
+                adapt_extra  = ad3.selectbox("Cajas desarrollo", list(_aextra_opts.keys()),
+                                             index=_aextra_idx, format_func=lambda x: _aextra_opts[x],
+                                             key="exp_adapt_extra")
+                adapt_id_val = st.text_input("Identificador en cabecera",
+                                             value=cfg.get("adapt_id", "VERSIÓN ADAPTADA"),
+                                             key="exp_adapt_id",
+                                             placeholder="ej: VERSIÓN ADAPTADA — García López")
+            else:
+                adapt_fsize = int(cfg.get("adapt_font_size", 14))
+                adapt_spac  = str(cfg.get("adapt_spacing", "1.5"))
+                adapt_extra = str(cfg.get("adapt_espacio_pct", "50"))
+                adapt_id_val = cfg.get("adapt_id", "VERSIÓN ADAPTADA")
 
         # ── 5. Anclaje ────────────────────────────────────────────────────────
         with st.expander("⚓ Anclaje de opciones", expanded=True):
@@ -1270,9 +1401,23 @@ with tab_exp:
             "inst": inst, "asig": asig, "tipo": tipo, "fecha": fecha, "tiem": tiem,
             "file": nombre_archivo, "ins": instr, "h1": info_fund, "h2": info_test,
             "vers": num_modelos, "ord": orden, "bar": barajar,
+            "opciones_cols": opciones_cols, "campos_alumno": campos_alumno,
             "exp_word": exp_word, "exp_tex": exp_tex,
             "sol_bold": sol_bold, "sol_red": sol_red, "sol_ast": sol_ast,
             "anc_chk": anclaje_auto, "anc_txt": anclaje_extra,
+            # Estilo visual
+            "color_scheme": color_scheme, "tipografia": tipografia,
+            "font_size": font_size_val, "modo_compacto": modo_compacto,
+            # Puntos y penalización
+            "pts_fund": pts_fund_val, "pts_test": pts_test_val,
+            "penalizacion": penalizacion_val,
+            "pen_custom": cfg.get("pen_custom", ""),
+            # Versión adaptada
+            "adapt_enabled":    adapt_enabled,
+            "adapt_font_size":  adapt_fsize,
+            "adapt_spacing":    adapt_spac,
+            "adapt_espacio_pct": int(adapt_extra),
+            "adapt_id":         adapt_id_val,
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────

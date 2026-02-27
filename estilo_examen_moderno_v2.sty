@@ -1,0 +1,360 @@
+% estilo_examen_moderno.sty
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{estilo_examen_moderno}[2025/01/11 Paquete de estilo moderno para examenes]
+
+% --- Paquetes Básicos ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usepackage{needspace} % Para evitar cortes de preguntas
+
+% ============================================================================
+% TIPOGRAFÍA - Comenta/Descomenta según necesites
+% ============================================================================
+
+% --- OPCIÓN 1: Computer Modern (Por defecto LaTeX) ---
+% Ya está activa por defecto, no hacer nada
+
+% --- OPCIÓN 2: Palatino (Elegante y muy legible) ---
+%\usepackage{mathpazo}
+
+% --- OPCIÓN 3: Times New Roman (Clásica académica) ---
+%\usepackage{mathptmx}
+
+% --- OPCIÓN 4: Libertine (Moderna y profesional) ---
+%\usepackage{libertine}
+%\usepackage[libertine]{newtxmath}
+
+% ============================================================================
+
+% --- Configuración de Márgenes ---
+\geometry{
+    a4paper,
+    left=20mm,
+    right=20mm,
+    top=30mm,
+    bottom=25mm,
+    headheight=20mm,
+    headsep=8mm
+}
+
+% ============================================================================
+% ESQUEMAS DE COLOR - Comenta/Descomenta según necesites
+% ============================================================================
+
+% --- OPCIÓN 1: AZUL PROFESIONAL (Por defecto) ---
+\definecolor{primario}{RGB}{41, 128, 185}      % Azul profesional
+\definecolor{secundario}{RGB}{52, 73, 94}      % Gris azulado oscuro
+\definecolor{acento}{RGB}{231, 76, 60}         % Rojo acento
+\definecolor{fondo}{RGB}{236, 240, 241}        % Gris claro fondo
+\definecolor{texto}{RGB}{44, 62, 80}           % Texto principal
+
+% --- OPCIÓN 2: COLORES INSTITUCIONALES UCM ---
+% Descomenta estas líneas y comenta las de arriba para usar colores UCM
+%\definecolor{primario}{RGB}{165, 28, 48}       % Rojo granate UCM
+%\definecolor{secundario}{RGB}{120, 20, 35}     % Granate oscuro
+%\definecolor{acento}{RGB}{184, 134, 11}        % Dorado UCM
+%\definecolor{fondo}{RGB}{245, 240, 235}        % Beige muy claro
+%\definecolor{texto}{RGB}{40, 40, 40}           % Negro suave
+
+% --- OPCIÓN 3: BLANCO Y NEGRO (Para impresión) ---
+% Descomenta estas líneas y comenta las de arriba para B&N
+%\definecolor{primario}{RGB}{60, 60, 60}        % Gris oscuro
+%\definecolor{secundario}{RGB}{40, 40, 40}      % Gris muy oscuro
+%\definecolor{acento}{RGB}{100, 100, 100}       % Gris medio
+%\definecolor{fondo}{RGB}{245, 245, 245}        % Gris muy claro
+%\definecolor{texto}{RGB}{0, 0, 0}              % Negro
+
+% ============================================================================
+% MODO COMPACTO - Para que quepan 6-10 preguntas fundamentales en página 1
+% ============================================================================
+
+% --- Descomentar la siguiente línea para activar modo compacto ---
+%\def\modocompacto{1}
+
+% ============================================================================
+
+% --- Comandos para placeholders de Python (COMPATIBILIDAD TOTAL) ---
+\newcommand{\tipoexamen}[1]{\def\thetipoexamen{#1}}
+\newcommand{\institucion}[1]{\def\theinstitucion{#1}}
+\newcommand{\asignatura}[1]{\def\theasignatura{#1}}
+\newcommand{\fecha}[1]{\def\thefecha{#1}}
+\newcommand{\duracion}[1]{\def\theduracion{#1}}
+\newcommand{\version}[1]{\def\theversion{#1}}
+\newcommand{\logo}[1]{\def\thelogo{#1}}
+
+% Valores por defecto
+\tipoexamen{EXAMEN} 
+\institucion{} 
+\asignatura{} 
+\fecha{\today} 
+\duracion{} 
+\version{A} 
+\logo{}
+
+% --- Encabezado Profesional Moderno ---
+\newcommand{\encabezadoprofesional}{
+    \ifdefined\modocompacto
+        % MODO COMPACTO: Encabezado pequeño sin logo
+        \noindent
+        {\Large\bfseries\color{primario}\thetipoexamen} \hfill {\large Versión \theversion}\\
+        {\large\bfseries\theasignatura}\\
+        {\small\theinstitucion{} | \thefecha{} | \theduracion}
+        
+        \vspace{3mm}
+        \hrule
+        \vspace{2mm}
+    \else
+        % MODO NORMAL: Encabezado completo con caja
+        \begin{tcolorbox}[
+            colback=white,
+            colframe=primario,
+            arc=2mm,
+            boxrule=2pt,
+            left=5mm,
+            right=5mm,
+            top=4mm,
+            bottom=4mm
+        ]
+            \color{primario}
+            \begin{minipage}[c]{0.7\textwidth}
+                {\fontsize{24}{28}\selectfont\bfseries\thetipoexamen}\\[2mm]
+                {\Large\bfseries\theasignatura}\\[1mm]
+                {\large\theinstitucion}
+            \end{minipage}%
+            \begin{minipage}[c]{0.3\textwidth}
+                \raggedleft
+                \ifx\thelogo\empty
+                \else
+                    \includegraphics[height=25mm]{\thelogo}
+                \fi
+            \end{minipage}
+        \end{tcolorbox}
+        
+        \vspace{3mm}
+        
+        % Información del examen
+        \noindent
+        \begin{tikzpicture}
+            \node[
+                fill=fondo,
+                rounded corners=2mm,
+                inner sep=3mm,
+                minimum width=\textwidth,
+                align=left
+            ] {
+                \begin{minipage}{0.48\textwidth}
+                    \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
+                \end{minipage}
+                \begin{minipage}{0.23\textwidth}
+                    \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
+                \end{minipage}
+                \begin{minipage}{0.23\textwidth}
+                    \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
+                \end{minipage}
+            };
+        \end{tikzpicture}
+        
+        \vspace{5mm}
+    \fi
+}
+
+% --- Configuración de Cabecera y Pie de página ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{secundario}{\textbf{\thetipoexamen}}}
+\fancyhead[R]{\small\textcolor{secundario}{\thefecha}}
+\fancyfoot[C]{\small\textcolor{secundario}{Página \textbf{\thepage}}}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{primario}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\footrulewidth}{0pt}
+
+% --- Caja para datos del alumno moderna ---
+\newcommand{\cajaalumno}{
+    \ifdefined\modocompacto
+        % MODO COMPACTO: Caja reducida en 2 líneas
+        \vspace{2mm}
+        \noindent\fbox{
+            \begin{minipage}{\textwidth}
+                \vspace{2mm}
+                \small
+                \textbf{Nombre y Apellidos:} \hrulefill \\[4mm]
+                \textbf{DNI:} \rule{4cm}{0.4pt} \hfill \textbf{Firma:} \rule{5cm}{0.4pt}
+                \vspace{2mm}
+            \end{minipage}
+        }
+        \vspace{3mm}
+        \thispagestyle{empty} % Sin encabezado en página 1
+    \else
+        % MODO NORMAL: Caja completa
+        \vspace{3mm}
+        \begin{tcolorbox}[
+            colback=white,
+            colframe=secundario,
+            arc=2mm,
+            boxrule=1pt,
+            left=5mm,
+            right=5mm,
+            top=3mm,
+            bottom=3mm
+        ]
+            \textcolor{secundario}{\textbf{$\bullet$}} \textbf{Nombre y Apellidos:} \hrulefill \\[8mm]
+            \begin{minipage}[t]{0.45\textwidth}
+                \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{DNI:} \hrulefill
+            \end{minipage}%
+            \hspace{0.05\textwidth}%
+            \begin{minipage}[t]{0.45\textwidth}
+                \textcolor{secundario}{\textbf{$\checkmark$}} \textbf{Firma:}
+                \vspace{8mm}
+            \end{minipage}
+        \end{tcolorbox}
+        \vspace{5mm}
+    \fi
+}
+
+% --- Caja para Instrucciones Generales ---
+\newcommand{\instrucciones}[1]{%
+    \vspace{2mm}
+    \noindent
+    \begin{tcolorbox}[
+        colback=white,
+        colframe=secundario,
+        arc=1mm,
+        boxrule=0.5pt,
+        left=4mm,
+        right=4mm,
+        top=2mm,
+        bottom=2mm
+    ]
+        \textcolor{secundario}{\textbf{$\triangleright$ Instrucciones:}} #1
+    \end{tcolorbox}
+    \vspace{2mm}
+}
+
+% --- Formato de Secciones (SIMPLE, sin fondos raros) ---
+\titleformat{\section}
+    {\Large\bfseries\color{primario}}
+    {}
+    {0em}
+    {}
+    [\vspace{0.3em}{\color{primario}\titlerule[1pt]}\vspace{0.5em}]
+
+\titleformat{\subsection}
+    {\large\bfseries\color{secundario}}
+    {}
+    {0em}
+    {}
+
+% --- Formato de Listas y Preguntas ---
+\ifdefined\modocompacto
+    % MODO COMPACTO: Espaciado reducido
+    \setlist[enumerate,1]{
+        label=\protect\circled{\arabic*},
+        leftmargin=*,
+        itemsep=0.8em,
+        topsep=0.5em,
+        before={\color{texto}},
+        after={}
+    }
+\else
+    % MODO NORMAL: Espaciado estándar
+    \setlist[enumerate,1]{
+        label=\protect\circled{\arabic*},
+        leftmargin=*,
+        itemsep=1.5em,
+        topsep=1em,
+        before={\color{texto}},
+        after={}
+    }
+\fi
+
+% Segunda lista (opciones) - letras con estilo moderno
+\setlist[enumerate,2]{
+    label=\textcolor{secundario}{\textbf{\alph*)}},
+    leftmargin=2em,
+    itemsep=0.5em,
+    topsep=0.3em
+}
+
+% Prevenir cortes de página SOLO en preguntas principales (nivel 1)
+% No afecta a las opciones a), b), c), d) (nivel 2)
+\let\olditem\item
+\renewcommand{\item}{%
+  \ifnum\@enumdepth=1\relax
+    \needspace{10cm}% Requiere 10cm para preguntas principales
+  \fi
+  \olditem%
+}
+
+% Comando para círculos en los números
+\newcommand*\circled[1]{%
+    \tikz[baseline=(char.base)]{
+        \node[
+            shape=circle,
+            draw=primario,
+            fill=primario!10,
+            inner sep=1pt,
+            minimum size=6mm,
+            font=\bfseries
+        ] (char) {\textcolor{primario}{#1}};
+    }%
+}
+
+% --- Soporte para caracteres especiales de Física ---
+\usepackage{newunicodechar}
+\newunicodechar{Δ}{\ensuremath{\Delta}}
+\newunicodechar{π}{\ensuremath{\pi}}
+\newunicodechar{λ}{\ensuremath{\lambda}}
+\newunicodechar{±}{\ensuremath{\pm}}
+\newunicodechar{α}{\ensuremath{\alpha}}
+\newunicodechar{β}{\ensuremath{\beta}}
+\newunicodechar{γ}{\ensuremath{\gamma}}
+\newunicodechar{Ω}{\ensuremath{\Omega}}
+\newunicodechar{μ}{\ensuremath{\mu}}
+\newunicodechar{°}{\ensuremath{^\circ}}
+
+% --- Configuración de colores de texto ---
+\color{texto}
+
+% --- Caja de espacio para respuestas de desarrollo ---
+% Uso: \espaciorespuesta[6cm]  (altura opcional, defecto 6cm)
+\newcommand{\espaciorespuesta}[1][6cm]{%
+    \vspace{2mm}%
+    \begin{tcolorbox}[
+        colback=white,
+        colframe=secundario!40,
+        arc=1mm,
+        boxrule=0.5pt,
+        height=#1,
+        valign=top,
+        left=2mm, right=2mm, top=2mm, bottom=2mm
+    ]\end{tcolorbox}%
+    \vspace{2mm}%
+}
+
+% --- Separador de sección del examen ---
+% Uso: \seccionexamen{PARTE II --- TEST}{6 pts · pen: -1/3}
+%      (el segundo argumento es opcional; si está vacío no se muestra)
+\newcommand{\seccionexamen}[2]{%
+    \vspace{4mm}%
+    \noindent%
+    {\Large\bfseries\color{primario}#1%
+    \ifx&#2&%
+    \else%
+        \hfill{\normalsize\color{secundario}[#2]}%
+    \fi}%
+    \par\nobreak%
+    {\color{primario}\rule{\linewidth}{1.5pt}}%
+    \vspace{2mm}%
+}
+
+\endinput

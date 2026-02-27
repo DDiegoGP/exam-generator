@@ -2,6 +2,7 @@ import pandas as pd
 import random, re, os
 from docx import Document
 from docx.shared import Inches, RGBColor, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 import openpyxl
 
 try:
@@ -528,6 +529,128 @@ def actualizar_pregunta_db(sheet, pid, datos, idx_usada_ignorado):
         return True, "Actualizado correctamente"
     except Exception as e: return False, str(e)
 
+# ── Esquemas de color para Word (R,G,B) ────────────────────────────────────
+_WORD_COLOR_SCHEMES = {
+    'azul': {'primary': (41, 128, 185), 'secondary': (52, 73, 94),  'bg': (236, 240, 241)},
+    'ucm':  {'primary': (165, 28, 48),  'secondary': (120, 20, 35), 'bg': (245, 240, 235)},
+    'byn':  {'primary': (60, 60, 60),   'secondary': (40, 40, 40),  'bg': (245, 245, 245)},
+}
+
+# ── Paletas de color para el .sty (LaTeX) ──────────────────────────────────
+_STY_COLORS = {
+    'azul': (
+        r'\definecolor{primario}{RGB}{41, 128, 185}'  '\n'
+        r'\definecolor{secundario}{RGB}{52, 73, 94}'  '\n'
+        r'\definecolor{acento}{RGB}{231, 76, 60}'     '\n'
+        r'\definecolor{fondo}{RGB}{236, 240, 241}'    '\n'
+        r'\definecolor{texto}{RGB}{44, 62, 80}'
+    ),
+    'ucm': (
+        r'\definecolor{primario}{RGB}{165, 28, 48}'   '\n'
+        r'\definecolor{secundario}{RGB}{120, 20, 35}' '\n'
+        r'\definecolor{acento}{RGB}{184, 134, 11}'    '\n'
+        r'\definecolor{fondo}{RGB}{245, 240, 235}'    '\n'
+        r'\definecolor{texto}{RGB}{40, 40, 40}'
+    ),
+    'byn': (
+        r'\definecolor{primario}{RGB}{60, 60, 60}'    '\n'
+        r'\definecolor{secundario}{RGB}{40, 40, 40}'  '\n'
+        r'\definecolor{acento}{RGB}{100, 100, 100}'   '\n'
+        r'\definecolor{fondo}{RGB}{245, 245, 245}'    '\n'
+        r'\definecolor{texto}{RGB}{0, 0, 0}'
+    ),
+}
+
+# ── Fuentes LaTeX (comando usepackage a inyectar) ───────────────────────────
+_STY_FONTS = {
+    'cm':        '',
+    'palatino':  r'\usepackage{mathpazo}',
+    'times':     r'\usepackage{mathptmx}',
+    'libertine': r'\usepackage{libertine}' '\n' r'\usepackage[libertine]{newtxmath}',
+    'helvet':    r'\usepackage{helvet}' '\n' r'\renewcommand{\familydefault}{\sfdefault}',
+    'garamond':  r'\usepackage{garamondx}',
+}
+
+# ── Fuentes Word (nombre de fuente) ────────────────────────────────────────
+_WORD_FONTS = {
+    'cm':        'Cambria',
+    'palatino':  'Palatino Linotype',
+    'times':     'Times New Roman',
+    'libertine': 'Cambria',
+    'helvet':    'Arial',
+    'garamond':  'Garamond',
+}
+
+
+def _generar_sty(cfg) -> bytes:
+    """Carga el .sty y aplica overrides de color/fuente/modo según cfg."""
+    import os as _os
+    sty_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                              'estilo_examen_moderno_v2.sty')
+    try:
+        with open(sty_path, 'r', encoding='utf-8') as _f:
+            sty = _f.read()
+    except FileNotFoundError:
+        return b""
+
+    overrides = []
+    scheme = cfg.get('color_scheme', 'azul')
+    if scheme in _STY_COLORS and scheme != 'azul':
+        overrides.append('% === Esquema de color seleccionado ===')
+        overrides.append(_STY_COLORS[scheme])
+    font = cfg.get('tipografia', 'cm')
+    if font in _STY_FONTS and _STY_FONTS[font]:
+        overrides.append('% === Tipografía seleccionada ===')
+        overrides.append(_STY_FONTS[font])
+    if cfg.get('modo_compacto', False):
+        overrides.append(r'\def\modocompacto{1}')
+
+    if overrides:
+        # Inyectar DESPUÉS de \logo{} (los \ifdefined\modocompacto vienen después)
+        inject_block = r'\logo{}' + '\n' + '\n'.join(overrides) + '\n'
+        sty = sty.replace(r'\logo{}', inject_block, 1)
+
+    return sty.encode('utf-8')
+
+
+def _gen_caja_alumno_latex(campos: list) -> str:
+    """Genera tcolorbox con campos del alumno según selección."""
+    if not campos:
+        return ''
+    lines = []
+    if 'nombre' in campos:
+        lines.append(r'\textbf{Nombre y Apellidos:} \hrulefill')
+    row2 = []
+    if 'dni'   in campos:
+        row2.append(r'\begin{minipage}[t]{0.45\textwidth}\textbf{DNI/NIU:} \hrulefill\end{minipage}')
+    if 'grupo' in campos:
+        row2.append(r'\begin{minipage}[t]{0.45\textwidth}\textbf{Grupo:} \hrulefill\end{minipage}')
+    if row2:
+        lines.append(r'\\[8mm]' + '\n' + r'\hspace{0.05\textwidth}'.join(row2))
+    if 'firma' in campos:
+        lines.append(r'\\[8mm]\textbf{Firma:} \hspace{8cm}\vspace{4mm}')
+    if not lines:
+        return ''
+    body = '\n'.join(lines)
+    return (
+        r'\begin{tcolorbox}[colback=white,colframe=secundario,arc=2mm,boxrule=1pt,'
+        r'left=5mm,right=5mm,top=3mm,bottom=3mm]' '\n'
+        + body + '\n'
+        r'\end{tcolorbox}' '\n'
+        r'\vspace{3mm}' '\n'
+    )
+
+
+def _gen_seccion_info(pts: str, penalizacion: str) -> str:
+    r"""Combina puntos y penalización en una cadena para \seccionexamen."""
+    parts = []
+    if pts and str(pts).strip():
+        parts.append(f"{pts} pts")
+    if penalizacion and str(penalizacion).strip() not in ('', 'Sin penalización'):
+        parts.append(f"pen: {penalizacion}")
+    return ' · '.join(parts)
+
+
 # --- UTILIDADES LATEX ---
 def _escape_latex(text):
     """Escapa caracteres especiales de LaTeX, preservando secciones math ($...$, $$...$$)."""
@@ -801,55 +924,184 @@ def _replace_in_paragraph(paragraph, key, val):
         runs[ri].text = ''
 
 def _setup_word_styles(doc, cfg, version):
-    """Configura estilos profesionales para documento Word sin plantilla."""
-    from docx.shared import Cm
+    """Configura documento Word moderno con color scheme, fuente y campos configurables."""
+    from docx.shared import Cm, RGBColor as _RGB
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.enum.section import WD_ORIENT
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    import copy
 
-    # Margenes 2cm
-    for section in doc.sections:
-        section.top_margin = Cm(2); section.bottom_margin = Cm(2)
-        section.left_margin = Cm(2); section.right_margin = Cm(2)
+    scheme = cfg.get('color_scheme', 'azul')
+    cs     = _WORD_COLOR_SCHEMES.get(scheme, _WORD_COLOR_SCHEMES['azul'])
+    pri    = _RGB(*cs['primary'])
+    sec    = _RGB(*cs['secondary'])
+    bg_rgb = _RGB(*cs['bg'])
 
-    # Fuente por defecto
-    style = doc.styles['Normal']
-    style.font.name = 'Calibri'; style.font.size = Pt(11)
+    font_key  = cfg.get('tipografia', 'cm')
+    font_name = _WORD_FONTS.get(font_key, 'Calibri')
+    font_size = int(cfg.get('font_size', 12))
+    linespread = float(cfg.get('linespread', 1.0))
 
-    # Header
-    header = doc.sections[0].header
-    hp = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
-    hp.text = f"{cfg.get('entidad','')}  |  {cfg.get('titulo_asignatura','')}  |  Modelo {version}"
-    hp.style.font.size = Pt(8); hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    campos_alumno = cfg.get('campos_alumno', ['nombre', 'dni', 'grupo', 'firma'])
 
-    # Footer
+    # ── Márgenes ──────────────────────────────────────────────────────────────
+    for sec_obj in doc.sections:
+        sec_obj.top_margin    = Cm(2.5)
+        sec_obj.bottom_margin = Cm(2.5)
+        sec_obj.left_margin   = Cm(2.5)
+        sec_obj.right_margin  = Cm(2.5)
+        sec_obj.header_distance = Cm(1.2)
+
+    # ── Fuente por defecto ─────────────────────────────────────────────────────
+    normal = doc.styles['Normal']
+    normal.font.name = font_name
+    normal.font.size = Pt(font_size)
+
+    # ── Header (texto centrado, pequeño, color secundario) ────────────────────
+    header  = doc.sections[0].header
+    hp      = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+    hp.clear()
+    parts_h = []
+    if cfg.get('entidad', ''):     parts_h.append(cfg['entidad'])
+    if cfg.get('titulo_asignatura', ''): parts_h.append(cfg['titulo_asignatura'])
+    parts_h.append(f"Modelo {version}")
+    rh = hp.add_run("  ·  ".join(parts_h))
+    rh.font.name = font_name; rh.font.size = Pt(8); rh.font.color.rgb = sec
+    hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Línea bajo el header
+    pPr = hp._p.get_or_add_pPr()
+    pBdr = OxmlElement('w:pBdr')
+    bot  = OxmlElement('w:bottom')
+    bot.set(qn('w:val'), 'single'); bot.set(qn('w:sz'), '4')
+    bot.set(qn('w:space'), '1'); bot.set(qn('w:color'), '%02X%02X%02X' % cs['secondary'])
+    pBdr.append(bot); pPr.append(pBdr)
+
+    # ── Footer (página centrada) ───────────────────────────────────────────────
     footer = doc.sections[0].footer
-    fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    fp     = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    fp.clear()
+    # Insertar campo PAGE
+    run_fp = fp.add_run()
+    fld    = OxmlElement('w:fldChar'); fld.set(qn('w:fldCharType'), 'begin')
+    run_fp._r.append(fld)
+    run2   = fp.add_run()
+    instr  = OxmlElement('w:instrText'); instr.text = ' PAGE '
+    run2._r.append(instr)
+    run3   = fp.add_run()
+    fld2   = OxmlElement('w:fldChar'); fld2.set(qn('w:fldCharType'), 'end')
+    run3._r.append(fld2)
     fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    fp.style.font.size = Pt(8)
+    for r in fp.runs: r.font.size = Pt(8); r.font.color.rgb = sec
 
-    # Titulo centrado
-    t = doc.add_paragraph()
-    t.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = t.add_run(cfg.get('titulo_asignatura','')); r.bold = True; r.font.size = Pt(16); r.font.name = 'Calibri'
-    sub = doc.add_paragraph()
-    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r2 = sub.add_run(f"{cfg.get('tipo_examen','')} - Modelo {version}"); r2.font.size = Pt(13); r2.font.name = 'Calibri'
-    info = doc.add_paragraph()
-    info.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r3 = info.add_run(f"{cfg.get('entidad','')}    {cfg.get('fecha','')}    Tiempo: {cfg.get('tiempo','')}"); r3.font.size = Pt(10)
+    # ── Bloque de cabecera del examen ─────────────────────────────────────────
+    # Fila de título en color primario
+    p_titulo = doc.add_paragraph()
+    p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_tit = p_titulo.add_run(cfg.get('titulo_asignatura', ''))
+    r_tit.bold = True; r_tit.font.size = Pt(font_size + 4)
+    r_tit.font.name = font_name; r_tit.font.color.rgb = pri
 
-    # Nombre y grupo
-    doc.add_paragraph("")
-    ng = doc.add_paragraph()
-    ng.add_run("Nombre: ").bold = True; ng.add_run("_" * 50 + "   ")
-    ng.add_run("Grupo: ").bold = True; ng.add_run("_" * 15)
+    # Subtítulo: tipo + modelo
+    sub_parts = []
+    if cfg.get('tipo_examen', ''): sub_parts.append(cfg['tipo_examen'])
+    sub_parts.append(f"Modelo {version}")
+    p_sub = doc.add_paragraph()
+    p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_sub = p_sub.add_run("  —  ".join(sub_parts))
+    r_sub.font.size = Pt(font_size + 1); r_sub.font.name = font_name; r_sub.font.color.rgb = sec
 
-    # Instrucciones
-    if cfg.get('instr_gen'):
-        pi = doc.add_paragraph()
-        ri = pi.add_run(cfg.get('instr_gen','')); ri.italic = True; ri.font.size = Pt(10)
+    # Línea de info: institución | fecha | tiempo
+    info_parts = []
+    if cfg.get('entidad', ''):  info_parts.append(cfg['entidad'])
+    if cfg.get('fecha', ''):    info_parts.append(cfg['fecha'])
+    if cfg.get('tiempo', ''):   info_parts.append(f"Tiempo: {cfg['tiempo']}")
+    if info_parts:
+        p_info = doc.add_paragraph()
+        p_info.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r_info = p_info.add_run("  ·  ".join(info_parts))
+        r_info.font.size = Pt(font_size - 1); r_info.font.name = font_name; r_info.font.color.rgb = sec
 
-    doc.add_paragraph("")  # Separador
+    # Línea divisoria bajo cabecera
+    p_div = doc.add_paragraph()
+    pPr2  = p_div._p.get_or_add_pPr()
+    pBdr2 = OxmlElement('w:pBdr')
+    bot2  = OxmlElement('w:bottom'); bot2.set(qn('w:val'), 'single')
+    bot2.set(qn('w:sz'), '12'); bot2.set(qn('w:space'), '1')
+    bot2.set(qn('w:color'), '%02X%02X%02X' % cs['primary'])
+    pBdr2.append(bot2); pPr2.append(pBdr2)
+
+    # ── Caja de datos del alumno ───────────────────────────────────────────────
+    if campos_alumno:
+        doc.add_paragraph()
+        tbl_a = doc.add_table(rows=1 + (1 if any(f in campos_alumno for f in ['dni','grupo','firma']) else 0), cols=2)
+        tbl_a.style = 'Table Grid'
+        # Fila Nombre (full width si solo nombre, sino primera fila)
+        if 'nombre' in campos_alumno:
+            cell = tbl_a.rows[0].cells[0].merge(tbl_a.rows[0].cells[1])
+            p_n  = cell.paragraphs[0]
+            r_nl = p_n.add_run("Nombre y Apellidos: ")
+            r_nl.bold = True; r_nl.font.name = font_name; r_nl.font.size = Pt(font_size)
+            p_n.add_run("_" * 60)
+            p_n.paragraph_format.space_before = Pt(4)
+            p_n.paragraph_format.space_after  = Pt(4)
+
+        row2_cols = [f for f in ['dni', 'grupo', 'firma'] if f in campos_alumno]
+        if row2_cols and len(tbl_a.rows) > 1:
+            row2 = tbl_a.rows[1]
+            labels = {'dni': 'DNI/NIU', 'grupo': 'Grupo', 'firma': 'Firma'}
+            if len(row2_cols) == 1:
+                cell = row2.cells[0].merge(row2.cells[1])
+                lbl  = labels[row2_cols[0]]
+                p_c  = cell.paragraphs[0]
+                r_c  = p_c.add_run(f"{lbl}: ")
+                r_c.bold = True; r_c.font.name = font_name; r_c.font.size = Pt(font_size)
+                p_c.add_run("_" * 30)
+            else:
+                for ci, fname in enumerate(row2_cols[:2]):
+                    p_c = row2.cells[ci].paragraphs[0]
+                    r_c = p_c.add_run(f"{labels[fname]}: ")
+                    r_c.bold = True; r_c.font.name = font_name; r_c.font.size = Pt(font_size)
+                    p_c.add_run("_" * 25)
+                if len(row2_cols) == 3:
+                    # Tercero añadido en nueva fila
+                    new_row = tbl_a.add_row()
+                    p_c3    = new_row.cells[0].merge(new_row.cells[1]).paragraphs[0]
+                    r_c3    = p_c3.add_run(f"{labels[row2_cols[2]]}: ")
+                    r_c3.bold = True; r_c3.font.name = font_name; r_c3.font.size = Pt(font_size)
+                    p_c3.add_run("_" * 30)
+        doc.add_paragraph()
+
+    # ── Instrucciones ─────────────────────────────────────────────────────────
+    instr = cfg.get('instr_gen', '').strip()
+    if instr:
+        p_ins = doc.add_paragraph()
+        # Fondo gris claro con borde izquierdo de color
+        pPr_ins = p_ins._p.get_or_add_pPr()
+        shd = OxmlElement('w:shd')
+        shd.set(qn('w:val'), 'clear'); shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'), '%02X%02X%02X' % cs['bg'])
+        pPr_ins.append(shd)
+        pBdr_ins = OxmlElement('w:pBdr')
+        left_b   = OxmlElement('w:left'); left_b.set(qn('w:val'), 'single')
+        left_b.set(qn('w:sz'), '18'); left_b.set(qn('w:space'), '4')
+        left_b.set(qn('w:color'), '%02X%02X%02X' % cs['primary'])
+        pBdr_ins.append(left_b); pPr_ins.append(pBdr_ins)
+        r_ins = p_ins.add_run(instr)
+        r_ins.italic = True; r_ins.font.size = Pt(font_size - 1); r_ins.font.name = font_name
+        doc.add_paragraph()
+
+    # Aplicar interlineado a todos los párrafos ya añadidos
+    if linespread != 1.0:
+        from docx.oxml import OxmlElement as _OE
+        from docx.oxml.ns import qn as _qn
+        line_val = str(int(linespread * 240))
+        for p in doc.paragraphs:
+            pPr_s = p._p.get_or_add_pPr()
+            spng  = _OE('w:spacing')
+            spng.set(_qn('w:line'), line_val)
+            spng.set(_qn('w:lineRule'), 'auto')
+            pPr_s.append(spng)
+
     doc.add_paragraph("[[FUNDAMENTALES]]")
     doc.add_paragraph("[[PREGUNTAS]]")
 
@@ -942,7 +1194,7 @@ def exportar_csv_bytes(master, nombre) -> dict:
 
 def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     """Genera los .tex en memoria. Retorna {letra_version: str_tex}."""
-    sufijo = "_SOL" if modo_solucion else ""
+    # Si hay plantilla personalizada, usarla directamente
     plantilla_tex = ""
     tpl_bytes = cfg.get('plantilla_tex_bytes')
     if tpl_bytes:
@@ -957,37 +1209,46 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         except Exception:
             pass
 
-    _DEFAULT_TEX = r"""\documentclass[a4paper,12pt]{exam}
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[spanish]{babel}
-\usepackage{amsmath,amssymb}
-\usepackage{geometry}
-\geometry{margin=2cm}
-\usepackage{xcolor}
-\usepackage{graphicx}
+    # ── Parámetros de estilo ─────────────────────────────────────────────────
+    font_size = int(cfg.get('font_size', 12))
+    doc_class = 'extarticle' if font_size > 12 else 'article'
+    linespread = cfg.get('linespread', 1.0)
+    linespread_cmd = (
+        f'\\usepackage{{setspace}}\\setstretch{{{linespread}}}'
+        if linespread != 1.0 else ''
+    )
+    campos_alumno = cfg.get('campos_alumno', ['nombre', 'dni', 'grupo', 'firma'])
+    opciones_cols = cfg.get('opciones_cols', 1)
 
-\pagestyle{headandfoot}
-\firstpageheader{[[INSTITUCION]]}{[[TIPO_EXAMEN]] -- Modelo [[VERSION]]}{[[FECHA]]}
-\runningheader{[[TITULO]]}{Modelo [[VERSION]]}{Pág. \thepage/\numpages}
-\firstpagefooter{}{}{}\runningfooter{}{}{}
+    # Puntos/penalización → info para \seccionexamen
+    pts_fund = str(cfg.get('pts_fund', '')).strip()
+    pts_test = str(cfg.get('pts_test', '')).strip()
+    penalizacion = str(cfg.get('penalizacion', '')).strip()
+    info_fund_sec = _gen_seccion_info(pts_fund, '')
+    info_test_sec = _gen_seccion_info(pts_test, penalizacion)
 
+    # Identificador de versión adaptada (se añade al tipo_examen si presente)
+    adapt_id = str(cfg.get('adaptada_id', '')).strip()
+    tipo_raw = cfg.get('tipo_examen', '')
+    if adapt_id:
+        tipo_raw = f"{tipo_raw} — {adapt_id}" if tipo_raw else adapt_id
+
+    _DEFAULT_TEX = r"""\documentclass[a4paper,[[FONTSIZE]]pt]{[[DOCTYPE]]}
+\usepackage{estilo_examen_moderno_v2}
+[[LINESPREAD_CMD]]
+\tipoexamen{[[TIPO_EXAMEN]]}
+\institucion{[[INSTITUCION]]}
+\asignatura{[[TITULO]]}
+\fecha{[[FECHA]]}
+\duracion{[[TIEMPO]]}
+\version{[[VERSION]]}
+[[LOGO_CMD]]
 \begin{document}
-\begin{center}
-{\Large \textbf{[[TITULO]]}} \\[6pt]
-{\large [[TIPO_EXAMEN]] -- Modelo [[VERSION]]} \\[4pt]
-[[INSTITUCION]] \hfill [[FECHA]] \hfill Tiempo: [[TIEMPO]]
-\end{center}
-\vspace{2mm}
-\noindent\textbf{Nombre:} \hrulefill \hspace{1cm} \textbf{Grupo:} \hrulefill
-\vspace{3mm}
-\noindent\textit{[[INSTRUCCIONES]]}
-[[INFO_FUNDAMENTALES]]
-[[FUNDAMENTALES]]
-[[INFO_TEST]]
-\begin{questions}
-[[PREGUNTAS]]
-\end{questions}
+\encabezadoprofesional
+[[CAJA_ALUMNO]]
+[[INSTRUCCIONES_TEX]]
+[[BLOQUE_FUND]]
+[[BLOQUE_TEST]]
 \end{document}"""
 
     if not plantilla_tex:
@@ -996,113 +1257,322 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     result = {}
     for m in master:
         tex = plantilla_tex
-        tex = tex.replace('[[TIPO_EXAMEN]]', _escape_latex(cfg.get('tipo_examen', '')))
+        tex = tex.replace('[[FONTSIZE]]',    str(font_size))
+        tex = tex.replace('[[DOCTYPE]]',     doc_class)
+        tex = tex.replace('[[LINESPREAD_CMD]]', linespread_cmd)
+        tex = tex.replace('[[TIPO_EXAMEN]]', _escape_latex(tipo_raw))
         tex = tex.replace('[[INSTITUCION]]', _escape_latex(cfg.get('entidad', '')))
-        tex = tex.replace('[[TITULO]]', _escape_latex(cfg.get('titulo_asignatura', '')))
-        tex = tex.replace('[[FECHA]]', _escape_latex(cfg.get('fecha', '')))
-        tex = tex.replace('[[TIEMPO]]', _escape_latex(cfg.get('tiempo', '')))
-        tex = tex.replace('[[VERSION]]', m['letra_version'])
-        tex = tex.replace('[[INSTRUCCIONES]]', _escape_latex(cfg.get('instr_gen', '')))
-        tex = tex.replace('[[INFO_FUNDAMENTALES]]', _escape_latex(cfg.get('info_fund', '')))
-        tex = tex.replace('[[INFO_TEST]]', _escape_latex(cfg.get('info_test', '')))
-        tex = tex.replace('[[LOGO]]', '')
+        tex = tex.replace('[[TITULO]]',      _escape_latex(cfg.get('titulo_asignatura', '')))
+        tex = tex.replace('[[FECHA]]',       _escape_latex(cfg.get('fecha', '')))
+        tex = tex.replace('[[TIEMPO]]',      _escape_latex(cfg.get('tiempo', '')))
+        tex = tex.replace('[[VERSION]]',     m['letra_version'])
+        logo_path = cfg.get('logo_path', '')
+        tex = tex.replace('[[LOGO_CMD]]', f'\\logo{{{logo_path}}}' if logo_path else '')
 
+        # Caja alumno
+        tex = tex.replace('[[CAJA_ALUMNO]]', _gen_caja_alumno_latex(campos_alumno))
+
+        # Instrucciones
+        instr = cfg.get('instr_gen', '').strip()
+        tex = tex.replace('[[INSTRUCCIONES_TEX]]',
+                          '\\instrucciones{' + _escape_latex(instr) + '}\n' if instr else '')
+
+        # ── PARTE I: Desarrollo ──────────────────────────────────────────────
         bloque_fund = ""
-        if cfg.get('fundamentales_data'):
-            bloque_fund = r"\begin{enumerate}" + "\n"
-            for c in cfg['fundamentales_data']:
-                bloque_fund += r"\item " + _markdown_to_latex(c['txt']) + r" (" + str(c['pts']) + " pts)\n"
-                esp = c.get('espacio', 'Automático')
-                h = "5cm"
-                if "10" in esp: h = "8cm"
-                elif "Media" in esp: h = "12cm"
-                elif "Cara" in esp: h = "18cm"
+        fund_data = cfg.get('fundamentales_data', [])
+        if fund_data:
+            tit_fund = _escape_latex(cfg.get('titulo_fund', 'PREGUNTAS DE DESARROLLO'))
+            bloque_fund += f'\\seccionexamen{{PARTE I --- {tit_fund}}}{{{info_fund_sec}}}\n'
+            if cfg.get('info_fund', '').strip():
+                bloque_fund += '\\textit{' + _escape_latex(cfg['info_fund']) + '}\n\n'
+            bloque_fund += '\\begin{enumerate}\n'
+            _esp_map = {'5 líneas': '4cm', '10 líneas': '7cm',
+                        'media cara': '11cm', 'cara completa': '20cm'}
+            for c in fund_data:
+                esp    = c.get('espacio', 'Automático')
+                h_base = next((v for k, v in _esp_map.items() if k.lower() in esp.lower()), '6cm')
+                # Modo adaptado: aumentar altura si adapt_espacio_extra definido
+                extra_pct = cfg.get('adapt_espacio_pct', 0)
+                if extra_pct:
+                    import re as _re2
+                    m2 = _re2.match(r'([\d.]+)cm', h_base)
+                    if m2:
+                        h_base = f"{float(m2.group(1)) * (1 + extra_pct/100):.1f}cm"
+                pts_q = str(c.get('pts', '')).strip()
+                pts_str = f' ({pts_q} pts)' if pts_q else ''
+                bloque_fund += '\\item \\begin{minipage}[t]{\\linewidth}\n'
+                bloque_fund += _markdown_to_latex(c['txt']) + pts_str + '\n'
                 if modo_solucion:
-                    bloque_fund += r"\par \textit{[Espacio (" + esp + r")]} \vspace{1cm}" + "\n"
+                    bloque_fund += f'\\par\\textit{{[Espacio de respuesta ({esp})]}}\n'
                 else:
-                    bloque_fund += r"\par \framebox{\begin{minipage}[t][" + h + r"]{\linewidth} \end{minipage}} \vspace{0.5cm}" + "\n"
-            bloque_fund += r"\end{enumerate}" + "\n"
-        tex = tex.replace('[[FUNDAMENTALES]]', bloque_fund)
+                    bloque_fund += f'\\espaciorespuesta[{h_base}]\n'
+                bloque_fund += '\\end{minipage}\n\n'
+            bloque_fund += '\\end{enumerate}\n'
+        tex = tex.replace('[[BLOQUE_FUND]]', bloque_fund)
 
+        # ── PARTE II: Test ───────────────────────────────────────────────────
         bloque_test = ""
-        for p in m['preguntas']:
-            bloque_test += r"\question " + _escape_latex(p['enunciado']) + "\n"
-            ops = p['opciones_finales']
-            letra_corr = p['letra_final']
-            idx_corr = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_corr, 0)
-            bloque_test += r"\begin{choices}" + "\n"
-            for i in range(4):
-                txt_op = _escape_latex(ops[i])
-                if modo_solucion and i == idx_corr:
-                    if cfg.get('sol_negrita'): txt_op = r"\textbf{" + txt_op + "}"
-                    if cfg.get('sol_rojo'):    txt_op = r"\textcolor{red}{" + txt_op + "}"
-                    if cfg.get('sol_ast'):     txt_op = txt_op + " *"
-                    bloque_test += r"\CorrectChoice " + txt_op + "\n"
+        if m.get('preguntas'):
+            num_parte = 'II' if fund_data else 'I'
+            tit_test  = _escape_latex(cfg.get('titulo_test', 'PREGUNTAS TEST'))
+            bloque_test += f'\\seccionexamen{{PARTE {num_parte} --- {tit_test}}}{{{info_test_sec}}}\n'
+            if cfg.get('info_test', '').strip():
+                bloque_test += '\\textit{' + _escape_latex(cfg['info_test']) + '}\n\n'
+            bloque_test += '\\begin{enumerate}[resume]\n' if fund_data else '\\begin{enumerate}\n'
+            for p in m['preguntas']:
+                ops       = p['opciones_finales']
+                letra_c   = p['letra_final']
+                idx_c     = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_c, 0)
+                bloque_test += '\\item \\begin{minipage}[t]{\\linewidth}\n'
+                bloque_test += _markdown_to_latex(p['enunciado']) + '\n'
+                # Opciones: 1 columna o 2 columnas
+                if opciones_cols == 2:
+                    bloque_test += '\\begin{enumerate}[label=\\textcolor{secundario}{\\textbf{\\alph*)}},leftmargin=2em,itemsep=0.3em,topsep=0.2em]\n'
+                    for i in range(0, 4, 2):
+                        txt0 = _escape_latex(ops[i])
+                        txt1 = _escape_latex(ops[i+1]) if i+1 < len(ops) else ''
+                        if modo_solucion:
+                            if i   == idx_c: txt0 = _fmt_sol_latex(txt0, cfg)
+                            if i+1 == idx_c: txt1 = _fmt_sol_latex(txt1, cfg)
+                        bloque_test += (
+                            f'\\item \\begin{{minipage}}[t]{{0.44\\linewidth}}{txt0}\\end{{minipage}}'
+                            f'\\hfill'
+                            f'\\begin{{minipage}}[t]{{0.44\\linewidth}}{txt1}\\end{{minipage}}\n'
+                        )
                 else:
-                    bloque_test += r"\choice " + txt_op + "\n"
-            bloque_test += r"\end{choices}" + "\n"
-        tex = tex.replace('[[PREGUNTAS]]', bloque_test)
+                    bloque_test += '\\begin{enumerate}[label=\\textcolor{secundario}{\\textbf{\\alph*)}},leftmargin=2em,itemsep=0.3em,topsep=0.2em]\n'
+                    for i in range(4):
+                        txt_op = _escape_latex(ops[i])
+                        if modo_solucion and i == idx_c:
+                            txt_op = _fmt_sol_latex(txt_op, cfg)
+                        bloque_test += f'\\item {txt_op}\n'
+                bloque_test += '\\end{enumerate}\n'
+                bloque_test += '\\end{minipage}\n\n'
+            bloque_test += '\\end{enumerate}\n'
+        tex = tex.replace('[[BLOQUE_TEST]]', bloque_test)
+
         result[m['letra_version']] = tex
     return result
+
+
+def _fmt_sol_latex(txt: str, cfg: dict) -> str:
+    """Aplica marcado de solución a una opción correcta en LaTeX."""
+    if cfg.get('sol_negrita'): txt = r'\textbf{' + txt + '}'
+    if cfg.get('sol_rojo'):    txt = r'\textcolor{red}{' + txt + '}'
+    if cfg.get('sol_ast'):     txt = txt + r' \textbf{*}'
+    return txt
 
 
 def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solucion=False) -> dict:
     """Genera los .docx en memoria. Retorna {letra_version: bytes_docx}."""
     import io as _io
+    from docx.oxml.ns import qn as _qn
+    from docx.oxml import OxmlElement as _OE
+    from docx.text.paragraph import Paragraph as _Para
+
+    scheme    = cfg.get('color_scheme', 'azul')
+    cs        = _WORD_COLOR_SCHEMES.get(scheme, _WORD_COLOR_SCHEMES['azul'])
+    pri_rgb   = RGBColor(*cs['primary'])
+    sec_rgb   = RGBColor(*cs['secondary'])
+    bg_hex    = '%02X%02X%02X' % cs['bg']
+    pri_hex   = '%02X%02X%02X' % cs['primary']
+
+    font_key   = cfg.get('tipografia', 'cm')
+    font_name  = _WORD_FONTS.get(font_key, 'Calibri')
+    font_size  = int(cfg.get('font_size', 12))
+    linespread = float(cfg.get('linespread', 1.0))
+    opciones_cols = cfg.get('opciones_cols', 1)
+
+    pts_fund    = str(cfg.get('pts_fund', '')).strip()
+    pts_test    = str(cfg.get('pts_test', '')).strip()
+    penalizacion = str(cfg.get('penalizacion', '')).strip()
+    fund_data   = cfg.get('fundamentales_data', [])
+
+    adapt_id    = str(cfg.get('adaptada_id', '')).strip()
+    tipo_raw    = cfg.get('tipo_examen', '')
+    if adapt_id:
+        tipo_raw = f"{tipo_raw} — {adapt_id}" if tipo_raw else adapt_id
+
+    def _set_linespread(para):
+        if linespread == 1.0:
+            return
+        pPr_s = para._p.get_or_add_pPr()
+        sp    = _OE('w:spacing')
+        sp.set(_qn('w:line'), str(int(linespread * 240)))
+        sp.set(_qn('w:lineRule'), 'auto')
+        pPr_s.append(sp)
+
+    def _keep_together(para):
+        pPr = para._p.get_or_add_pPr()
+        kwn = _OE('w:keepNext')
+        pPr.append(kwn)
+        _set_linespread(para)
+
+    def _add_section_word(doc_obj, titulo, info_str, insert_after_p=None):
+        """Añade separador de sección con fondo de color primario."""
+        p_sec = _insert_paragraph_after(insert_after_p) if insert_after_p else doc_obj.add_paragraph()
+        pPr_sec = p_sec._p.get_or_add_pPr()
+        shd_sec = _OE('w:shd')
+        shd_sec.set(_qn('w:val'), 'clear'); shd_sec.set(_qn('w:color'), 'auto')
+        shd_sec.set(_qn('w:fill'), pri_hex)
+        pPr_sec.append(shd_sec)
+        p_sec.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        r_sec = p_sec.add_run(titulo)
+        r_sec.bold = True; r_sec.font.name = font_name
+        r_sec.font.size = Pt(font_size); r_sec.font.color.rgb = RGBColor(255, 255, 255)
+        if info_str:
+            r_info = p_sec.add_run(f"  [{info_str}]")
+            r_info.bold = False; r_info.font.name = font_name
+            r_info.font.size = Pt(font_size - 1); r_info.font.color.rgb = RGBColor(220, 220, 220)
+        p_sec.paragraph_format.space_before = Pt(10)
+        p_sec.paragraph_format.space_after  = Pt(4)
+        return p_sec
+
     result = {}
     for m in master:
         doc = Document(_io.BytesIO(tpl_bytes)) if tpl_bytes else Document()
         if not tpl_bytes:
-            _setup_word_styles(doc, cfg, m['letra_version'])
-        replacements = {
-            '[[TIPO_EXAMEN]]': cfg.get('tipo_examen', ''), '[[INSTITUCION]]': cfg.get('entidad', ''),
-            '[[TITULO]]': cfg.get('titulo_asignatura', ''), '[[FECHA]]': cfg.get('fecha', ''),
-            '[[TIEMPO]]': cfg.get('tiempo', ''), '[[VERSION]]': m['letra_version'],
-            '[[INSTRUCCIONES]]': cfg.get('instr_gen', ''), '[[INFO_FUNDAMENTALES]]': cfg.get('info_fund', ''),
-            '[[INFO_TEST]]': cfg.get('info_test', '')
-        }
-        for p in doc.paragraphs:
-            for key, val in replacements.items():
-                _replace_in_paragraph(p, key, val)
+            cfg_for_setup       = dict(cfg)
+            cfg_for_setup['tipo_examen'] = tipo_raw
+            _setup_word_styles(doc, cfg_for_setup, m['letra_version'])
+        else:
+            # Plantilla personalizada: hacer reemplazos de texto
+            replacements = {
+                '[[TIPO_EXAMEN]]': tipo_raw,
+                '[[INSTITUCION]]': cfg.get('entidad', ''),
+                '[[TITULO]]':      cfg.get('titulo_asignatura', ''),
+                '[[FECHA]]':       cfg.get('fecha', ''),
+                '[[TIEMPO]]':      cfg.get('tiempo', ''),
+                '[[VERSION]]':     m['letra_version'],
+                '[[INSTRUCCIONES]]': cfg.get('instr_gen', ''),
+            }
+            for p in doc.paragraphs:
+                for key, val in replacements.items():
+                    _replace_in_paragraph(p, key, val)
+
+        # ── PARTE I: Desarrollo ───────────────────────────────────────────────
         for p in list(doc.paragraphs):
-            if '[[FUNDAMENTALES]]' in p.text:
-                p.text = ""
-                insert_after = p
-                if cfg.get('fundamentales_data'):
-                    for c in cfg['fundamentales_data']:
-                        p_fund = _insert_paragraph_after(insert_after)
-                        _parse_markdown_runs(p_fund, c['txt'], font_name='Calibri', font_size=11)
-                        r_pts = p_fund.add_run(f"  ({c['pts']} pts)")
-                        r_pts.italic = True; r_pts.font.name = 'Calibri'; r_pts.font.size = Pt(10)
-                        insert_after = p_fund
-                        if not modo_solucion:
-                            esp = c.get('espacio', 'Automático')
-                            tbl = _insert_table_after(insert_after, rows=1, cols=1, doc=doc)
-                            tbl.style = 'Table Grid'
-                            lines = 3 if "5" in esp else 6 if "10" in esp else 10
-                            for _ in range(lines): tbl.rows[0].cells[0].add_paragraph()
-                            sep_p_el = tbl._tbl.makeelement('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p', {})
-                            tbl._tbl.addnext(sep_p_el)
-                            from docx.text.paragraph import Paragraph
-                            insert_after = Paragraph(sep_p_el, doc.element.body)
-            if '[[PREGUNTAS]]' in p.text:
-                p.text = ""
-                insert_after = p
-                for preg in m['preguntas']:
-                    p_enun = _insert_paragraph_after(insert_after)
-                    r_num = p_enun.add_run(f"{preg['num']}. {preg['enunciado']}")
-                    r_num.bold = True; r_num.font.name = 'Calibri'; r_num.font.size = Pt(11)
-                    insert_after = p_enun
-                    ops = preg['opciones_finales']
-                    letra_corr = preg['letra_final']
-                    idx_corr = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_corr, 0)
-                    for i, l in enumerate(['a', 'b', 'c', 'd']):
-                        p_op = _insert_paragraph_after(insert_after, f"    {l}) {ops[i]}")
-                        if modo_solucion and i == idx_corr:
+            if '[[FUNDAMENTALES]]' not in p.text:
+                continue
+            p.text = ""
+            ins_after = p
+            if fund_data:
+                info_fund_str = _gen_seccion_info(pts_fund, '')
+                tit_f = cfg.get('titulo_fund', 'PREGUNTAS DE DESARROLLO')
+                num_f = 'PARTE I'
+                ins_after = _add_section_word(doc, f"{num_f} — {tit_f}", info_fund_str, ins_after)
+                if cfg.get('info_fund', '').strip():
+                    p_hf = _insert_paragraph_after(ins_after)
+                    r_hf = p_hf.add_run(cfg['info_fund'])
+                    r_hf.italic = True; r_hf.font.name = font_name; r_hf.font.size = Pt(font_size - 1)
+                    ins_after = p_hf
+
+                _esp_map = {'5 líneas': 3, '10 líneas': 7, 'media cara': 14, 'cara completa': 28}
+                extra_pct = cfg.get('adapt_espacio_pct', 0)
+
+                for ci, c in enumerate(fund_data):
+                    esp  = c.get('espacio', 'Automático')
+                    pts_q = str(c.get('pts', '')).strip()
+                    lines = next((v for k, v in _esp_map.items() if k.lower() in esp.lower()), 8)
+                    if extra_pct:
+                        lines = int(lines * (1 + extra_pct / 100))
+
+                    p_fund = _insert_paragraph_after(ins_after)
+                    r_num_f = p_fund.add_run(f"{ci+1}. ")
+                    r_num_f.bold = True; r_num_f.font.name = font_name; r_num_f.font.size = Pt(font_size)
+                    _parse_markdown_runs(p_fund, c['txt'], font_name=font_name, font_size=font_size)
+                    if pts_q:
+                        r_pts = p_fund.add_run(f"  ({pts_q} pts)")
+                        r_pts.italic = True; r_pts.font.name = font_name; r_pts.font.size = Pt(font_size - 1)
+                    _keep_together(p_fund)
+                    ins_after = p_fund
+
+                    if not modo_solucion:
+                        tbl = _insert_table_after(ins_after, rows=1, cols=1, doc=doc)
+                        tbl.style = 'Table Grid'
+                        for _ in range(lines):
+                            tbl.rows[0].cells[0].add_paragraph()
+                        sep_el = tbl._tbl.makeelement(
+                            '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p', {})
+                        tbl._tbl.addnext(sep_el)
+                        ins_after = _Para(sep_el, doc.element.body)
+                    else:
+                        p_esp = _insert_paragraph_after(ins_after)
+                        r_esp = p_esp.add_run(f"[Espacio de respuesta — {esp}]")
+                        r_esp.italic = True; r_esp.font.size = Pt(font_size - 2); r_esp.font.name = font_name
+                        r_esp.font.color.rgb = RGBColor(*cs['secondary'])
+                        ins_after = p_esp
+
+        # ── PARTE II: Test ─────────────────────────────────────────────────────
+        for p in list(doc.paragraphs):
+            if '[[PREGUNTAS]]' not in p.text:
+                continue
+            p.text = ""
+            ins_after = p
+            if not m.get('preguntas'):
+                continue
+            info_test_str = _gen_seccion_info(pts_test, penalizacion)
+            tit_t   = cfg.get('titulo_test', 'PREGUNTAS TEST')
+            num_t   = 'II' if fund_data else 'I'
+            ins_after = _add_section_word(doc, f"PARTE {num_t} — {tit_t}", info_test_str, ins_after)
+            if cfg.get('info_test', '').strip():
+                p_ht = _insert_paragraph_after(ins_after)
+                r_ht = p_ht.add_run(cfg['info_test'])
+                r_ht.italic = True; r_ht.font.name = font_name; r_ht.font.size = Pt(font_size - 1)
+                ins_after = p_ht
+
+            base_num = len(fund_data) + 1 if fund_data else 1
+            for qi, preg in enumerate(m['preguntas']):
+                ops      = preg['opciones_finales']
+                letra_c  = preg['letra_final']
+                idx_c    = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_c, 0)
+
+                p_enun = _insert_paragraph_after(ins_after)
+                r_num  = p_enun.add_run(f"{base_num + qi}. ")
+                r_num.bold = True; r_num.font.name = font_name; r_num.font.size = Pt(font_size)
+                _parse_markdown_runs(p_enun, preg['enunciado'], font_name=font_name, font_size=font_size)
+                _keep_together(p_enun)
+                ins_after = p_enun
+
+                labels = ['a', 'b', 'c', 'd']
+                if opciones_cols == 2:
+                    # Dos opciones por fila con tabla
+                    tbl_op = _insert_table_after(ins_after, rows=2, cols=2, doc=doc)
+                    tbl_op.style = 'Table Grid'
+                    for row_i in range(2):
+                        for col_i in range(2):
+                            oi = row_i * 2 + col_i
+                            cell   = tbl_op.rows[row_i].cells[col_i]
+                            p_cell = cell.paragraphs[0]
+                            p_cell.clear()
+                            r_lbl = p_cell.add_run(f"{labels[oi]}) ")
+                            r_lbl.font.name = font_name; r_lbl.font.size = Pt(font_size); r_lbl.font.color.rgb = sec_rgb
+                            r_txt = p_cell.add_run(ops[oi])
+                            r_txt.font.name = font_name; r_txt.font.size = Pt(font_size)
+                            if modo_solucion and oi == idx_c:
+                                if cfg.get('sol_negrita'): r_txt.bold = True
+                                if cfg.get('sol_rojo'):    r_txt.font.color.rgb = RGBColor(255, 0, 0)
+                                if cfg.get('sol_ast'):     p_cell.add_run(" *")
+                    sep_el2 = tbl_op._tbl.makeelement(
+                        '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p', {})
+                    tbl_op._tbl.addnext(sep_el2)
+                    ins_after = _Para(sep_el2, doc.element.body)
+                else:
+                    for i, lbl in enumerate(labels):
+                        p_op = _insert_paragraph_after(ins_after, f"   {lbl}) {ops[i]}")
+                        p_op.runs[0].font.name = font_name
+                        p_op.runs[0].font.size = Pt(font_size)
+                        # Color label
+                        p_op.runs[0].font.color.rgb = sec_rgb
+                        if modo_solucion and i == idx_c:
                             if cfg.get('sol_negrita'): p_op.runs[0].bold = True
                             if cfg.get('sol_rojo'):    p_op.runs[0].font.color.rgb = RGBColor(255, 0, 0)
                             if cfg.get('sol_ast'):     p_op.add_run(" *")
-                        insert_after = p_op
+                        if i < 3:
+                            _keep_together(p_op)
+                        _set_linespread(p_op)
+                        ins_after = p_op
+
         buf = _io.BytesIO()
         doc.save(buf)
         result[m['letra_version']] = buf.getvalue()
