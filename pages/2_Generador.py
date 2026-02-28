@@ -1363,12 +1363,20 @@ with tab_exp:
                 tc1.success(f"✅ {tpl_word_file.name}")
             elif st.session_state.get("_tpl_word_bytes"):
                 tc1.info(f"En memoria: {st.session_state.get('_tpl_word_name','plantilla.docx')}")
+                if tc1.button("🗑️ Quitar plantilla Word", key="btn_clear_tpl_word", use_container_width=True):
+                    st.session_state.pop("_tpl_word_bytes", None)
+                    st.session_state.pop("_tpl_word_name", None)
+                    st.rerun()
             if tpl_tex_file:
                 st.session_state["_tpl_tex_bytes"] = tpl_tex_file.getvalue()
                 st.session_state["_tpl_tex_name"]  = tpl_tex_file.name
                 tc2.success(f"✅ {tpl_tex_file.name}")
             elif st.session_state.get("_tpl_tex_bytes"):
                 tc2.info(f"En memoria: {st.session_state.get('_tpl_tex_name','plantilla.tex')}")
+                if tc2.button("🗑️ Quitar plantilla LaTeX", key="btn_clear_tpl_tex", use_container_width=True):
+                    st.session_state.pop("_tpl_tex_bytes", None)
+                    st.session_state.pop("_tpl_tex_name", None)
+                    st.rerun()
             if logo_file:
                 import tempfile as _tmp
                 _logo_p = os.path.join(_tmp.gettempdir(), logo_file.name)

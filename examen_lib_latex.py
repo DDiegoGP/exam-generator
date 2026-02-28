@@ -585,8 +585,10 @@ _WORD_FONTS = {
 def _generar_sty(cfg) -> bytes:
     """Carga el .sty y aplica overrides de color/fuente/modo según cfg."""
     import os as _os
-    sty_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                              'estilo_examen_moderno_v2.sty')
+    _base = _os.path.dirname(_os.path.abspath(__file__))
+    sty_path = _os.path.join(_base, 'estilo_examen_moderno_v2.sty')
+    if not _os.path.isfile(sty_path):
+        sty_path = _os.path.join(_base, 'plantillas', 'estilo_examen_moderno_v2.sty')
     try:
         with open(sty_path, 'r', encoding='utf-8') as _f:
             sty = _f.read()
