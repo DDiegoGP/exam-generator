@@ -285,16 +285,6 @@
     topsep=0.3em
 }
 
-% Prevenir cortes de página SOLO en preguntas principales (nivel 1)
-% No afecta a las opciones a), b), c), d) (nivel 2)
-\let\olditem\item
-\renewcommand{\item}{%
-  \ifnum\@enumdepth=1\relax
-    \needspace{10cm}% Requiere 10cm para preguntas principales
-  \fi
-  \olditem%
-}
-
 % Comando para círculos en los números
 \newcommand*\circled[1]{%
     \tikz[baseline=(char.base)]{
