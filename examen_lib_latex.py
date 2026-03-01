@@ -672,6 +672,8 @@ def _escape_latex(text):
         text = text.replace(char, '\\' + char)
     text = text.replace('~', r'\textasciitilde{}')
     text = text.replace('^', r'\textasciicircum{}')
+    text = text.replace('\u2212', '-')   # U+2212 MINUS SIGN → guión ASCII
+    text = text.replace('\u00b7', r'\ensuremath{\cdot}')  # U+00B7 · punto medio
     # Restaurar secciones math
     for i, mp in enumerate(_math_parts):
         text = text.replace(f'\x00MATH{i}\x00', mp)
@@ -1365,15 +1367,31 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         tex = tex.replace('[[INSTRUCCIONES_TEX]]',
                           '\\instrucciones{' + _escape_latex(instr) + '}\n' if instr else '')
 
+        # ── Estilo de numeración configurable ────────────────────────────────
+        estilo_num = cfg.get('estilo_num', 'cuadrado')
+        _circled_cmd = {
+            'cuadrado': r'\protect\circled',
+            'circulo':  r'\protect\circledCirculo',
+            'numero':   r'\protect\circledNumero',
+            'nada':     r'\arabic*.',
+        }.get(estilo_num, r'\protect\circled')
+        _setlist_label = (
+            f'label={_circled_cmd}{{\\arabic*}}' if estilo_num != 'nada'
+            else f'label={_circled_cmd}'
+        )
+
         # ── PARTE I: Desarrollo ──────────────────────────────────────────────
         bloque_fund = ""
         fund_data = cfg.get('fundamentales_data', [])
+        has_test  = bool(m.get('preguntas'))
+        both_sections = bool(fund_data) and has_test
         if fund_data:
             tit_fund = _escape_latex(cfg.get('titulo_fund', 'PREGUNTAS DE DESARROLLO'))
-            bloque_fund += f'\\seccionexamen{{PARTE I --- {tit_fund}}}{{{info_fund_sec}}}\n'
+            sec_fund = f'PARTE I --- {tit_fund}' if both_sections else tit_fund
+            bloque_fund += f'\\seccionexamen{{{sec_fund}}}{{{info_fund_sec}}}\n'
             if cfg.get('info_fund', '').strip():
                 bloque_fund += '\\textit{' + _escape_latex(cfg['info_fund']) + '}\n\n'
-            bloque_fund += '\\begin{enumerate}\n'
+            bloque_fund += f'\\begin{{enumerate}}[{_setlist_label},leftmargin=*,itemsep=1.5em,topsep=1em]\n'
             _esp_map = {'5 líneas': '4cm', '10 líneas': '7cm',
                         'media cara': '11cm', 'cara completa': '20cm'}
             for c in fund_data:
@@ -1387,9 +1405,10 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                     if m2:
                         h_base = f"{float(m2.group(1)) * (1 + extra_pct/100):.1f}cm"
                 pts_q = str(c.get('pts', '')).strip()
-                pts_str = f' ({pts_q} pts)' if pts_q else ''
+                # Pts justo después del número (antes del enunciado, no al final)
+                pts_prefix = f'\\textbf{{({pts_q} pts)}} ' if pts_q else ''
                 bloque_fund += '\\item \\begin{minipage}[t]{\\linewidth}\n'
-                bloque_fund += _markdown_to_latex(c['txt']) + pts_str + '\n'
+                bloque_fund += pts_prefix + _markdown_to_latex(c['txt']) + '\n'
                 if modo_solucion:
                     bloque_fund += f'\\par\\textit{{[Espacio de respuesta ({esp})]}}\n'
                 else:
@@ -1400,13 +1419,17 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
 
         # ── PARTE II: Test ───────────────────────────────────────────────────
         bloque_test = ""
-        if m.get('preguntas'):
-            num_parte = 'II' if fund_data else 'I'
+        if has_test:
             tit_test  = _escape_latex(cfg.get('titulo_test', 'PREGUNTAS TEST'))
-            bloque_test += f'\\seccionexamen{{PARTE {num_parte} --- {tit_test}}}{{{info_test_sec}}}\n'
+            sec_test  = f'PARTE {"II" if both_sections else "I"} --- {tit_test}' if both_sections else tit_test
+            # Siempre nueva página cuando hay ambas secciones
+            if both_sections:
+                bloque_test += '\\clearpage\n'
+            bloque_test += f'\\seccionexamen{{{sec_test}}}{{{info_test_sec}}}\n'
             if cfg.get('info_test', '').strip():
                 bloque_test += '\\textit{' + _escape_latex(cfg['info_test']) + '}\n\n'
-            bloque_test += '\\begin{enumerate}[resume]\n' if fund_data else '\\begin{enumerate}\n'
+            # Test siempre empieza en 1 (sin resume)
+            bloque_test += f'\\begin{{enumerate}}[{_setlist_label},leftmargin=*,itemsep=1.5em,topsep=1em]\n'
             for p in m['preguntas']:
                 ops       = p['opciones_finales']
                 letra_c   = p['letra_final']

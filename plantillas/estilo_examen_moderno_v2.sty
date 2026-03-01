@@ -282,12 +282,23 @@
     topsep=0.3em
 }
 
-% Comando para números de pregunta — fcolorbox (sin TikZ inline, más rápido)
+% Estilos de numeración de preguntas
+% \circled   → cuadrado (por defecto, redefinible desde el .tex)
+% \circledCirculo → círculo con tcolorbox
+% \circledNumero  → número en color, sin caja
 \newcommand*\circled[1]{%
     {\setlength{\fboxsep}{3pt}%
      \fcolorbox{primario}{primario!10}{%
          \textbf{\textcolor{primario}{\small#1}}%
      }}%
+}
+\newcommand*\circledCirculo[1]{%
+    \tcbox[on line,arc=5mm,colback=primario!10,colframe=primario,%
+           boxsep=2pt,left=0pt,right=0pt,top=0pt,bottom=0pt,boxrule=0.8pt]{%
+        \textbf{\textcolor{primario}{\small#1}}}%
+}
+\newcommand*\circledNumero[1]{%
+    \textbf{\textcolor{primario}{#1.}}%
 }
 
 % --- Soporte para caracteres especiales de Física ---
@@ -302,6 +313,7 @@
 \newunicodechar{Ω}{\ensuremath{\Omega}}
 \newunicodechar{μ}{\ensuremath{\mu}}
 \newunicodechar{°}{\ensuremath{^\circ}}
+\newunicodechar{−}{\ensuremath{-}}   % U+2212 MINUS SIGN (distinto del guión ASCII)
 
 % --- Configuración de colores de texto ---
 \color{texto}

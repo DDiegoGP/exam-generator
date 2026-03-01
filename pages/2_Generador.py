@@ -915,6 +915,7 @@ def _ejecutar_export():
         "campos_alumno":  cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"]),
         "opciones_cols":  cfg.get("opciones_cols", 1),
         "logo_path":      st.session_state.get("_logo_path", ""),
+        "estilo_num":     cfg.get("estilo_num", "cuadrado"),
     }
     tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
     tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
@@ -1285,6 +1286,13 @@ with tab_exp:
             modo_compacto = sv4.checkbox("Modo compacto LaTeX",
                                          value=cfg.get("modo_compacto", False), key="exp_compacto",
                                          help="Encabezado pequeño, más preguntas en página 1")
+            _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "numero": "Número 1.", "nada": "Sin estilo"}
+            _enum_cur   = cfg.get("estilo_num", "cuadrado")
+            _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
+            estilo_num  = st.selectbox("Numeración de preguntas (LaTeX)", list(_enum_opts.keys()),
+                                       index=_enum_idx, format_func=lambda x: _enum_opts[x],
+                                       key="exp_estilo_num",
+                                       help="Estilo del número de cada pregunta en el PDF LaTeX")
 
         # ── 4c. Puntos y penalización ─────────────────────────────────────────
         with st.expander("📊 Puntos y penalización", expanded=False):
@@ -1418,6 +1426,7 @@ with tab_exp:
             # Estilo visual
             "color_scheme": color_scheme, "tipografia": tipografia,
             "font_size": font_size_val, "modo_compacto": modo_compacto,
+            "estilo_num": estilo_num,
             # Puntos y penalización
             "pts_fund": pts_fund_val, "pts_test": pts_test_val,
             "penalizacion": penalizacion_val,
