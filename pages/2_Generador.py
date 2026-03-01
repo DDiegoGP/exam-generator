@@ -916,6 +916,22 @@ def _ejecutar_export():
         "opciones_cols":  cfg.get("opciones_cols", 1),
         "logo_path":      st.session_state.get("_logo_path", ""),
         "estilo_num":     cfg.get("estilo_num", "cuadrado"),
+        # Títulos de secciones
+        "titulo_fund":    cfg.get("titulo_fund", "PREGUNTAS DE DESARROLLO"),
+        "titulo_test":    cfg.get("titulo_test", "PREGUNTAS TEST"),
+        # Hoja de respuestas
+        "hoja_respuestas": cfg.get("hoja_respuestas", False),
+        "estilo_hoja":     cfg.get("estilo_hoja", "omr"),
+        # Marca de agua
+        "watermark_sol":  cfg.get("watermark_sol", False),
+        "watermark_text": cfg.get("watermark_text", "SOLUCIONES"),
+        # Encabezado/pie
+        "fancyhdr_on":   cfg.get("fancyhdr_on", True),
+        "footer_text":   cfg.get("footer_text", ""),
+        # Info en soluciones
+        "sol_info_bloque": cfg.get("sol_info_bloque", False),
+        "sol_info_tema":   cfg.get("sol_info_tema",   False),
+        "sol_info_dif":    cfg.get("sol_info_dif",    False),
     }
     tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
     tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
@@ -1249,12 +1265,29 @@ with tab_exp:
             sol_bold = sc1.checkbox("Negrita",        value=cfg.get("sol_bold", False), key="exp_sol_bold")
             sol_red  = sc2.checkbox("Color rojo",     value=cfg.get("sol_red",  False), key="exp_sol_red")
             sol_ast  = sc3.checkbox("Asterisco (*)",  value=cfg.get("sol_ast",  True),  key="exp_sol_ast")
+            st.markdown("**Marca de agua en versión soluciones:**")
+            wc1, wc2 = st.columns([1, 2])
+            watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
+            watermark_text = wc2.text_input("Texto de la marca", value=cfg.get("watermark_text", "SOLUCIONES"),
+                                            key="exp_wm_text", disabled=not watermark_sol)
+            st.markdown("**Info extra por pregunta en versión soluciones (LaTeX):**")
+            ic1, ic2, ic3 = st.columns(3)
+            sol_info_bloque = ic1.checkbox("Bloque",      value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
+            sol_info_tema   = ic2.checkbox("Tema",        value=cfg.get("sol_info_tema",   False), key="exp_sol_tema")
+            sol_info_dif    = ic3.checkbox("Dificultad",  value=cfg.get("sol_info_dif",    False), key="exp_sol_dif")
 
         # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
         with st.expander("📝 Instrucciones y cabeceras", expanded=True):
             instr     = st.text_area("Instrucciones generales",
                                      value=cfg.get("ins", "Conteste en la hoja de respuestas."),
                                      height=70, key="exp_ins")
+            tc1, tc2  = st.columns(2)
+            titulo_fund = tc1.text_input("Título sección desarrollo",
+                                         value=cfg.get("titulo_fund", "PREGUNTAS DE DESARROLLO"),
+                                         key="exp_tit_fund")
+            titulo_test = tc2.text_input("Título sección test",
+                                         value=cfg.get("titulo_test", "PREGUNTAS TEST"),
+                                         key="exp_tit_test")
             hc1, hc2  = st.columns(2)
             info_fund = hc1.text_area("Cabecera sección desarrollo", value=cfg.get("h1", ""), height=70, key="exp_h1")
             info_test = hc2.text_area("Cabecera sección test",       value=cfg.get("h2", ""), height=70, key="exp_h2")
@@ -1293,6 +1326,28 @@ with tab_exp:
                                        index=_enum_idx, format_func=lambda x: _enum_opts[x],
                                        key="exp_estilo_num",
                                        help="Estilo del número de cada pregunta en el PDF LaTeX")
+            fh1, fh2  = st.columns([1, 2])
+            fancyhdr_on  = fh1.checkbox("Encabezado/pie de página", value=cfg.get("fancyhdr_on", True),
+                                        key="exp_fancyhdr",
+                                        help="Muestra asignatura + versión en cabecera y nº de página en pie")
+            footer_text  = fh2.text_input("Texto extra en pie de página",
+                                          value=cfg.get("footer_text", ""), key="exp_footer",
+                                          placeholder="ej: Prohibido el uso de móvil",
+                                          disabled=not fancyhdr_on)
+
+        # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
+        with st.expander("📋 Hoja de respuestas", expanded=False):
+            st.caption("Se añade como página final del examen (solo en versión alumno, no en soluciones).")
+            hr1, hr2 = st.columns([1, 2])
+            hoja_respuestas = hr1.checkbox("Generar hoja de respuestas",
+                                           value=cfg.get("hoja_respuestas", False), key="exp_hoja_resp")
+            _estilo_hoja_opts = {"omr": "OMR — Burbujas (○ A ○ B ○ C ○ D)", "tabla": "Tabla — Celdas para marcar"}
+            _estilo_hoja_cur  = cfg.get("estilo_hoja", "omr")
+            _estilo_hoja_idx  = list(_estilo_hoja_opts.keys()).index(_estilo_hoja_cur) if _estilo_hoja_cur in _estilo_hoja_opts else 0
+            estilo_hoja = hr2.selectbox("Estilo de la hoja", list(_estilo_hoja_opts.keys()),
+                                        index=_estilo_hoja_idx,
+                                        format_func=lambda x: _estilo_hoja_opts[x],
+                                        key="exp_estilo_hoja", disabled=not hoja_respuestas)
 
         # ── 4c. Puntos y penalización ─────────────────────────────────────────
         with st.expander("📊 Puntos y penalización", expanded=False):
@@ -1427,6 +1482,7 @@ with tab_exp:
             "color_scheme": color_scheme, "tipografia": tipografia,
             "font_size": font_size_val, "modo_compacto": modo_compacto,
             "estilo_num": estilo_num,
+            "fancyhdr_on": fancyhdr_on, "footer_text": footer_text,
             # Puntos y penalización
             "pts_fund": pts_fund_val, "pts_test": pts_test_val,
             "penalizacion": penalizacion_val,
@@ -1437,6 +1493,16 @@ with tab_exp:
             "adapt_spacing":    adapt_spac,
             "adapt_espacio_pct": int(adapt_extra),
             "adapt_id":         adapt_id_val,
+            # Títulos de secciones
+            "titulo_fund": titulo_fund, "titulo_test": titulo_test,
+            # Hoja de respuestas
+            "hoja_respuestas": hoja_respuestas, "estilo_hoja": estilo_hoja,
+            # Marca de agua
+            "watermark_sol": watermark_sol, "watermark_text": watermark_text,
+            # Info en soluciones
+            "sol_info_bloque": sol_info_bloque,
+            "sol_info_tema":   sol_info_tema,
+            "sol_info_dif":    sol_info_dif,
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────

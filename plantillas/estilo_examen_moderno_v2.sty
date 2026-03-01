@@ -168,12 +168,16 @@
 % --- Configuración de Cabecera y Pie de página ---
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\textcolor{secundario}{\textbf{\thetipoexamen}}}
-\fancyhead[R]{\small\textcolor{secundario}{\thefecha}}
+\fancyhead[L]{\small\textcolor{secundario}{\textbf{\theasignatura}}}
+\fancyhead[R]{\small\textcolor{secundario}{Versión \theversion}}
 \fancyfoot[C]{\small\textcolor{secundario}{Página \textbf{\thepage}}}
 \renewcommand{\headrulewidth}{0.5pt}
 \renewcommand{\headrule}{\hbox to\headwidth{\color{primario}\leaders\hrule height \headrulewidth\hfill}}
 \renewcommand{\footrulewidth}{0pt}
+% Personalizar pie (texto extra antes del número de página)
+\newcommand{\piepagina}[1]{%
+    \fancyfoot[C]{\small\textcolor{secundario}{#1 \quad --- \quad Página \textbf{\thepage}}}%
+}
 
 % --- Caja para datos del alumno moderna ---
 \newcommand{\cajaalumno}{
@@ -345,6 +349,16 @@
     \par\nobreak%
     {\color{primario}\rule{\linewidth}{1.5pt}}%
     \vspace{2mm}%
+}
+
+% --- Info de pregunta para versión soluciones ---
+% Uso: \infopregunta{bloque}{tema}{dificultad}
+\newcommand{\infopregunta}[3]{%
+    \par\vspace{0.5mm}%
+    {\scriptsize\textcolor{gray!70}{%
+        \textit{Bloque: #1 \textperiodcentered{} Tema: #2 \textperiodcentered{} Dif.: #3}%
+    }}%
+    \par\vspace{0.5mm}%
 }
 
 \endinput

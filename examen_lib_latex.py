@@ -1282,6 +1282,48 @@ def exportar_csv_bytes(master, nombre) -> dict:
     return {'claves': buf_c.getvalue(), 'metadata': buf_m.getvalue()}
 
 
+def _gen_hoja_respuestas(n_pregs, estilo='omr'):
+    """Genera la hoja de respuestas LaTeX (OMR burbujas o tabla de celdas)."""
+    if n_pregs == 0:
+        return ''
+    half = (n_pregs + 1) // 2
+    lines = [r'\clearpage', r'\begin{center}']
+    lines.append(r'{\Large\bfseries\color{primario} HOJA DE RESPUESTAS}\\[3mm]')
+    lines.append(r'{\large\bfseries\theasignatura{} \textemdash{} Versión \theversion}\\[6mm]')
+    lines.append(r'\end{center}')
+    lines.append(r'\noindent\textbf{Nombre y Apellidos:} \hrulefill\\[5mm]')
+    lines.append(r'\noindent\textbf{DNI/NIU:} \rule{4cm}{0.4pt}\hfill'
+                 r'\textbf{Grupo:} \rule{3cm}{0.4pt}\hfill'
+                 r'\textbf{Firma:} \rule{4cm}{0.4pt}\\[8mm]')
+
+    def _tabla_omr(desde, hasta):
+        rows = [r'\begin{tabular}{r@{\hspace{4mm}}c@{\hspace{5mm}}c@{\hspace{5mm}}c@{\hspace{5mm}}c}',
+                r'\textbf{N\textsuperscript{o}} & \textbf{A} & \textbf{B} & \textbf{C} & \textbf{D} \\\hline']
+        for i in range(desde, hasta + 1):
+            rows.append(f'{i} & $\\bigcirc$ & $\\bigcirc$ & $\\bigcirc$ & $\\bigcirc$ \\\\[3mm]')
+        rows.append(r'\end{tabular}')
+        return rows
+
+    def _tabla_celdas(desde, hasta):
+        rows = [r'\begin{tabular}{|r|p{12mm}|p{12mm}|p{12mm}|p{12mm}|}\hline',
+                r'\textbf{N\textsuperscript{o}} & \centering\textbf{A} & \centering\textbf{B} & \centering\textbf{C} & \centering\arraybackslash\textbf{D} \\\hline']
+        for i in range(desde, hasta + 1):
+            rows.append(f'{i} & & & & \\\\[6mm]\\hline')
+        rows.append(r'\end{tabular}')
+        return rows
+
+    _build = _tabla_omr if estilo == 'omr' else _tabla_celdas
+
+    lines.append(r'\noindent\begin{minipage}[t]{0.47\linewidth}')
+    lines += _build(1, half)
+    lines.append(r'\end{minipage}\hfill')
+    lines.append(r'\begin{minipage}[t]{0.47\linewidth}')
+    if half + 1 <= n_pregs:
+        lines += _build(half + 1, n_pregs)
+    lines.append(r'\end{minipage}')
+    return '\n'.join(lines) + '\n'
+
+
 def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     """Genera los .tex en memoria. Retorna {letra_version: str_tex}."""
     # Si hay plantilla personalizada, usarla directamente
@@ -1326,6 +1368,8 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     _DEFAULT_TEX = r"""\documentclass[a4paper,[[FONTSIZE]]pt]{[[DOCTYPE]]}
 \usepackage{estilo_examen_moderno_v2}
 [[LINESPREAD_CMD]]
+[[WATERMARK_CMD]]
+[[FANCYHDR_CUSTOM]]
 \tipoexamen{[[TIPO_EXAMEN]]}
 \institucion{[[INSTITUCION]]}
 \asignatura{[[TITULO]]}
@@ -1334,11 +1378,13 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
 \version{[[VERSION]]}
 [[LOGO_CMD]]
 \begin{document}
+[[PAGESTYLE_CMD]]
 \encabezadoprofesional
 [[CAJA_ALUMNO]]
 [[INSTRUCCIONES_TEX]]
 [[BLOQUE_FUND]]
 [[BLOQUE_TEST]]
+[[HOJA_RESPUESTAS]]
 \end{document}"""
 
     if not plantilla_tex:
@@ -1350,6 +1396,33 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         tex = tex.replace('[[FONTSIZE]]',    str(font_size))
         tex = tex.replace('[[DOCTYPE]]',     doc_class)
         tex = tex.replace('[[LINESPREAD_CMD]]', linespread_cmd)
+
+        # ── Marca de agua (solo si está activa y, por defecto, en soluciones) ──
+        watermark_on = cfg.get('watermark_sol', False) and modo_solucion
+        if watermark_on:
+            wm_text = _escape_latex(cfg.get('watermark_text', 'SOLUCIONES'))
+            watermark_cmd = (
+                '\\usepackage{draftwatermark}\n'
+                f'\\SetWatermarkText{{{wm_text}}}\n'
+                '\\SetWatermarkScale{3}\n'
+                '\\SetWatermarkColor[gray]{0.85}\n'
+            )
+        else:
+            watermark_cmd = ''
+        tex = tex.replace('[[WATERMARK_CMD]]', watermark_cmd)
+
+        # ── Encabezado/pie personalizado ──────────────────────────────────────
+        fancyhdr_on  = cfg.get('fancyhdr_on', True)
+        footer_text  = cfg.get('footer_text', '').strip()
+        fancyhdr_cmds = ''
+        if not fancyhdr_on:
+            fancyhdr_cmds = '\\pagestyle{plain}\n'
+        elif footer_text:
+            fancyhdr_cmds = f'\\piepagina{{{_escape_latex(footer_text)}}}\n'
+        tex = tex.replace('[[FANCYHDR_CUSTOM]]', fancyhdr_cmds)
+
+        tex = tex.replace('[[PAGESTYLE_CMD]]', '')  # reservado, no se usa actualmente
+
         tex = tex.replace('[[TIPO_EXAMEN]]', _escape_latex(tipo_raw))
         tex = tex.replace('[[INSTITUCION]]', _escape_latex(cfg.get('entidad', '')))
         tex = tex.replace('[[TITULO]]',      _escape_latex(cfg.get('titulo_asignatura', '')))
@@ -1430,12 +1503,21 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 bloque_test += '\\textit{' + _escape_latex(cfg['info_test']) + '}\n\n'
             # Test siempre empieza en 1 (sin resume)
             bloque_test += f'\\begin{{enumerate}}[{_setlist_label},leftmargin=*,itemsep=1.5em,topsep=1em]\n'
+            sol_bloque = cfg.get('sol_info_bloque', False)
+            sol_tema   = cfg.get('sol_info_tema',   False)
+            sol_dif    = cfg.get('sol_info_dif',    False)
+            _show_info = modo_solucion and (sol_bloque or sol_tema or sol_dif)
             for p in m['preguntas']:
                 ops       = p['opciones_finales']
                 letra_c   = p['letra_final']
                 idx_c     = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_c, 0)
                 bloque_test += '\\item \\begin{minipage}[t]{\\linewidth}\n'
                 bloque_test += _markdown_to_latex(p['enunciado']) + '\n'
+                if _show_info:
+                    _b = _escape_latex(str(p.get('bloque', ''))) if sol_bloque else '---'
+                    _t = _escape_latex(str(p.get('Tema',   ''))) if sol_tema   else '---'
+                    _d = _escape_latex(str(p.get('dificultad', ''))) if sol_dif else '---'
+                    bloque_test += f'\\infopregunta{{{_b}}}{{{_t}}}{{{_d}}}\n'
                 # Opciones: 1 columna o 2 columnas
                 if opciones_cols == 2:
                     bloque_test += '\\begin{enumerate}[label=\\textcolor{secundario}{\\textbf{\\alph*)}},leftmargin=2em,itemsep=0.3em,topsep=0.2em]\n'
@@ -1461,6 +1543,14 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 bloque_test += '\\end{minipage}\n\n'
             bloque_test += '\\end{enumerate}\n'
         tex = tex.replace('[[BLOQUE_TEST]]', bloque_test)
+
+        # ── Hoja de respuestas ───────────────────────────────────────────────
+        if cfg.get('hoja_respuestas', False) and not modo_solucion:
+            n_test = len(m.get('preguntas', []))
+            estilo_hoja = cfg.get('estilo_hoja', 'omr')
+            tex = tex.replace('[[HOJA_RESPUESTAS]]', _gen_hoja_respuestas(n_test, estilo_hoja))
+        else:
+            tex = tex.replace('[[HOJA_RESPUESTAS]]', '')
 
         result[m['letra_version']] = tex
     return result
