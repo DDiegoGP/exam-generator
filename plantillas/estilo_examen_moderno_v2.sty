@@ -14,8 +14,7 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{tcolorbox}
-\usepackage{tikz}
-\usepackage{needspace} % Para evitar cortes de preguntas
+% tikz cargado internamente por tcolorbox — no se carga explícitamente para evitar conflictos
 
 % ============================================================================
 % TIPOGRAFÍA - Comenta/Descomenta según necesites
@@ -151,13 +150,13 @@
             left=3mm, right=3mm, top=2mm, bottom=2mm
         ]
             \noindent
-            \begin{minipage}[c]{0.48\textwidth}
+            \begin{minipage}[c]{0.48\linewidth}
                 \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
             \end{minipage}%
-            \begin{minipage}[c]{0.25\textwidth}
+            \begin{minipage}[c]{0.25\linewidth}
                 \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
             \end{minipage}%
-            \begin{minipage}[c]{0.22\textwidth}
+            \begin{minipage}[c]{0.22\linewidth}
                 \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
             \end{minipage}
         \end{tcolorbox}
@@ -283,18 +282,12 @@
     topsep=0.3em
 }
 
-% Comando para círculos en los números
+% Comando para números de pregunta — fcolorbox (sin TikZ inline, más rápido)
 \newcommand*\circled[1]{%
-    \tikz[baseline=(char.base)]{
-        \node[
-            shape=circle,
-            draw=primario,
-            fill=primario!10,
-            inner sep=1pt,
-            minimum size=6mm,
-            font=\bfseries
-        ] (char) {\textcolor{primario}{#1}};
-    }%
+    {\setlength{\fboxsep}{3pt}%
+     \fcolorbox{primario}{primario!10}{%
+         \textbf{\textcolor{primario}{\small#1}}%
+     }}%
 }
 
 % --- Soporte para caracteres especiales de Física ---
