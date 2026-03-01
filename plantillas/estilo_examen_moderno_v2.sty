@@ -141,30 +141,28 @@
         \end{tcolorbox}
         
         \vspace{3mm}
-        
-        % Información del examen
-        \noindent
-        \begin{tikzpicture}
-            \node[
-                fill=fondo,
-                rounded corners=2mm,
-                inner sep=3mm,
-                minimum width=\textwidth,
-                align=left
-            ] {
-                \begin{minipage}{0.48\textwidth}
-                    \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
-                \end{minipage}
-                \begin{minipage}{0.23\textwidth}
-                    \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
-                \end{minipage}
-                \begin{minipage}{0.23\textwidth}
-                    \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
-                \end{minipage}
-            };
-        \end{tikzpicture}
-        
-        \vspace{5mm}
+
+        % Información del examen (tcolorbox evita el bucle de TikZ con minimum width+align)
+        \begin{tcolorbox}[
+            colback=fondo,
+            colframe=fondo,
+            arc=2mm,
+            boxrule=0pt,
+            left=3mm, right=3mm, top=2mm, bottom=2mm
+        ]
+            \noindent
+            \begin{minipage}[c]{0.48\textwidth}
+                \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
+            \end{minipage}%
+            \begin{minipage}[c]{0.25\textwidth}
+                \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
+            \end{minipage}%
+            \begin{minipage}[c]{0.22\textwidth}
+                \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
+            \end{minipage}
+        \end{tcolorbox}
+
+        \vspace{3mm}
     \fi
 }
 
