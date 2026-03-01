@@ -14,7 +14,7 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{tcolorbox}
-% tikz cargado internamente por tcolorbox — no se carga explícitamente para evitar conflictos
+\tcbuselibrary{skins}   % necesario para el parámetro height= en tcolorbox
 
 % ============================================================================
 % TIPOGRAFÍA - Comenta/Descomenta según necesites
@@ -308,18 +308,15 @@
 
 % --- Caja de espacio para respuestas de desarrollo ---
 % Uso: \espaciorespuesta[6cm]  (altura opcional, defecto 6cm)
+% Implementación sin height= de tcolorbox para máxima compatibilidad
 \newcommand{\espaciorespuesta}[1][6cm]{%
-    \vspace{2mm}%
-    \begin{tcolorbox}[
-        colback=white,
-        colframe=secundario!40,
-        arc=1mm,
-        boxrule=0.5pt,
-        height=#1,
-        valign=top,
-        left=2mm, right=2mm, top=2mm, bottom=2mm
-    ]\end{tcolorbox}%
-    \vspace{2mm}%
+    \par\vspace{2mm}\noindent%
+    \fbox{%
+        \begin{minipage}[t][#1][t]{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}%
+            \hspace{0pt}%
+        \end{minipage}%
+    }%
+    \par\vspace{2mm}%
 }
 
 % --- Separador de sección del examen ---
