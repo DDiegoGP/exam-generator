@@ -876,9 +876,40 @@ def _ejecutar_export():
     exp_word     = cfg.get("exp_word", True)
     exp_tex      = cfg.get("exp_tex",  True)
 
-    df_dict = st.session_state.df_preguntas.set_index("ID_Pregunta").to_dict("index")
+    df_total = st.session_state.df_preguntas
+    df_dict  = df_total.set_index("ID_Pregunta").to_dict("index")
+
+    # Resolver receta automática (igual que en Preview)
+    exam_ids     = list(sel_actual)
+    already_used = set(exam_ids)
+    auto_rec     = st.session_state.get("auto_recipe", {})
+    if auto_rec:
+        rng = random.Random()
+        for bloque, temas_cfg in auto_rec.items():
+            for tema_key, dif_cfg in temas_cfg.items():
+                for dif_name, n_req in dif_cfg.items():
+                    if not isinstance(n_req, (int, float)) or int(n_req) <= 0:
+                        continue
+                    if tema_key == "__ALL__":
+                        pool_ids = df_total[
+                            (df_total["bloque"] == bloque) &
+                            (df_total["dificultad"].str.lower() == dif_name.lower()) &
+                            (~df_total["ID_Pregunta"].isin(already_used))
+                        ]["ID_Pregunta"].tolist()
+                    else:
+                        pool_ids = df_total[
+                            (df_total["bloque"] == bloque) &
+                            (df_total["Tema"].astype(str) == str(tema_key)) &
+                            (df_total["dificultad"].str.lower() == dif_name.lower()) &
+                            (~df_total["ID_Pregunta"].isin(already_used))
+                        ]["ID_Pregunta"].tolist()
+                    actual = min(int(n_req), len(pool_ids))
+                    picked = rng.sample(pool_ids, actual) if actual > 0 else []
+                    exam_ids.extend(picked)
+                    already_used.update(picked)
+
     pool = []
-    for pid in sel_actual:
+    for pid in exam_ids:
         if pid in df_dict:
             item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
             pool.append(item)
@@ -1031,10 +1062,15 @@ def _ejecutar_export():
 
 @st.dialog("✅ Confirmar exportación", width="small")
 def _dialog_confirmar_export():
-    cfg    = st.session_state.get("exam_cfg", {})
-    sel    = get_sel_ids()
-    n_mod  = cfg.get("vers", 1)
-    st.markdown(f"**{len(sel)} preguntas · {n_mod} modelo(s)**")
+    cfg      = st.session_state.get("exam_cfg", {})
+    sel      = get_sel_ids()
+    auto_rec = st.session_state.get("auto_recipe", {})
+    n_rec    = sum(int(v) for bd in auto_rec.values() for sd in bd.values()
+                   if isinstance(sd, dict) for v in sd.values() if isinstance(v, (int, float)))
+    n_mod    = cfg.get("vers", 1)
+    _lbl     = (f"{len(sel)} fijas + ~{n_rec} auto" if sel and n_rec
+                else f"~{n_rec} auto" if n_rec else str(len(sel)))
+    st.markdown(f"**{_lbl} preguntas · {n_mod} modelo(s)**")
     formatos = ["📊 CSV Claves + Metadatos (siempre)"]
     if cfg.get("exp_word", True): formatos.append(f"📄 Word: {n_mod} examen(es) + {n_mod} con soluciones")
     if cfg.get("exp_tex",  True): formatos.append(f"📑 LaTeX: {n_mod} examen(es) + {n_mod} con soluciones")
@@ -1211,6 +1247,16 @@ def _dialog_preview_examen():
 with tab_exp:
     sel_actual = get_sel_ids()
     n_pregs    = len(sel_actual)
+    _auto_rec  = st.session_state.get("auto_recipe", {})
+    n_recipe   = sum(
+        int(v)
+        for blq_data in _auto_rec.values()
+        for slot_data in blq_data.values()
+        if isinstance(slot_data, dict)
+        for v in slot_data.values()
+        if isinstance(v, (int, float))
+    )
+    n_total    = n_pregs + n_recipe
     cfg        = st.session_state.get("exam_cfg", {})
 
     col_cfg, col_res = st.columns([3, 2], gap="large")
@@ -1549,7 +1595,7 @@ with tab_exp:
             <div style="opacity:0.65;font-size:0.82em;margin-bottom:10px">
               {inst or '—'} &nbsp;·&nbsp; {fecha or '—'} &nbsp;·&nbsp; {tiem or '—'}</div>
             <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
-            <div>📋 <b>{n_pregs}</b> test{_dev_str} &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
+            <div>📋 <b>{n_pregs if not n_recipe else (f"{n_pregs} fijas + ~{n_recipe} auto" if n_pregs else f"~{n_recipe} auto")}</b> test{_dev_str} &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
             <div>🔀 {_orden_label}</div>
             <div>🃏 Barajar respuestas: {_barajar_str}</div>
             <div>📦 {_fmt_str}</div>
@@ -1569,10 +1615,10 @@ with tab_exp:
         st.markdown("<div style='margin:6px 0'></div>", unsafe_allow_html=True)
 
         if st.button("💾 EXPORTAR EXAMEN", type="primary", use_container_width=True,
-                     key="btn_export_main", disabled=(n_pregs == 0)):
+                     key="btn_export_main", disabled=(n_total == 0)):
             _dialog_confirmar_export()
-        if n_pregs == 0:
-            st.caption("⚠️ Ve a la pestaña **Selección** para elegir preguntas.")
+        if n_total == 0:
+            st.caption("⚠️ Ve a la pestaña **Selección** para elegir preguntas o configura un relleno automático.")
 
         # ── Botones de descarga (tras exportar) ───────────────────────────────
         ef = st.session_state.get("export_files")
