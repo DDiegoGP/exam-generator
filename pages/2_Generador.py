@@ -876,43 +876,18 @@ def _ejecutar_export():
     exp_word     = cfg.get("exp_word", True)
     exp_tex      = cfg.get("exp_tex",  True)
 
-    df_total = st.session_state.df_preguntas
-    df_dict  = df_total.set_index("ID_Pregunta").to_dict("index")
-
-    # Resolver receta automática (igual que en Preview)
-    exam_ids     = list(sel_actual)
-    already_used = set(exam_ids)
-    auto_rec     = st.session_state.get("auto_recipe", {})
-    if auto_rec:
-        rng = random.Random()
-        for bloque, temas_cfg in auto_rec.items():
-            for tema_key, dif_cfg in temas_cfg.items():
-                for dif_name, n_req in dif_cfg.items():
-                    if not isinstance(n_req, (int, float)) or int(n_req) <= 0:
-                        continue
-                    if tema_key == "__ALL__":
-                        pool_ids = df_total[
-                            (df_total["bloque"] == bloque) &
-                            (df_total["dificultad"].str.lower() == dif_name.lower()) &
-                            (~df_total["ID_Pregunta"].isin(already_used))
-                        ]["ID_Pregunta"].tolist()
-                    else:
-                        pool_ids = df_total[
-                            (df_total["bloque"] == bloque) &
-                            (df_total["Tema"].astype(str) == str(tema_key)) &
-                            (df_total["dificultad"].str.lower() == dif_name.lower()) &
-                            (~df_total["ID_Pregunta"].isin(already_used))
-                        ]["ID_Pregunta"].tolist()
-                    actual = min(int(n_req), len(pool_ids))
-                    picked = rng.sample(pool_ids, actual) if actual > 0 else []
-                    exam_ids.extend(picked)
-                    already_used.update(picked)
-
-    pool = []
-    for pid in exam_ids:
-        if pid in df_dict:
-            item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
-            pool.append(item)
+    # Usar lo que se generó en Preview (cache_examen).
+    # Si no hay cache (solo preguntas manuales, sin Preview previo), construir desde sel_actual.
+    cache = st.session_state.get("cache_examen") or []
+    if cache:
+        pool = list(cache)
+    else:
+        df_dict = st.session_state.df_preguntas.set_index("ID_Pregunta").to_dict("index")
+        pool = []
+        for pid in sel_actual:
+            if pid in df_dict:
+                item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
+                pool.append(item)
 
     cfg_export = {
         "titulo_asignatura": cfg.get("asig", ""),
@@ -1614,11 +1589,14 @@ with tab_exp:
 
         st.markdown("<div style='margin:6px 0'></div>", unsafe_allow_html=True)
 
+        _need_preview = n_recipe > 0 and not st.session_state.get("cache_examen")
         if st.button("💾 EXPORTAR EXAMEN", type="primary", use_container_width=True,
-                     key="btn_export_main", disabled=(n_total == 0)):
+                     key="btn_export_main", disabled=(n_total == 0 or _need_preview)):
             _dialog_confirmar_export()
         if n_total == 0:
             st.caption("⚠️ Ve a la pestaña **Selección** para elegir preguntas o configura un relleno automático.")
+        elif _need_preview:
+            st.caption("⚠️ Tienes una receta automática. Ve a **👁️ Preview** y pulsa **🎲 Generar** para fijar las preguntas antes de exportar.")
 
         # ── Botones de descarga (tras exportar) ───────────────────────────────
         ef = st.session_state.get("export_files")
