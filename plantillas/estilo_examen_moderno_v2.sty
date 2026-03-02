@@ -13,6 +13,7 @@
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{tikz}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins}   % necesario para el parámetro height= en tcolorbox
 
@@ -297,9 +298,9 @@
      }}%
 }
 \newcommand*\circledCirculo[1]{%
-    \tcbox[on line,arc=5mm,colback=primario!10,colframe=primario,%
-           boxsep=2pt,left=0pt,right=0pt,top=0pt,bottom=0pt,boxrule=0.8pt]{%
-        \textbf{\textcolor{primario}{\small#1}}}%
+    \tikz[baseline=(char.base)]%
+        \node[draw=primario,fill=primario!10,circle,inner sep=2.5pt,line width=0.8pt]%
+              (char) {\textbf{\textcolor{primario}{\small#1}}};%
 }
 \newcommand*\circledNumero[1]{%
     \textbf{\textcolor{primario}{#1.}}%

@@ -150,6 +150,10 @@ def init_session_state():
         "excel_dfs":     {},
         "df_preguntas":  pd.DataFrame(),
         "bloques":       [],
+        # Configuración de bloques/temas
+        "cfg_bloques":   {},   # {bloque_name: descripcion}
+        "cfg_temas":     {},   # {tema_str: {nombre, bloque}}
+        "cfg_general":   {},   # {clave: valor}
         # Generador
         "sel_ids":       [],
         "manual_order":  [],
@@ -223,6 +227,31 @@ def _normalizar_fecha(val) -> str:
 def _nsort(s):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(s))]
 
+def _load_cfg(dfs: dict):
+    """Lee las hojas de configuración del dfs y actualiza session_state."""
+    dfs = lib.init_cfg_from_data(dfs)
+    st.session_state.cfg_bloques = lib.get_cfg_bloques(dfs)
+    st.session_state.cfg_temas   = lib.get_cfg_temas(dfs)
+    st.session_state.cfg_general = lib.get_cfg_general(dfs)
+    return dfs
+
+
+def nombre_bloque(bloque: str) -> str:
+    """Retorna nombre para mostrar: 'Bloque IX — Óptica' o 'Bloque IX' si sin desc."""
+    desc = st.session_state.get("cfg_bloques", {}).get(bloque, "")
+    return f"{bloque} — {desc}" if desc else bloque
+
+
+def nombre_tema(tema: str) -> str:
+    """Retorna nombre para mostrar: 'Tema 39: Óptica geométrica' o 'Tema 39'."""
+    t = str(tema)
+    if t.endswith(".0"):
+        t = t[:-2]
+    entry  = st.session_state.get("cfg_temas", {}).get(t, {})
+    nombre = entry.get("nombre", "") if isinstance(entry, dict) else ""
+    return f"Tema {t}: {nombre}" if nombre else f"Tema {t}"
+
+
 def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
     """
     Dado el dict {nombre_hoja: DataFrame} que devuelve cargar_excel_local,
@@ -232,6 +261,8 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
     """
     rows = []
     for b_name, df_sheet in dfs.items():
+        if b_name in lib.CFG_SHEETS:
+            continue
         if df_sheet.empty:
             continue
         head = [str(h).lower().strip() for h in df_sheet.columns]
@@ -323,14 +354,16 @@ def connect_db(path: str):
     """Carga el Excel desde ruta local y actualiza session_state."""
     try:
         dfs = lib.cargar_excel_local(path)
+        dfs = _load_cfg(dfs)
         df  = procesar_excel_dfs(dfs)
         st.session_state.excel_path    = path
         st.session_state.excel_dfs     = dfs
         st.session_state.df_preguntas  = df
-        st.session_state.bloques       = list(dfs.keys())
+        st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state.db_connected  = True
-        return True, f"{len(df)} preguntas en {len(dfs)} bloque(s)"
+        n_blq = len(st.session_state.bloques)
+        return True, f"{len(df)} preguntas en {n_blq} bloque(s)"
     except FileNotFoundError:
         st.session_state.db_connected = False
         return False, f"Archivo no encontrado: {path}"
@@ -372,17 +405,19 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         if not dfs:
             return False, "La hoja de cálculo está vacía o no tiene datos tabulares"
 
+        dfs = _load_cfg(dfs)
         df = procesar_excel_dfs(dfs)
         st.session_state.excel_path    = ""
         st.session_state.excel_dfs     = dfs
         st.session_state.df_preguntas  = df
-        st.session_state.bloques       = list(dfs.keys())
+        st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state.db_connected  = True
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state["_gsheets_url"]  = spreadsheet_url
         st.session_state["_gsheets_title"] = sh.title
         st.session_state["_upload_name"]   = f"GSheets: {sh.title}"
-        return True, f"Conectado: {sh.title} · {len(df)} preguntas en {len(dfs)} hoja(s)"
+        n_blq = len(st.session_state.bloques)
+        return True, f"Conectado: {sh.title} · {len(df)} preguntas en {n_blq} hoja(s)"
     except Exception as e:
         st.session_state.db_connected = False
         return False, f"Error al conectar Google Sheets: {e}"
@@ -395,13 +430,14 @@ def connect_db_from_upload(uploaded_file) -> tuple:
         bytes_data = uploaded_file.read()
         xls = pd.ExcelFile(io.BytesIO(bytes_data), engine='openpyxl')
         dfs = {name: pd.read_excel(xls, sheet_name=name) for name in xls.sheet_names}
+        dfs = _load_cfg(dfs)
         df  = procesar_excel_dfs(dfs)
         st.session_state.excel_path    = ""   # sin ruta en cloud
         st.session_state.excel_dfs     = dfs
         st.session_state.df_preguntas  = df
-        st.session_state.bloques       = list(dfs.keys())
+        st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state.db_connected  = True
-        st.session_state["excel_bytes"] = bytes_data
+        st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state["_upload_name"] = uploaded_file.name
         return True, f"Conectado: {uploaded_file.name}"
     except Exception as e:
@@ -417,9 +453,11 @@ def reload_db():
         # Cloud/upload mode: re-procesar desde dfs ya en memoria
         dfs = st.session_state.excel_dfs
         if dfs:
+            dfs = _load_cfg(dfs)
             df = procesar_excel_dfs(dfs)
+            st.session_state.excel_dfs     = dfs
             st.session_state.df_preguntas  = df
-            st.session_state.bloques       = list(dfs.keys())
+            st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
             st.session_state.db_connected  = True
             st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
@@ -746,7 +784,7 @@ def render_question_card_html(row, show_sol: bool = True, num: int = None) -> st
         f'<div class="q-card {cls_card}">'
         f'<div class="q-head">'
         f'<span class="q-num">{num_s} &nbsp;<small style="font-weight:400;color:#888">{row.get("ID_Pregunta","")}</small></span>'
-        f'<span>B:{row.get("bloque","")} · T:{row.get("Tema","")} '
+        f'<span>{nombre_bloque(str(row.get("bloque","")))} · {nombre_tema(str(row.get("Tema","")))} '
         f'<span class="tag {cls_tag}">{dif}</span>'
         f'<span class="tag {cls_u}">{u_t}</span></span></div>'
         f'<div class="q-enun">{row.get("enunciado","")}</div>'

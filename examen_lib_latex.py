@@ -1,6 +1,12 @@
 import pandas as pd
 import random, re, os
 from docx import Document
+
+# ── Hojas de configuración (se excluyen del procesado de preguntas) ──────────
+CFG_BLOQUES_SHEET  = "Cfg_Bloques"
+CFG_TEMAS_SHEET    = "Cfg_Temas"
+CFG_GENERAL_SHEET  = "Cfg_General"
+CFG_SHEETS         = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET}
 from docx.shared import Inches, RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import openpyxl
@@ -716,6 +722,104 @@ def _markdown_to_latex(text):
         else:
             result += _escape_latex(part)
     return result
+
+
+# ── Configuración de bloques y temas ─────────────────────────────────────────
+
+def get_cfg_bloques(dfs: dict) -> dict:
+    """Retorna {nombre_bloque: descripcion} desde la hoja Cfg_Bloques."""
+    df = dfs.get(CFG_BLOQUES_SHEET)
+    if df is None or df.empty:
+        return {}
+    result = {}
+    for _, row in df.iterrows():
+        b = str(row.get("Bloque", "")).strip()
+        d = str(row.get("Descripcion", "")).strip()
+        if b and b not in ("nan", "None"):
+            result[b] = "" if d in ("nan", "None") else d
+    return result
+
+
+def get_cfg_temas(dfs: dict) -> dict:
+    """Retorna {str(tema): {nombre, bloque}} desde la hoja Cfg_Temas."""
+    df = dfs.get(CFG_TEMAS_SHEET)
+    if df is None or df.empty:
+        return {}
+    result = {}
+    for _, row in df.iterrows():
+        t = str(row.get("Tema", "")).strip()
+        if t.endswith(".0"):
+            t = t[:-2]
+        if not t or t in ("nan", "None"):
+            continue
+        n = str(row.get("Nombre", "")).strip()
+        b = str(row.get("Bloque", "")).strip()
+        result[t] = {
+            "nombre": "" if n in ("nan", "None") else n,
+            "bloque": "" if b in ("nan", "None") else b,
+        }
+    return result
+
+
+def get_cfg_general(dfs: dict) -> dict:
+    """Retorna {clave: valor} desde la hoja Cfg_General."""
+    df = dfs.get(CFG_GENERAL_SHEET)
+    if df is None or df.empty or "Clave" not in df.columns:
+        return {}
+    return {str(r["Clave"]): str(r.get("Valor", "")) for _, r in df.iterrows()
+            if str(r.get("Clave", "")) not in ("nan", "None", "")}
+
+
+def init_cfg_from_data(dfs: dict) -> dict:
+    """
+    Crea hojas Cfg_Bloques y Cfg_Temas si no existen, auto-pobladas desde los
+    datos de preguntas con nombres genéricos. Retorna el dfs actualizado.
+    """
+    question_sheets = [k for k in dfs if k not in CFG_SHEETS]
+
+    if CFG_BLOQUES_SHEET not in dfs or dfs[CFG_BLOQUES_SHEET].empty:
+        rows = [{"Bloque": b, "Descripcion": ""} for b in question_sheets]
+        dfs[CFG_BLOQUES_SHEET] = pd.DataFrame(rows)
+
+    if CFG_TEMAS_SHEET not in dfs or dfs[CFG_TEMAS_SHEET].empty:
+        seen = {}  # tema -> bloque (first occurrence)
+        for b_name, df_sheet in dfs.items():
+            if b_name in CFG_SHEETS or df_sheet.empty:
+                continue
+            head = [str(h).lower().strip() for h in df_sheet.columns]
+            idx_t = next((i for i, h in enumerate(head)
+                          if "tema" in h and "id" not in h), -1)
+            if idx_t == -1:
+                continue
+            for _, row in df_sheet.iterrows():
+                t = str(row.iloc[idx_t]).strip()
+                if t.endswith(".0"):
+                    t = t[:-2]
+                if t and t not in ("nan", "None", "") and t not in seen:
+                    seen[t] = b_name
+        _k = lambda t: [int(x) if x.isdigit() else x.lower()
+                        for x in re.split(r"(\d+)", t)]
+        rows = [{"Tema": t, "Nombre": "", "Bloque": seen[t]}
+                for t in sorted(seen, key=_k)]
+        dfs[CFG_TEMAS_SHEET] = pd.DataFrame(rows)
+
+    return dfs
+
+
+def save_cfg_bloques(dfs: dict, df: pd.DataFrame) -> dict:
+    dfs[CFG_BLOQUES_SHEET] = df.copy()
+    return dfs
+
+
+def save_cfg_temas(dfs: dict, df: pd.DataFrame) -> dict:
+    dfs[CFG_TEMAS_SHEET] = df.copy()
+    return dfs
+
+
+def save_cfg_general(dfs: dict, kv: dict) -> dict:
+    rows = [{"Clave": k, "Valor": v} for k, v in kv.items()]
+    dfs[CFG_GENERAL_SHEET] = pd.DataFrame(rows)
+    return dfs
 
 
 # --- EXPORTAR ---

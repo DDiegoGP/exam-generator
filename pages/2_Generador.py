@@ -29,6 +29,7 @@ from app_utils import (
     reload_db, bloques_disponibles, temas_de_bloque,
     es_uso_antiguo, render_question_card_html, mathjax_html,
     append_historial, save_preset, delete_preset,
+    nombre_bloque, nombre_tema,
     OUTPUT_DIR, _nsort,
 )
 
@@ -1216,8 +1217,8 @@ with tab_exp:
 
     with col_cfg:
 
-        # ── 1. Identificación ──────────────────────────────────────────────────
-        with st.expander("📋 Identificación del examen", expanded=True):
+        # ── 1. Configuración del examen ────────────────────────────────────────
+        with st.expander("📋 Configuración del examen", expanded=True):
             e1, e2, e3 = st.columns(3)
             inst  = e1.text_input("Institución",    value=cfg.get("inst", "UCM"),                  key="exp_inst")
             asig  = e2.text_input("Asignatura",     value=cfg.get("asig", "FÍSICA MÉDICA"),         key="exp_asig")
@@ -1226,6 +1227,11 @@ with tab_exp:
             fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
             tiem          = e5.text_input("Tiempo",         value=cfg.get("tiem",  "90 min"),       key="exp_tiem")
             nombre_archivo = e6.text_input("Nombre archivo", value=cfg.get("file", f"Examen_{datetime.date.today()}"), key="exp_file")
+            _campos_def   = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
+            _campos_map   = {"nombre": "Nombre", "dni": "DNI/NIU", "grupo": "Grupo", "firma": "Firma"}
+            _campos_sel   = st.multiselect("Campos del alumno en el examen", list(_campos_map.keys()),
+                                           default=_campos_def,
+                                           format_func=lambda x: _campos_map[x], key="exp_campos")
 
         # ── 2. Generación ─────────────────────────────────────────────────────
         with st.expander("⚙️ Opciones de generación", expanded=True):
@@ -1239,17 +1245,12 @@ with tab_exp:
                                         format_func=lambda x: x[0], key="exp_ord")
             orden       = orden_val[1]
             barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
-            oc4, oc5    = st.columns(2)
+            oc4         = st.columns(1)[0]
             _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
             _cols_opt   = oc4.radio("Disposición opciones test", ["1 columna", "2 columnas"],
                                     index=_cols_idx, horizontal=True, key="exp_opcols")
             opciones_cols = 1 if _cols_opt == "1 columna" else 2
-            _campos_def   = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
-            _campos_map   = {"nombre": "Nombre", "dni": "DNI/NIU", "grupo": "Grupo", "firma": "Firma"}
-            _campos_sel   = oc5.multiselect("Campos del alumno", list(_campos_map.keys()),
-                                            default=_campos_def,
-                                            format_func=lambda x: _campos_map[x], key="exp_campos")
-            campos_alumno = _campos_sel
+        campos_alumno = _campos_sel
 
         # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
         with st.expander("📄 Formatos y marcado de soluciones", expanded=True):

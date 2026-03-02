@@ -26,6 +26,7 @@ from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     connect_db, reload_db,
     bloques_disponibles, temas_de_bloque,
+    nombre_bloque, nombre_tema,
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
 )
 
@@ -224,8 +225,10 @@ with tab_add:
     col_cfg, col_form = st.columns([1, 2])
 
     with col_cfg:
-        bloque_add = st.selectbox("Bloque", bloques, key="add_bloque")
-        tema_add   = st.selectbox("Tema",   temas_de_bloque(bloque_add) or [str(i) for i in range(1,51)], key="add_tema")
+        bloque_add = st.selectbox("Bloque", bloques, key="add_bloque",
+                                   format_func=nombre_bloque)
+        tema_add   = st.selectbox("Tema",   temas_de_bloque(bloque_add) or [str(i) for i in range(1,51)], key="add_tema",
+                                   format_func=nombre_tema)
         dif_add    = st.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="add_dif")
         corr_add   = st.selectbox("Respuesta correcta", ["A", "B", "C", "D"], key="add_corr")
 
@@ -302,8 +305,10 @@ with tab_imp:
 
     # ── Configuración ─────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
-    bloque_imp = c1.selectbox("Bloque destino", bloques, key="imp_bloque")
-    tema_imp   = c2.selectbox("Tema", temas_de_bloque(bloque_imp) or [str(i) for i in range(1, 51)], key="imp_tema")
+    bloque_imp = c1.selectbox("Bloque destino", bloques, key="imp_bloque",
+                               format_func=nombre_bloque)
+    tema_imp   = c2.selectbox("Tema", temas_de_bloque(bloque_imp) or [str(i) for i in range(1, 51)], key="imp_tema",
+                               format_func=nombre_tema)
     dif_imp    = c3.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="imp_dif")
     fmt_imp    = c4.selectbox("Formato", ["Word (.docx)", "PDF (.pdf)", "Aiken (.txt)"], key="imp_fmt")
 
@@ -476,12 +481,14 @@ with tab_man:
 
     # ── Filtros ──────────────────────────────────────────────────────────────
     fc1, fc2, fc3, fc4 = st.columns(4)
-    f_bloque = fc1.selectbox("Bloque", ["Todos"] + bloques, key="man_f_bloque")
+    f_bloque = fc1.selectbox("Bloque", ["Todos"] + bloques, key="man_f_bloque",
+                             format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b))
     temas_disponibles = (
         temas_de_bloque(f_bloque) if f_bloque != "Todos"
         else sorted(df_total["Tema"].unique().tolist(), key=_nsort)
     )
-    f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disponibles], key="man_f_tema")
+    f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disponibles], key="man_f_tema",
+                              format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
     f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif")
     f_uso    = fc4.selectbox("Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"], key="man_f_uso")
     f_search = st.text_input("🔍 Buscar en enunciado", placeholder="Texto a buscar...", key="man_search")
@@ -785,10 +792,11 @@ with tab_stat:
         st.markdown("<br>", unsafe_allow_html=True)
 
         # ── Selector de vista ─────────────────────────────────────────────────
-        vista_opts = ["📊 Resumen global"] + [f"📦 {b}" for b in bloques]
+        vista_opts = ["📊 Resumen global"] + bloques
         sv1, sv2 = st.columns([3, 6])
         vista = sv1.selectbox("🔍 Ver detalle:", vista_opts, key="stat_vista",
-                               label_visibility="collapsed")
+                               label_visibility="collapsed",
+                               format_func=lambda b: b if b == "📊 Resumen global" else f"📦 {nombre_bloque(b)}")
 
         st.markdown("---")
 
@@ -837,7 +845,7 @@ with tab_stat:
                 bg = "#fafbfc" if idx_s % 2 == 0 else "#fff"
                 rows_html += (
                     f"<tr style='background:{bg}'>"
-                    f"<td style='padding:8px 12px;font-weight:700;color:#2c3e50'>{s['bloque']}</td>"
+                    f"<td style='padding:8px 12px;font-weight:700;color:#2c3e50'>{nombre_bloque(s['bloque'])}</td>"
                     f"<td style='padding:8px;text-align:center;font-weight:600'>{s['total']}</td>"
                     f"<td style='padding:8px;text-align:center;color:#27ae60;font-weight:600'>{s['facil']}</td>"
                     f"<td style='padding:8px;text-align:center;color:#b7950b;font-weight:600'>{s['media']}</td>"
@@ -899,7 +907,7 @@ with tab_stat:
         # ══════════════════════════════════════════════════════════════════════
         else:  # Bloque específico
         # ══════════════════════════════════════════════════════════════════════
-            sel_blq = vista.replace("📦 ", "")
+            sel_blq = vista  # vista is now the raw block name
             dfb     = df[df["bloque"] == sel_blq]
 
             n_tot_b  = len(dfb)
@@ -929,7 +937,7 @@ with tab_stat:
                 unsafe_allow_html=True)
 
             st.markdown(f"<br>", unsafe_allow_html=True)
-            st.markdown(f"#### 📌 Detalle por tema — {sel_blq}")
+            st.markdown(f"#### 📌 Detalle por tema — {nombre_bloque(sel_blq)}")
 
             # Filtro de dificultad
             tf1, _ = st.columns([2, 6])
@@ -969,7 +977,7 @@ with tab_stat:
                 bg_t = "#fafbfc" if idx_t % 2 == 0 else "#fff"
                 rows_t += (
                     f"<tr style='background:{bg_t}'>"
-                    f"<td style='padding:7px 12px;font-weight:700;color:#2c3e50'>Tema {tema}</td>"
+                    f"<td style='padding:7px 12px;font-weight:700;color:#2c3e50'>{nombre_tema(str(tema))}</td>"
                     f"<td style='padding:7px;text-align:center;font-weight:600'>{n_t}</td>"
                     f"<td style='padding:7px;text-align:center;color:#27ae60'>{n_ft}</td>"
                     f"<td style='padding:7px;text-align:center;color:#b7950b'>{n_mt}</td>"
