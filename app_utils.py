@@ -683,7 +683,7 @@ def render_sidebar():
             st.caption("Sube un archivo Excel arriba para empezar.")
 
         st.divider()
-        st.caption("ExamGen UCM · Física Médica")
+        st.caption("ExamGen UCM · Unidad de Física Médica")
 
 # ── Page header helper ────────────────────────────────────────────────────────
 def page_header(icon: str, title: str, subtitle: str = ""):
