@@ -228,8 +228,9 @@ def _bloque_selectbox(label: str, key: str, col_widget=None) -> str:
 
 
 def _asegurar_bloque(excel_dfs: dict, bloque: str) -> pd.DataFrame:
-    """Si el bloque no existe en excel_dfs, lo crea con columnas estándar."""
-    if bloque not in excel_dfs:
+    """Si el bloque no existe o está vacío sin columnas, lo inicializa con columnas estándar."""
+    existing = excel_dfs.get(bloque)
+    if existing is None or len(existing.columns) == 0:
         excel_dfs[bloque] = pd.DataFrame(columns=_STD_COLS)
         st.session_state.bloques = [k for k in excel_dfs if k not in lib.CFG_SHEETS]
     return excel_dfs[bloque]
