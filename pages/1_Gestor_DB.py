@@ -209,6 +209,32 @@ if not st.session_state.db_connected:
 df_total: pd.DataFrame = st.session_state.df_preguntas
 bloques = bloques_disponibles()
 
+# Columnas estándar para crear un bloque nuevo desde cero
+_STD_COLS = ["ID_Pregunta", "Tema", "Enunciado", "OpcionA", "OpcionB",
+             "OpcionC", "OpcionD", "Correcta", "Dificultad", "Usada", "Notas"]
+_NUEVO_BLQ = "__nuevo__"
+
+
+def _bloque_selectbox(label: str, key: str, col_widget=None) -> str:
+    """Selectbox de bloque con opción 'Nuevo bloque...'. Devuelve el nombre final del bloque."""
+    opts = bloques + [_NUEVO_BLQ]
+    widget = col_widget or st
+    sel = widget.selectbox(label, opts, key=key,
+                           format_func=lambda b: "➕ Nuevo bloque..." if b == _NUEVO_BLQ else nombre_bloque(b))
+    if sel == _NUEVO_BLQ:
+        return (col_widget or st).text_input("Nombre del nuevo bloque", key=f"{key}_nuevo",
+                                             placeholder="ej: Bloque I")
+    return sel
+
+
+def _asegurar_bloque(excel_dfs: dict, bloque: str) -> pd.DataFrame:
+    """Si el bloque no existe en excel_dfs, lo crea con columnas estándar."""
+    if bloque not in excel_dfs:
+        excel_dfs[bloque] = pd.DataFrame(columns=_STD_COLS)
+        st.session_state.bloques = [k for k in excel_dfs if k not in lib.CFG_SHEETS]
+    return excel_dfs[bloque]
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PESTAÑA PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
@@ -225,9 +251,8 @@ with tab_add:
     col_cfg, col_form = st.columns([1, 2])
 
     with col_cfg:
-        bloque_add = st.selectbox("Bloque", bloques, key="add_bloque",
-                                   format_func=nombre_bloque)
-        tema_add   = st.selectbox("Tema",   temas_de_bloque(bloque_add) or [str(i) for i in range(1,51)], key="add_tema",
+        bloque_add = _bloque_selectbox("Bloque", "add_bloque")
+        tema_add   = st.selectbox("Tema", temas_de_bloque(bloque_add) or [str(i) for i in range(1, 51)], key="add_tema",
                                    format_func=nombre_tema)
         dif_add    = st.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="add_dif")
         corr_add   = st.selectbox("Respuesta correcta", ["A", "B", "C", "D"], key="add_corr")
@@ -263,37 +288,34 @@ with tab_add:
                 nid, _ = lib.generar_siguiente_id(df_total, bloque_add, tema_add)
                 excel_path = st.session_state.excel_path
                 excel_dfs  = st.session_state.excel_dfs
-                blk_df     = excel_dfs.get(bloque_add)
+                blk_df     = _asegurar_bloque(excel_dfs, bloque_add)
 
-                if blk_df is None:
-                    st.error(f"El bloque '{bloque_add}' no existe en el Excel.")
-                else:
-                    new_row = {col: "" for col in blk_df.columns}
-                    new_row["ID_Pregunta"] = nid
-                    for col in blk_df.columns:
-                        cl = str(col).lower()
-                        if "tema" in cl and "id" not in cl:
-                            new_row[col] = tema_add
-                        elif "dificultad" in cl:
-                            new_row[col] = dif_add
-                        elif "correcta" in cl or "resp" in cl:
-                            new_row[col] = corr_add
-                        elif "enunciado" in cl:
-                            new_row[col] = enun_add.strip()
-                    # Opciones
-                    enun_idx = next((i for i, c in enumerate(blk_df.columns) if "enunciado" in str(c).lower()), None)
-                    if enun_idx is not None:
-                        for j, op in enumerate(ops_add[:4]):
-                            oi = enun_idx + 1 + j
-                            if oi < len(blk_df.columns):
-                                new_row[blk_df.columns[oi]] = op
-                    excel_dfs[bloque_add] = pd.concat(
-                        [blk_df, pd.DataFrame([new_row])], ignore_index=True
-                    )
-                    lib.guardar_excel_local(excel_path, excel_dfs)
-                    st.success(f"✅ Pregunta guardada con ID: **{nid}**")
-                    reload_db()
-                    st.rerun()
+                new_row = {col: "" for col in blk_df.columns}
+                new_row["ID_Pregunta"] = nid
+                for col in blk_df.columns:
+                    cl = str(col).lower()
+                    if "tema" in cl and "id" not in cl:
+                        new_row[col] = tema_add
+                    elif "dificultad" in cl:
+                        new_row[col] = dif_add
+                    elif "correcta" in cl or "resp" in cl:
+                        new_row[col] = corr_add
+                    elif "enunciado" in cl:
+                        new_row[col] = enun_add.strip()
+                # Opciones
+                enun_idx = next((i for i, c in enumerate(blk_df.columns) if "enunciado" in str(c).lower()), None)
+                if enun_idx is not None:
+                    for j, op in enumerate(ops_add[:4]):
+                        oi = enun_idx + 1 + j
+                        if oi < len(blk_df.columns):
+                            new_row[blk_df.columns[oi]] = op
+                excel_dfs[bloque_add] = pd.concat(
+                    [blk_df, pd.DataFrame([new_row])], ignore_index=True
+                )
+                lib.guardar_excel_local(excel_path, excel_dfs)
+                st.success(f"✅ Pregunta guardada con ID: **{nid}**")
+                reload_db()
+                st.rerun()
         else:
             st.error("❌ El enunciado no puede estar vacío.")
 
@@ -305,8 +327,7 @@ with tab_imp:
 
     # ── Configuración ─────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
-    bloque_imp = c1.selectbox("Bloque destino", bloques, key="imp_bloque",
-                               format_func=nombre_bloque)
+    bloque_imp = _bloque_selectbox("Bloque destino", "imp_bloque", c1)
     tema_imp   = c2.selectbox("Tema", temas_de_bloque(bloque_imp) or [str(i) for i in range(1, 51)], key="imp_tema",
                                format_func=nombre_tema)
     dif_imp    = c3.selectbox("Dificultad", ["Facil", "Media", "Dificil"], index=1, key="imp_dif")
@@ -433,8 +454,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                 is_dup, _ = lib.check_for_similar_enunciado(p_data["enunciado"], df_total)
                 if is_dup: skipped += 1; continue
                 blk    = p_data["bloque"]
-                blk_df = excel_dfs.get(blk)
-                if blk_df is None: skipped += 1; continue
+                blk_df = _asegurar_bloque(excel_dfs, blk)
                 nid, _ = lib.generar_siguiente_id(df_total, blk, p_data["tema"])
                 new_row = {col: "" for col in blk_df.columns}
                 new_row["ID_Pregunta"] = nid
@@ -722,7 +742,7 @@ with tab_man:
 
         with jc2:
             st.markdown("**Importar desde JSON**")
-            bloque_json = st.selectbox("Bloque destino", bloques, key="json_bloque")
+            bloque_json = _bloque_selectbox("Bloque destino", "json_bloque")
             json_file   = st.file_uploader("Archivo JSON", type=["json"], key="json_uploader")
             if json_file and st.button("📥 Importar JSON", key="btn_imp_json"):
                 import tempfile
@@ -732,23 +752,22 @@ with tab_man:
                 nuevas, dupes = lib.importar_preguntas_json(tmp_json, bloque_json, df_total)
                 os.unlink(tmp_json)
                 if nuevas:
-                    blk_df = st.session_state.excel_dfs.get(bloque_json)
-                    if blk_df is not None:
-                        for p in nuevas:
-                            new_row = {col: "" for col in blk_df.columns}
-                            new_row["ID_Pregunta"] = p["ID_Pregunta"]
-                            for col in blk_df.columns:
-                                cl = str(col).lower()
-                                if "enunciado" in cl: new_row[col] = p.get("enunciado","")
-                                elif "tema" in cl and "id" not in cl: new_row[col] = p.get("Tema","1")
-                                elif "dificultad" in cl: new_row[col] = p.get("dificultad","Media")
-                                elif "correcta" in cl or "resp" in cl: new_row[col] = p.get("letra_correcta","A")
-                            blk_df = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
-                        st.session_state.excel_dfs[bloque_json] = blk_df
-                        lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
-                        st.success(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
-                        reload_db()
-                        st.rerun()
+                    blk_df = _asegurar_bloque(st.session_state.excel_dfs, bloque_json)
+                    for p in nuevas:
+                        new_row = {col: "" for col in blk_df.columns}
+                        new_row["ID_Pregunta"] = p["ID_Pregunta"]
+                        for col in blk_df.columns:
+                            cl = str(col).lower()
+                            if "enunciado" in cl: new_row[col] = p.get("enunciado","")
+                            elif "tema" in cl and "id" not in cl: new_row[col] = p.get("Tema","1")
+                            elif "dificultad" in cl: new_row[col] = p.get("dificultad","Media")
+                            elif "correcta" in cl or "resp" in cl: new_row[col] = p.get("letra_correcta","A")
+                        blk_df = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
+                    st.session_state.excel_dfs[bloque_json] = blk_df
+                    lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
+                    st.success(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
+                    reload_db()
+                    st.rerun()
                 else:
                     st.warning(f"No se importó ninguna pregunta nueva. {dupes} duplicadas omitidas.")
 
