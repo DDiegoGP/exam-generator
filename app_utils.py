@@ -398,12 +398,11 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         sh = gc.open_by_key(spreadsheet_id)
         dfs = {}
         for ws in sh.worksheets():
-            records = ws.get_all_records(numericise_ignore=["all"])
-            if records:
-                dfs[ws.title] = pd.DataFrame(records)
-
-        if not dfs:
-            return False, "La hoja de cálculo está vacía o no tiene datos tabulares"
+            try:
+                records = ws.get_all_records(numericise_ignore=["all"])
+            except Exception:
+                records = []
+            dfs[ws.title] = pd.DataFrame(records) if records else pd.DataFrame()
 
         dfs = _load_cfg(dfs)
         df = procesar_excel_dfs(dfs)
