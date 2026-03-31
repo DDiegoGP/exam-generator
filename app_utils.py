@@ -382,10 +382,7 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
 
         creds = Credentials(
             token=token.get("access_token"),
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets.readonly",
-                "https://www.googleapis.com/auth/drive.readonly",
-            ],
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
         gc = gspread.authorize(creds)
 
@@ -396,6 +393,7 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         spreadsheet_id = m.group(1)
 
         sh = gc.open_by_key(spreadsheet_id)
+        st.session_state["_gsheets_id"] = spreadsheet_id
         dfs = {}
         for ws in sh.worksheets():
             try:
@@ -460,12 +458,64 @@ def reload_db():
             st.session_state.db_connected  = True
             st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
+def sync_hoja_gsheets(bloque: str) -> bool:
+    """Reescribe la hoja del bloque en Google Sheets con el contenido actual de excel_dfs.
+    No-op si no hay conexión GSheets activa. Muestra warning si falla."""
+    spreadsheet_id = st.session_state.get("_gsheets_id")
+    token          = st.session_state.get("google_token")
+    if not spreadsheet_id or not token:
+        return False  # modo local/upload, sin GSheets activo
+
+    df_sheet = st.session_state.get("excel_dfs", {}).get(bloque)
+    if df_sheet is None:
+        return False
+
+    try:
+        import gspread
+        from google.oauth2.credentials import Credentials
+
+        creds = Credentials(
+            token=token.get("access_token"),
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(spreadsheet_id)
+
+        try:
+            ws = sh.worksheet(bloque)
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title=bloque, rows=max(200, len(df_sheet) + 20), cols=20)
+
+        ws.clear()
+        if len(df_sheet.columns) > 0:
+            headers = list(df_sheet.columns)
+            rows    = df_sheet.fillna("").astype(str).values.tolist()
+            ws.update([headers] + rows)
+        return True
+
+    except Exception as e:
+        st.warning(
+            f"⚠️ No se pudo sincronizar '{bloque}' con Google Sheets: {e}. "
+            "Descarga el Excel desde el sidebar para no perder los cambios."
+        )
+        return False
+
+
+def sync_bloques_gsheets(bloques: list) -> None:
+    """Sincroniza varios bloques a la vez. Muestra spinner mientras escribe."""
+    if not st.session_state.get("_gsheets_id"):
+        return
+    with st.spinner("Guardando en Google Sheets…"):
+        for blq in bloques:
+            sync_hoja_gsheets(blq)
+
+
 # ── Google OAuth helpers (flujo manual, sin popup) ────────────────────────────
 import urllib.parse
 
 _GSHEETS_SCOPES = (
     "openid profile email "
-    "https://www.googleapis.com/auth/spreadsheets.readonly "
+    "https://www.googleapis.com/auth/spreadsheets "
     "https://www.googleapis.com/auth/drive.readonly"
 )
 
