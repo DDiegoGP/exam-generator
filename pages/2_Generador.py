@@ -1189,18 +1189,26 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
 
 @st.dialog("👁 Vista previa · Modelo A", width="large")
 def _dialog_preview_examen():
-    sel = get_sel_ids()
+    cache  = st.session_state.get("cache_examen") or []
+    sel    = get_sel_ids()
     dev_qs = st.session_state.get("dev_questions", [])
-    if not sel and not dev_qs:
-        st.warning("No hay preguntas seleccionadas.")
+
+    if cache:
+        pool_p = list(cache)
+    elif sel:
+        df_q    = st.session_state.df_preguntas
+        df_dict = df_q.set_index("ID_Pregunta").to_dict("index")
+        pool_p  = []
+        for pid in sel:
+            if pid in df_dict:
+                item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
+                pool_p.append(item)
+    else:
+        pool_p = []
+
+    if not pool_p and not dev_qs:
+        st.warning("No hay preguntas seleccionadas. Ve a **👁️ Preview** y pulsa **🎲 Generar** primero.")
         return
-    df_q    = st.session_state.df_preguntas
-    df_dict = df_q.set_index("ID_Pregunta").to_dict("index")
-    pool_p  = []
-    for pid in sel:
-        if pid in df_dict:
-            item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
-            pool_p.append(item)
 
     cfg = st.session_state.get("exam_cfg", {})
 

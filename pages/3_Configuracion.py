@@ -17,6 +17,7 @@ import examen_lib_latex as lib
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback,
     APP_CSS, page_header, _load_cfg, _nsort,
+    sync_bloques_gsheets, reload_db,
 )
 
 st.set_page_config(page_title="Configuración · Exámenes UCM", page_icon="⚙️", layout="wide")

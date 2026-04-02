@@ -737,29 +737,38 @@ def render_sidebar():
 
 # ── Page header helper ────────────────────────────────────────────────────────
 def page_header(icon: str, title: str, subtitle: str = ""):
-    """Renderiza una cabecera de página consistente con gradiente."""
-    sub_html = f'<div style="font-size:0.85em;opacity:0.75;margin-top:2px">{subtitle}</div>' if subtitle else ""
-    st.markdown(
-        f"""<div style="background:linear-gradient(90deg,#1a252f,#2c3e50);
-                color:white;border-radius:10px;padding:14px 22px;
-                margin-bottom:18px;display:flex;align-items:center;gap:14px;
-                box-shadow:0 3px 10px rgba(0,0,0,.2);">
-          <span style="font-size:1.9em">{icon}</span>
-          <div>
-            <div style="font-size:1.15em;font-weight:800;letter-spacing:-.01em">{title}</div>
-            {sub_html}
-          </div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    """Renderiza una cabecera de página consistente con componentes nativos."""
+    st.title(f"{icon} {title}")
+    if subtitle:
+        st.caption(subtitle)
 
 # ── Helpers varios ────────────────────────────────────────────────────────────
 def temas_de_bloque(bloque: str) -> list[str]:
-    df = st.session_state.df_preguntas
-    if df.empty:
-        return [str(i) for i in range(1, 51)]
-    t = df[df["bloque"] == bloque]["Tema"].unique() if bloque and bloque != "Todos" else df["Tema"].unique()
-    return sorted([str(x) for x in t if str(x) not in ("nan", "None", "")], key=_nsort)
+    """Devuelve temas para un bloque: unión de DB + cfg_temas, mínimo 1-50."""
+    df    = st.session_state.df_preguntas
+    cfg_t = st.session_state.get("cfg_temas", {})
+
+    # Topics from DB
+    if not df.empty:
+        src = df[df["bloque"] == bloque]["Tema"].unique() if (bloque and bloque != "Todos") else df["Tema"].unique()
+        db_set = {str(x) for x in src if str(x) not in ("nan", "None", "")}
+    else:
+        db_set = set()
+
+    # Topics from config (topics assigned to this block, or unassigned)
+    cfg_set = set()
+    for t_str, t_data in cfg_t.items():
+        if isinstance(t_data, dict):
+            t_blq = t_data.get("bloque", "")
+            if not t_blq or bloque == "Todos" or t_blq == bloque:
+                cfg_set.add(t_str)
+        else:
+            cfg_set.add(t_str)
+
+    union = db_set | cfg_set
+    # Always guarantee at least topics 1-50 so empty DBs are usable
+    union |= {str(i) for i in range(1, 51)}
+    return sorted(list(union), key=_nsort)
 
 def bloques_disponibles() -> list[str]:
     return st.session_state.bloques or []
