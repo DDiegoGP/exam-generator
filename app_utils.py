@@ -805,7 +805,7 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-si
 </style>
 </head><body>{contenido}</body></html>"""
 
-def render_question_card_html(row, show_sol: bool = True, num: int = None) -> str:
+def render_question_card_html(row, show_sol: bool = True, num: int = None, include_notas: bool = True) -> str:
     """Genera HTML de una tarjeta de pregunta con colores por dificultad."""
     dif    = str(row.get("dificultad", "Media"))
     dif_l  = dif.lower().replace("á","a").replace("í","i")
@@ -835,8 +835,10 @@ def render_question_card_html(row, show_sol: bool = True, num: int = None) -> st
     opts_html += "</div>"
 
     notas = str(row.get("notas", "") or "").strip()
-    nota_html = (f'<div style="margin-top:5px;padding:3px 8px;background:#fef3cd;'
-                 f'border-radius:3px;font-size:0.8em">📝 {notas}</div>') if notas else ""
+    nota_html = ""
+    if include_notas and notas:
+        nota_html = (f'<div style="margin-top:5px;padding:3px 8px;background:#fef3cd;'
+                     f'border-radius:3px;font-size:0.8em">📝 {notas}</div>')
 
     return (
         f'<div class="q-card {cls_card}">'

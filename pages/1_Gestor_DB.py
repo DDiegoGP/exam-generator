@@ -215,7 +215,7 @@ bloques = bloques_disponibles()
 
 # Columnas estándar para crear un bloque nuevo desde cero
 _STD_COLS = ["ID_Pregunta", "Tema", "Enunciado", "OpcionA", "OpcionB",
-             "OpcionC", "OpcionD", "Correcta", "Dificultad", "Usada", "Notas"]
+             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas"]
 _NUEVO_BLQ = "__nuevo__"
 
 
@@ -238,6 +238,60 @@ def _asegurar_bloque(excel_dfs: dict, bloque: str) -> pd.DataFrame:
         excel_dfs[bloque] = pd.DataFrame(columns=_STD_COLS)
         st.session_state.bloques = [k for k in excel_dfs if k not in lib.CFG_SHEETS]
     return excel_dfs[bloque]
+
+
+def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
+    """Construye una fila nueva usando coincidencia por palabras clave + posicional seguro para opciones.
+
+    p_data puede tener: enunciado, opciones_list, letra_correcta, tema (o Tema),
+                        dificultad, usada, notas.
+    El relleno posicional solo toca columnas NO reclamadas por la coincidencia de palabras clave,
+    evitando así sobreescribir 'Usada en Examen' o 'Dificultad' si el GSheet tiene un orden distinto.
+    """
+    new_row = {col: "" for col in blk_df.columns}
+    tema_val = p_data.get("tema") or p_data.get("Tema") or ""
+
+    claimed: set[int] = set()
+    for idx, col in enumerate(blk_df.columns):
+        cl = str(col).strip().lower()
+        if "id_preg" in cl or cl == "id":
+            new_row[col] = nid
+            claimed.add(idx)
+        elif "tema" in cl and "id" not in cl:
+            new_row[col] = str(tema_val)
+            claimed.add(idx)
+        elif "dificultad" in cl:
+            new_row[col] = p_data.get("dificultad", "")
+            claimed.add(idx)
+        elif "correcta" in cl:
+            new_row[col] = p_data.get("letra_correcta", "")
+            claimed.add(idx)
+        elif "enunciado" in cl:
+            new_row[col] = p_data.get("enunciado", "")
+            claimed.add(idx)
+        elif "usada" in cl or "fecha" in cl:
+            new_row[col] = p_data.get("usada", "")
+            claimed.add(idx)
+        elif "nota" in cl:
+            new_row[col] = p_data.get("notas", "")
+            claimed.add(idx)
+
+    # Opciones: relleno posicional SOLO en columnas no reclamadas, justo después de Enunciado
+    enun_idx = next((i for i, c in enumerate(blk_df.columns)
+                     if "enunciado" in str(c).lower()), None)
+    if enun_idx is not None:
+        opts = list(p_data.get("opciones_list", []))
+        op_n = 0
+        for j in range(1, len(blk_df.columns)):
+            if op_n >= 4:
+                break
+            ci = enun_idx + j
+            if ci >= len(blk_df.columns):
+                break
+            if ci not in claimed:
+                new_row[blk_df.columns[ci]] = opts[op_n] if op_n < len(opts) else ""
+                op_n += 1
+    return new_row
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -295,25 +349,11 @@ with tab_add:
                 excel_dfs  = st.session_state.excel_dfs
                 blk_df     = _asegurar_bloque(excel_dfs, bloque_add)
 
-                new_row = {col: "" for col in blk_df.columns}
-                new_row["ID_Pregunta"] = nid
-                for col in blk_df.columns:
-                    cl = str(col).lower()
-                    if "tema" in cl and "id" not in cl:
-                        new_row[col] = tema_add
-                    elif "dificultad" in cl:
-                        new_row[col] = dif_add
-                    elif "correcta" in cl or "resp" in cl:
-                        new_row[col] = corr_add
-                    elif "enunciado" in cl:
-                        new_row[col] = enun_add.strip()
-                # Opciones
-                enun_idx = next((i for i, c in enumerate(blk_df.columns) if "enunciado" in str(c).lower()), None)
-                if enun_idx is not None:
-                    for j, op in enumerate(ops_add[:4]):
-                        oi = enun_idx + 1 + j
-                        if oi < len(blk_df.columns):
-                            new_row[blk_df.columns[oi]] = op
+                new_row = _fill_row(blk_df, {
+                    "tema": tema_add, "dificultad": dif_add,
+                    "letra_correcta": corr_add, "enunciado": enun_add.strip(),
+                    "opciones_list": ops_add, "usada": "", "notas": "",
+                }, nid)
                 excel_dfs[bloque_add] = pd.concat(
                     [blk_df, pd.DataFrame([new_row])], ignore_index=True
                 )
@@ -462,22 +502,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                 blk    = p_data["bloque"]
                 blk_df = _asegurar_bloque(excel_dfs, blk)
                 nid, _ = lib.generar_siguiente_id(df_total, blk, p_data["tema"])
-                new_row = {col: "" for col in blk_df.columns}
-                new_row["ID_Pregunta"] = nid
-                for col in blk_df.columns:
-                    cl = str(col).lower()
-                    if "tema" in cl and "id" not in cl: new_row[col] = p_data["tema"]
-                    elif "dificultad" in cl:             new_row[col] = p_data["dificultad"]
-                    elif "correcta" in cl or "resp" in cl: new_row[col] = p_data["letra_correcta"]
-                    elif "enunciado" in cl:              new_row[col] = p_data["enunciado"]
-                    elif "usada" in cl or "fecha" in cl: new_row[col] = p_data["usada"]
-                enun_idx = next((ci for ci, c in enumerate(blk_df.columns) if "enunciado" in str(c).lower()), None)
-                if enun_idx is not None:
-                    for j, op in enumerate(p_data["opciones_list"][:4]):
-                        oi = enun_idx + 1 + j
-                        if oi < len(blk_df.columns): new_row[blk_df.columns[oi]] = op
-                    ci = enun_idx + 5
-                    if ci < len(blk_df.columns): new_row[blk_df.columns[ci]] = p_data["letra_correcta"]
+                new_row = _fill_row(blk_df, p_data, nid)
                 excel_dfs[blk] = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
                 df_total = pd.concat([df_total, pd.DataFrame([{
                     "ID_Pregunta": nid, "bloque": blk, "Tema": p_data["tema"],
@@ -671,8 +696,21 @@ with tab_man:
         with col_preview:
             if sel_pid:
                 row_d     = dict(df_total[df_total["ID_Pregunta"] == sel_pid].iloc[0])
-                card_html = render_question_card_html(row_d, show_sol=True)
+                card_html = render_question_card_html(row_d, show_sol=True, include_notas=False)
                 st.markdown(card_html, unsafe_allow_html=True)
+
+                # ── Notas / Solución (fuera de la tarjeta, con LaTeX) ──────
+                notas_txt  = str(row_d.get("notas", "") or "").strip()
+                notas_html = ""
+                if notas_txt:
+                    notas_html = (
+                        "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
+                        "border-radius:0 8px 8px 0;padding:10px 14px;margin-top:4px;"
+                        "font-size:0.875em;color:#78350f;line-height:1.55'>"
+                        "<b style='color:#92400e;display:block;margin-bottom:4px'>📝 Notas / Solución</b>"
+                        f"{notas_txt}</div>"
+                    )
+                    st.markdown(notas_html, unsafe_allow_html=True)
 
                 # ── Botón MathJax ──────────────────────────────────────────
                 _mjax_key = f"mjax_gest_{sel_pid}"
@@ -685,7 +723,7 @@ with tab_man:
                                    use_container_width=True):
                         st.session_state[_mjax_key] = False
                         st.rerun()
-                    stcomponents.html(mathjax_html(card_html), height=500, scrolling=True)
+                    stcomponents.html(mathjax_html(card_html + notas_html), height=500, scrolling=True)
 
                 bc1, bc2 = st.columns(2)
                 if bc1.button("✏️ Editar", type="primary", use_container_width=True,
@@ -698,26 +736,15 @@ with tab_man:
                     nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
                     blk_df = st.session_state.excel_dfs.get(blk)
                     if blk_df is not None:
-                        new_row_dup = {col: "" for col in blk_df.columns}
-                        new_row_dup["ID_Pregunta"] = nid
-                        for col in blk_df.columns:
-                            cl = str(col).lower()
-                            if "enunciado" in cl:
-                                new_row_dup[col] = str(row_d.get("enunciado", "")) + " (COPIA)"
-                            elif "tema" in cl and "id" not in cl:
-                                new_row_dup[col] = tema_d
-                            elif "dificultad" in cl:
-                                new_row_dup[col] = row_d.get("dificultad", "Media")
-                            elif "correcta" in cl or "resp" in cl:
-                                new_row_dup[col] = row_d.get("letra_correcta", "A")
-                        enun_idx = next((ci for ci, c in enumerate(blk_df.columns)
-                                         if "enunciado" in str(c).lower()), None)
-                        if enun_idx is not None:
-                            ops_dup = row_d.get("opciones_list", []) or []
-                            for j, op in enumerate(ops_dup[:4]):
-                                oi = enun_idx + 1 + j
-                                if oi < len(blk_df.columns):
-                                    new_row_dup[blk_df.columns[oi]] = op
+                        new_row_dup = _fill_row(blk_df, {
+                            "tema": tema_d,
+                            "dificultad": row_d.get("dificultad", "Media"),
+                            "letra_correcta": row_d.get("letra_correcta", "A"),
+                            "enunciado": str(row_d.get("enunciado", "")) + " (COPIA)",
+                            "opciones_list": row_d.get("opciones_list", []) or [],
+                            "usada": "",
+                            "notas": row_d.get("notas", "") or "",
+                        }, nid)
                         st.session_state.excel_dfs[blk] = pd.concat(
                             [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
                         lib.guardar_excel_local(st.session_state.excel_path,
@@ -772,14 +799,15 @@ with tab_man:
                 if nuevas:
                     blk_df = _asegurar_bloque(st.session_state.excel_dfs, bloque_json)
                     for p in nuevas:
-                        new_row = {col: "" for col in blk_df.columns}
-                        new_row["ID_Pregunta"] = p["ID_Pregunta"]
-                        for col in blk_df.columns:
-                            cl = str(col).lower()
-                            if "enunciado" in cl: new_row[col] = p.get("enunciado","")
-                            elif "tema" in cl and "id" not in cl: new_row[col] = p.get("Tema","1")
-                            elif "dificultad" in cl: new_row[col] = p.get("dificultad","Media")
-                            elif "correcta" in cl or "resp" in cl: new_row[col] = p.get("letra_correcta","A")
+                        new_row = _fill_row(blk_df, {
+                            "tema": p.get("Tema") or p.get("tema", "1"),
+                            "dificultad": p.get("dificultad", "Media"),
+                            "letra_correcta": p.get("letra_correcta", "A"),
+                            "enunciado": p.get("enunciado", ""),
+                            "opciones_list": p.get("opciones_list", []),
+                            "usada": p.get("usada", ""),
+                            "notas": p.get("notas", "") or "",
+                        }, p["ID_Pregunta"])
                         blk_df = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
                     st.session_state.excel_dfs[bloque_json] = blk_df
                     lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
