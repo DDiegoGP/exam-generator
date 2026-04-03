@@ -80,9 +80,11 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
         if bloque not in dict_of_dfs:
             return False, f"Bloque '{bloque}' no encontrado"
         df = dict_of_dfs[bloque]
-        # Asegurar columna notas existe
+        # Asegurar columnas opcionales existen
         if not any('nota' in str(c).lower() for c in df.columns):
             df['notas'] = ''; dict_of_dfs[bloque] = df
+        if not any('soluci' in str(c).lower() for c in df.columns):
+            df['Solución'] = ''; dict_of_dfs[bloque] = df
         mask = df['ID_Pregunta'].astype(str) == str(pid)
         if not mask.any():
             return False, "ID no encontrado"

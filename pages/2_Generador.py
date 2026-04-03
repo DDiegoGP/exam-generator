@@ -403,6 +403,17 @@ with tab_sel:
                     )
                     st.markdown(notas_html_prev, unsafe_allow_html=True)
 
+                # Badge solución
+                sol_txt_badge = str(row_d_prev.get("solucion", "") or "").strip()
+                if sol_txt_badge:
+                    st.markdown(
+                        "<div style='margin-top:4px;display:flex;align-items:center;gap:6px'>"
+                        "<span style='background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;"
+                        "border-radius:12px;padding:2px 10px;font-size:0.78em;font-weight:600;"
+                        "letter-spacing:0.02em'>📖 Solución disponible</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
                 # Botones añadir / quitar + Solución
                 is_sel = preview_pid in sel_ids_actual
                 pa1, pa2, pa3 = st.columns(3)

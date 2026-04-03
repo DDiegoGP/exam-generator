@@ -202,54 +202,92 @@ def _dialog_editar_staging():
         st.rerun()
 
 
-@st.dialog("📖 Solución", width="large")
+@st.dialog("📖 Solución desarrollada", width="large")
 def _dialog_solucion(pid: str, row: dict):
     """Modal para ver y editar la solución desarrollada de una pregunta."""
+    # ── Encabezado: enunciado prominente + metadatos ──────────────────────────
+    dif     = str(row.get("dificultad", "Media"))
+    dif_l   = dif.lower().replace("á","a").replace("í","i")
+    dif_col = {"facil": "#27ae60", "media": "#f39c12", "dificil": "#c0392b"}.get(dif_l, "#888")
+    corr    = str(row.get("letra_correcta", "A")).upper()
+    corr_col= {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}.get(corr, "#555")
+    ops     = row.get("opciones_list", []) or []
+
     st.markdown(
-        f"<div style='font-size:0.82em;color:#888;margin-bottom:6px'>"
-        f"<b>{pid}</b> · {str(row.get('enunciado',''))[:120]}…</div>",
+        f"<div style='background:#f0f4ff;border-left:4px solid #3498db;"
+        f"border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:10px'>"
+        f"<div style='font-size:0.75em;color:#666;margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap'>"
+        f"<b style='color:#2c3e50'>{pid}</b>"
+        f"<span style='background:{dif_col};color:#fff;border-radius:8px;"
+        f"padding:1px 8px;font-size:0.9em'>{dif}</span>"
+        f"<span style='background:{corr_col};color:#fff;border-radius:8px;"
+        f"padding:1px 8px;font-size:0.9em'>Resp. correcta: {corr}</span></div>"
+        f"<div style='font-size:1.0em;color:#1a252f;line-height:1.6;font-weight:500'>"
+        f"{row.get('enunciado','')}</div></div>",
         unsafe_allow_html=True,
     )
-    st.markdown("---")
 
+    # Opciones en lectura compacta
+    if any(ops):
+        op_html = "<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px'>"
+        for i, ll in enumerate(["A", "B", "C", "D"]):
+            txt  = ops[i] if i < len(ops) else ""
+            is_c = ll == corr
+            bg   = corr_col if is_c else "#f1f3f5"
+            fg   = "#fff"    if is_c else "#495057"
+            fw   = "600"     if is_c else "400"
+            op_html += (
+                f"<div style='background:{bg};color:{fg};border-radius:6px;"
+                f"padding:4px 10px;font-size:0.82em;font-weight:{fw}'>"
+                f"<b>{ll})</b> {txt}{' ✓' if is_c else ''}</div>"
+            )
+        op_html += "</div>"
+        st.markdown(op_html, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Editor de solución ────────────────────────────────────────────────────
     sol_actual = str(row.get("solucion", "") or "").strip()
     nueva_sol  = st.text_area(
-        "Solución (admite LaTeX: `$...$` inline, `$$...$$` o `\\[...\\]` en bloque)",
-        value=sol_actual, height=200, key="dlg_sol_txt",
+        "Solución — LaTeX: `$...$` inline · `$$...$$` o `\\[...\\]` bloque · TikZ renderiza al exportar PDF",
+        value=sol_actual, height=180, key="dlg_sol_txt",
     )
 
     _mjax_sol_key = f"dlg_sol_mjax_{pid}"
-    rc1, rc2, rc3 = st.columns([2, 2, 1])
+    rc1, rc2 = st.columns(2)
     if rc1.button("∑ Renderizar LaTeX", use_container_width=True, key="dlg_sol_render"):
         st.session_state[_mjax_sol_key] = True
-    if st.session_state.get(_mjax_sol_key) and rc2.button("✖ Cerrar render", use_container_width=True, key="dlg_sol_close_render"):
+    if st.session_state.get(_mjax_sol_key) and rc2.button("✖ Cerrar render",
+                                                            use_container_width=True,
+                                                            key="dlg_sol_close_render"):
         st.session_state[_mjax_sol_key] = False
 
-    if st.session_state.get(_mjax_sol_key, False) and nueva_sol.strip():
-        sol_html = (
-            "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
-            "color:#2c3e50;padding:10px;background:#fefce8;border-radius:6px;"
-            "border-left:3px solid #f59e0b'>"
-            f"{nueva_sol}</div>"
-        )
-        stcomponents.html(mathjax_html(sol_html), height=300, scrolling=True)
-    elif st.session_state.get(_mjax_sol_key, False):
-        st.info("Escribe la solución para renderizarla.")
+    if st.session_state.get(_mjax_sol_key, False):
+        if nueva_sol.strip():
+            sol_html = (
+                "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
+                "color:#2c3e50;padding:14px;background:#f0f9ff;"
+                "border-left:3px solid #3498db;border-radius:0 8px 8px 0;line-height:1.65'>"
+                f"{nueva_sol}</div>"
+            )
+            stcomponents.html(mathjax_html(sol_html), height=280, scrolling=True)
+        else:
+            st.info("Escribe la solución para renderizarla.")
 
-    st.markdown("---")
+    st.divider()
     sg1, sg2 = st.columns([3, 1])
     if sg1.button("💾 Guardar solución", type="primary", use_container_width=True, key="dlg_sol_save"):
-        datos = {k: row.get(k, "") for k in
-                 ["bloque", "enunciado", "tema", "correcta", "dificultad", "usada", "notas", "opciones"]}
-        datos["bloque"]   = row.get("bloque", "")
-        datos["enunciado"]= row.get("enunciado", "")
-        datos["tema"]     = str(row.get("Tema", "1"))
-        datos["correcta"] = row.get("letra_correcta", "A")
-        datos["dificultad"]= row.get("dificultad", "Media")
-        datos["usada"]    = row.get("usada", "")
-        datos["notas"]    = row.get("notas", "")
-        datos["opciones"] = row.get("opciones_list", []) or []
-        datos["solucion"] = nueva_sol.strip()
+        datos = {
+            "bloque":     row.get("bloque", ""),
+            "enunciado":  row.get("enunciado", ""),
+            "tema":       str(row.get("Tema", "1")),
+            "correcta":   row.get("letra_correcta", "A"),
+            "dificultad": row.get("dificultad", "Media"),
+            "usada":      row.get("usada", ""),
+            "notas":      row.get("notas", ""),
+            "opciones":   row.get("opciones_list", []) or [],
+            "solucion":   nueva_sol.strip(),
+        }
         ok, msg = lib.actualizar_pregunta_excel_local(
             st.session_state.excel_path,
             st.session_state.excel_dfs,
@@ -766,7 +804,7 @@ with tab_man:
                 card_html = render_question_card_html(row_d, show_sol=True, include_notas=False)
                 st.markdown(card_html, unsafe_allow_html=True)
 
-                # ── Notas / Solución (fuera de la tarjeta, con LaTeX) ──────
+                # ── Notas (fuera de la tarjeta) ────────────────────────────
                 notas_txt  = str(row_d.get("notas", "") or "").strip()
                 notas_html = ""
                 if notas_txt:
@@ -774,10 +812,21 @@ with tab_man:
                         "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
                         "border-radius:0 8px 8px 0;padding:10px 14px;margin-top:4px;"
                         "font-size:0.875em;color:#78350f;line-height:1.55'>"
-                        "<b style='color:#92400e;display:block;margin-bottom:4px'>📝 Notas / Solución</b>"
+                        "<b style='color:#92400e;display:block;margin-bottom:4px'>📝 Notas</b>"
                         f"{notas_txt}</div>"
                     )
                     st.markdown(notas_html, unsafe_allow_html=True)
+
+                # ── Badge solución disponible ───────────────────────────────
+                sol_txt = str(row_d.get("solucion", "") or "").strip()
+                if sol_txt:
+                    st.markdown(
+                        "<div style='margin-top:4px;display:flex;align-items:center;gap:6px'>"
+                        "<span style='background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;"
+                        "border-radius:12px;padding:2px 10px;font-size:0.78em;font-weight:600;"
+                        "letter-spacing:0.02em'>📖 Solución disponible</span></div>",
+                        unsafe_allow_html=True,
+                    )
 
                 # ── Botón MathJax ──────────────────────────────────────────
                 _mjax_key = f"mjax_gest_{sel_pid}"
@@ -796,7 +845,8 @@ with tab_man:
                 if bc1.button("✏️ Editar", type="primary", use_container_width=True,
                               key="btn_edit_q"):
                     _dialog_editar_pregunta(sel_pid, row_d)
-                if bc2.button("📖 Solución", use_container_width=True, key="btn_sol_q"):
+                if bc2.button("📖 Solución", use_container_width=True, key="btn_sol_q",
+                              help="Sin solución aún" if not sol_txt else "Ver / editar solución"):
                     _dialog_solucion(sel_pid, row_d)
 
                 if bc3.button("📋 Duplicar", use_container_width=True, key="btn_dup_q"):

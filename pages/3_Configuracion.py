@@ -17,7 +17,7 @@ import examen_lib_latex as lib
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback,
     APP_CSS, page_header, _load_cfg, _nsort,
-    sync_bloques_gsheets, reload_db,
+    sync_bloques_gsheets, sync_hoja_gsheets, reload_db,
 )
 
 st.set_page_config(page_title="Configuración · Exámenes UCM", page_icon="⚙️", layout="wide")
@@ -78,6 +78,7 @@ with tab_bloques:
         path = st.session_state.get("excel_path", "")
         if path:
             lib.guardar_excel_local(path, dfs)
+        sync_hoja_gsheets(lib.CFG_BLOQUES_SHEET)
         st.success("✅ Nombres de bloques guardados.")
         st.rerun()
 
@@ -146,6 +147,7 @@ with tab_temas:
         path = st.session_state.get("excel_path", "")
         if path:
             lib.guardar_excel_local(path, dfs)
+        sync_hoja_gsheets(lib.CFG_TEMAS_SHEET)
         st.success("✅ Nombres de temas guardados.")
         st.rerun()
 
@@ -179,6 +181,7 @@ with tab_notas:
         path = st.session_state.get("excel_path", "")
         if path:
             lib.guardar_excel_local(path, dfs)
+        sync_hoja_gsheets(lib.CFG_GENERAL_SHEET)
         st.success("✅ Notas guardadas.")
         st.rerun()
 

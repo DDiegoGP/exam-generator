@@ -450,21 +450,31 @@ def connect_db_from_upload(uploaded_file) -> tuple:
         return False, f"Error al cargar Excel: {e}"
 
 def reload_db():
-    """Recarga la DB. En local: desde disco. En cloud: re-procesa dfs en memoria."""
+    """Recarga la DB. GSheets: re-descarga desde la API. Local: desde disco. Upload: re-procesa memoria."""
+    # GSheets: re-descarga real desde la API
+    spreadsheet_id = st.session_state.get("_gsheets_id")
+    token          = st.session_state.get("google_token")
+    if spreadsheet_id and token:
+        url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+        connect_db_from_gsheets(token, url)
+        return
+
+    # Local: re-lee desde disco
     path = st.session_state.get("excel_path", "")
     if path and os.path.isfile(path):
         connect_db(path)
-    else:
-        # Cloud/upload mode: re-procesar desde dfs ya en memoria
-        dfs = st.session_state.excel_dfs
-        if dfs:
-            dfs = _load_cfg(dfs)
-            df = procesar_excel_dfs(dfs)
-            st.session_state.excel_dfs     = dfs
-            st.session_state.df_preguntas  = df
-            st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
-            st.session_state.db_connected  = True
-            st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
+        return
+
+    # Upload/cloud: re-procesa desde dfs ya en memoria
+    dfs = st.session_state.get("excel_dfs", {})
+    if dfs:
+        dfs = _load_cfg(dfs)
+        df = procesar_excel_dfs(dfs)
+        st.session_state.excel_dfs     = dfs
+        st.session_state.df_preguntas  = df
+        st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
+        st.session_state.db_connected  = True
+        st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
 def sync_hoja_gsheets(bloque: str) -> bool:
     """Reescribe la hoja del bloque en Google Sheets con el contenido actual de excel_dfs.
@@ -722,7 +732,11 @@ def render_sidebar():
             col_r, col_d = st.columns(2)
             if col_r.button("🔄 Recargar", use_container_width=True, key="btn_reload"):
                 reload_db()
+                st.session_state["_reload_toast"] = True
                 st.rerun()
+            if st.session_state.pop("_reload_toast", False):
+                n = len(st.session_state.df_preguntas)
+                st.toast(f"✅ Base de datos recargada · {n} preguntas", icon="✅")
 
             # ── Descarga del Excel actualizado ────────────────────────────────
             excel_bytes = st.session_state.get("excel_bytes", b"")
