@@ -101,6 +101,9 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
             elif 'usada' in cl or 'used' in cl:
                 if datos.get('usada'):
                     df.at[idx, col] = datos['usada']
+            elif 'soluci' in cl:
+                if 'solucion' in datos:
+                    df.at[idx, col] = datos['solucion']
             elif 'nota' in cl:
                 df.at[idx, col] = datos.get('notas', '')
 
@@ -1655,6 +1658,27 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
             tex = tex.replace('[[HOJA_RESPUESTAS]]', _gen_hoja_respuestas(n_test, estilo_hoja))
         else:
             tex = tex.replace('[[HOJA_RESPUESTAS]]', '')
+
+        # ── Solucionario (apéndice opcional) ────────────────────────────────
+        if cfg.get('incluir_solucionario', False):
+            preguntas_con_sol = [p for p in m.get('preguntas', []) if str(p.get('solucion', '')).strip()]
+            if preguntas_con_sol:
+                sol_title = _escape_latex(cfg.get('titulo_solucionario', 'Solucionario'))
+                apendice = '\n\\clearpage\n'
+                apendice += f'\\section*{{{sol_title}}}\n'
+                apendice += '\\begin{enumerate}\n'
+                for p in preguntas_con_sol:
+                    enun_short = _escape_latex(str(p.get('enunciado', ''))[:120])
+                    sol_tex    = str(p.get('solucion', ''))
+                    letra_c    = _escape_latex(str(p.get('letra_final', p.get('letra_correcta', ''))))
+                    apendice += (
+                        f'\\item \\textbf{{Preg. {p.get("num", "")}'
+                        f' — Resp.: {letra_c}}}\\\\\\relax\n'
+                        f'\\textit{{{enun_short}}}\\\\\\relax\n'
+                        f'{sol_tex}\n\n'
+                    )
+                apendice += '\\end{enumerate}\n'
+                tex = tex.replace('\\end{document}', apendice + '\\end{document}')
 
         result[m['letra_version']] = tex
     return result

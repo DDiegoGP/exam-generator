@@ -387,12 +387,25 @@ with tab_sel:
             row_insp = df_total[df_total["ID_Pregunta"] == preview_pid]
             if not row_insp.empty:
                 row_d_prev = dict(row_insp.iloc[0])
-                card_html_prev = render_question_card_html(row_d_prev, show_sol=True)
+                card_html_prev = render_question_card_html(row_d_prev, show_sol=True, include_notas=False)
                 st.markdown(card_html_prev, unsafe_allow_html=True)
 
-                # Botones añadir / quitar
+                # Notas debajo de la tarjeta
+                notas_txt_prev  = str(row_d_prev.get("notas", "") or "").strip()
+                notas_html_prev = ""
+                if notas_txt_prev:
+                    notas_html_prev = (
+                        "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
+                        "border-radius:0 8px 8px 0;padding:10px 14px;margin-top:4px;"
+                        "font-size:0.875em;color:#78350f;line-height:1.55'>"
+                        "<b style='color:#92400e;display:block;margin-bottom:4px'>📝 Notas</b>"
+                        f"{notas_txt_prev}</div>"
+                    )
+                    st.markdown(notas_html_prev, unsafe_allow_html=True)
+
+                # Botones añadir / quitar + Solución
                 is_sel = preview_pid in sel_ids_actual
-                pa1, pa2 = st.columns(2)
+                pa1, pa2, pa3 = st.columns(3)
                 if is_sel:
                     if pa1.button("➖ Quitar del examen", key="btn_prev_rem",
                                    use_container_width=True):
@@ -410,9 +423,16 @@ with tab_sel:
                         set_sel_ids(cur)
                         st.rerun()
 
+                # Botón Solución
+                sol_txt_prev = str(row_d_prev.get("solucion", "") or "").strip()
+                if pa2.button("📖 Solución", key="btn_prev_sol",
+                               use_container_width=True, disabled=not sol_txt_prev):
+                    st.session_state["_gen_sol_pid"] = preview_pid
+                    st.session_state["_gen_sol_row"] = row_d_prev
+
                 # Botón MathJax
                 _mjax_key_sel = f"mjax_sel_{preview_pid}"
-                if pa2.button("∑ Renderizar LaTeX", key=f"mjax_btn_sel_{preview_pid}",
+                if pa3.button("∑ Renderizar LaTeX", key=f"mjax_btn_sel_{preview_pid}",
                                use_container_width=True):
                     st.session_state[_mjax_key_sel] = True
                 if st.session_state.get(_mjax_key_sel, False):
@@ -421,7 +441,26 @@ with tab_sel:
                                    use_container_width=True):
                         st.session_state[_mjax_key_sel] = False
                         st.rerun()
-                    stcomponents.html(mathjax_html(card_html_prev), height=480, scrolling=True)
+                    stcomponents.html(mathjax_html(card_html_prev + notas_html_prev), height=480, scrolling=True)
+
+                # Mostrar solución inline si se ha pulsado el botón
+                if (st.session_state.get("_gen_sol_pid") == preview_pid
+                        and st.session_state.get("_gen_sol_row")):
+                    sol_txt = str(st.session_state["_gen_sol_row"].get("solucion", "") or "").strip()
+                    if sol_txt:
+                        sol_html = (
+                            "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
+                            "color:#2c3e50;padding:12px;background:#f0f9ff;"
+                            "border-left:3px solid #3498db;border-radius:0 8px 8px 0;margin-top:6px'>"
+                            "<b style='color:#1a5276;display:block;margin-bottom:6px'>📖 Solución</b>"
+                            f"{sol_txt}</div>"
+                        )
+                        st.markdown("---")
+                        stcomponents.html(mathjax_html(sol_html), height=250, scrolling=True)
+                        if st.button("✖ Cerrar solución", key="btn_close_sol_gen"):
+                            st.session_state.pop("_gen_sol_pid", None)
+                            st.session_state.pop("_gen_sol_row", None)
+                            st.rerun()
             else:
                 st.info("Selecciona una pregunta de la lista para previsualizarla.")
         else:
@@ -939,6 +978,9 @@ def _ejecutar_export():
         "sol_info_bloque": cfg.get("sol_info_bloque", False),
         "sol_info_tema":   cfg.get("sol_info_tema",   False),
         "sol_info_dif":    cfg.get("sol_info_dif",    False),
+        # Solucionario
+        "incluir_solucionario": cfg.get("incluir_solucionario", False),
+        "titulo_solucionario":  cfg.get("titulo_solucionario", "Solucionario"),
     }
     tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
     tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
@@ -1371,6 +1413,17 @@ with tab_exp:
             hr1, hr2 = st.columns([1, 2])
             hoja_respuestas = hr1.checkbox("Generar hoja de respuestas",
                                            value=cfg.get("hoja_respuestas", False), key="exp_hoja_resp")
+
+        # ── 4b-ter. Solucionario ──────────────────────────────────────────────
+        with st.expander("📖 Solucionario (apéndice)", expanded=False):
+            st.caption("Añade un apéndice al LaTeX de soluciones con las soluciones desarrolladas de cada pregunta.")
+            sl1, sl2 = st.columns([1, 2])
+            incluir_solucionario = sl1.checkbox("Incluir solucionario",
+                                                value=cfg.get("incluir_solucionario", False),
+                                                key="exp_incl_sol")
+            titulo_solucionario = sl2.text_input("Título del apéndice",
+                                                 value=cfg.get("titulo_solucionario", "Solucionario"),
+                                                 key="exp_tit_sol", disabled=not incluir_solucionario)
             _estilo_hoja_opts = {"omr": "OMR — Burbujas (○ A ○ B ○ C ○ D)", "tabla": "Tabla — Celdas para marcar"}
             _estilo_hoja_cur  = cfg.get("estilo_hoja", "omr")
             _estilo_hoja_idx  = list(_estilo_hoja_opts.keys()).index(_estilo_hoja_cur) if _estilo_hoja_cur in _estilo_hoja_opts else 0
@@ -1533,6 +1586,9 @@ with tab_exp:
             "sol_info_bloque": sol_info_bloque,
             "sol_info_tema":   sol_info_tema,
             "sol_info_dif":    sol_info_dif,
+            # Solucionario
+            "incluir_solucionario": incluir_solucionario,
+            "titulo_solucionario":  titulo_solucionario,
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────

@@ -272,7 +272,8 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
         idx_enun = next((i for i, h in enumerate(head) if "enunciado" in h), -1)
         idx_tem  = next((i for i, h in enumerate(head) if "tema" in h and "id" not in h), -1)
         idx_dif  = next((i for i, h in enumerate(head) if "dificultad" in h), -1)
-        idx_nota = next((i for i, h in enumerate(head) if "nota" in h), -1)
+        idx_nota = next((i for i, h in enumerate(head) if "nota" in h and "soluci" not in h), -1)
+        idx_sol  = next((i for i, h in enumerate(head) if "soluci" in h), -1)
 
         # Opciones: 4 columnas justo después del enunciado
         idx_opA  = idx_enun + 1 if idx_enun != -1 else -1
@@ -332,6 +333,12 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
                 n = str(r[idx_nota]).strip()
                 nota_val = "" if n in ("nan", "NaT", "None") else n
 
+            # Solución
+            sol_val = ""
+            if idx_sol != -1 and idx_sol < len(r):
+                s = str(r[idx_sol]).strip()
+                sol_val = "" if s in ("nan", "NaT", "None") else s
+
             rows.append({
                 "ID_Pregunta":   id_val,
                 "bloque":        b_name,
@@ -342,11 +349,12 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
                 "dificultad":    dif_raw,
                 "usada":         u_val,
                 "notas":         nota_val,
+                "solucion":      sol_val,
             })
 
     if not rows:
         return pd.DataFrame(columns=["ID_Pregunta","bloque","Tema","enunciado",
-                                      "opciones_list","letra_correcta","dificultad","usada","notas"])
+                                      "opciones_list","letra_correcta","dificultad","usada","notas","solucion"])
     return pd.DataFrame(rows)
 
 # ── Conexión ─────────────────────────────────────────────────────────────────
@@ -783,7 +791,7 @@ def es_uso_antiguo(v: str, months: int) -> bool:
 def mathjax_html(contenido: str) -> str:
     """Envuelve contenido HTML en una página con MathJax y los estilos de la app."""
     return f"""<!DOCTYPE html><html><head>
-<script>MathJax={{tex:{{inlineMath:[['$','$'],['\\\\(','\\\\)']]}},svg:{{fontCache:'global'}}}};</script>
+<script>MathJax={{tex:{{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]}},svg:{{fontCache:'global'}}}};</script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <style>
 *{{box-sizing:border-box}}

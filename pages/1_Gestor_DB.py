@@ -202,6 +202,70 @@ def _dialog_editar_staging():
         st.rerun()
 
 
+@st.dialog("📖 Solución", width="large")
+def _dialog_solucion(pid: str, row: dict):
+    """Modal para ver y editar la solución desarrollada de una pregunta."""
+    st.markdown(
+        f"<div style='font-size:0.82em;color:#888;margin-bottom:6px'>"
+        f"<b>{pid}</b> · {str(row.get('enunciado',''))[:120]}…</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+
+    sol_actual = str(row.get("solucion", "") or "").strip()
+    nueva_sol  = st.text_area(
+        "Solución (admite LaTeX: `$...$` inline, `$$...$$` o `\\[...\\]` en bloque)",
+        value=sol_actual, height=200, key="dlg_sol_txt",
+    )
+
+    _mjax_sol_key = f"dlg_sol_mjax_{pid}"
+    rc1, rc2, rc3 = st.columns([2, 2, 1])
+    if rc1.button("∑ Renderizar LaTeX", use_container_width=True, key="dlg_sol_render"):
+        st.session_state[_mjax_sol_key] = True
+    if st.session_state.get(_mjax_sol_key) and rc2.button("✖ Cerrar render", use_container_width=True, key="dlg_sol_close_render"):
+        st.session_state[_mjax_sol_key] = False
+
+    if st.session_state.get(_mjax_sol_key, False) and nueva_sol.strip():
+        sol_html = (
+            "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
+            "color:#2c3e50;padding:10px;background:#fefce8;border-radius:6px;"
+            "border-left:3px solid #f59e0b'>"
+            f"{nueva_sol}</div>"
+        )
+        stcomponents.html(mathjax_html(sol_html), height=300, scrolling=True)
+    elif st.session_state.get(_mjax_sol_key, False):
+        st.info("Escribe la solución para renderizarla.")
+
+    st.markdown("---")
+    sg1, sg2 = st.columns([3, 1])
+    if sg1.button("💾 Guardar solución", type="primary", use_container_width=True, key="dlg_sol_save"):
+        datos = {k: row.get(k, "") for k in
+                 ["bloque", "enunciado", "tema", "correcta", "dificultad", "usada", "notas", "opciones"]}
+        datos["bloque"]   = row.get("bloque", "")
+        datos["enunciado"]= row.get("enunciado", "")
+        datos["tema"]     = str(row.get("Tema", "1"))
+        datos["correcta"] = row.get("letra_correcta", "A")
+        datos["dificultad"]= row.get("dificultad", "Media")
+        datos["usada"]    = row.get("usada", "")
+        datos["notas"]    = row.get("notas", "")
+        datos["opciones"] = row.get("opciones_list", []) or []
+        datos["solucion"] = nueva_sol.strip()
+        ok, msg = lib.actualizar_pregunta_excel_local(
+            st.session_state.excel_path,
+            st.session_state.excel_dfs,
+            pid, datos,
+        )
+        if ok:
+            reload_db()
+            sync_bloques_gsheets([datos["bloque"]])
+            st.success("✅ Solución guardada.")
+            st.rerun()
+        else:
+            st.error(f"❌ {msg}")
+    if sg2.button("✖ Cerrar", use_container_width=True, key="dlg_sol_cancel"):
+        st.rerun()
+
+
 st.title("🗄️ Gestor de Base de Datos")
 st.caption(f"{len(st.session_state.df_preguntas)} preguntas · {len(st.session_state.bloques)} bloques"
            if st.session_state.db_connected else "Sin conexión a la base de datos")
@@ -215,7 +279,7 @@ bloques = bloques_disponibles()
 
 # Columnas estándar para crear un bloque nuevo desde cero
 _STD_COLS = ["ID_Pregunta", "Tema", "Enunciado", "OpcionA", "OpcionB",
-             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas"]
+             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas", "Solución"]
 _NUEVO_BLQ = "__nuevo__"
 
 
@@ -271,6 +335,9 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
             claimed.add(idx)
         elif "usada" in cl or "fecha" in cl:
             new_row[col] = p_data.get("usada", "")
+            claimed.add(idx)
+        elif "soluci" in cl:
+            new_row[col] = p_data.get("solucion", "")
             claimed.add(idx)
         elif "nota" in cl:
             new_row[col] = p_data.get("notas", "")
@@ -725,12 +792,14 @@ with tab_man:
                         st.rerun()
                     stcomponents.html(mathjax_html(card_html + notas_html), height=500, scrolling=True)
 
-                bc1, bc2 = st.columns(2)
+                bc1, bc2, bc3 = st.columns(3)
                 if bc1.button("✏️ Editar", type="primary", use_container_width=True,
                               key="btn_edit_q"):
                     _dialog_editar_pregunta(sel_pid, row_d)
+                if bc2.button("📖 Solución", use_container_width=True, key="btn_sol_q"):
+                    _dialog_solucion(sel_pid, row_d)
 
-                if bc2.button("📋 Duplicar", use_container_width=True, key="btn_dup_q"):
+                if bc3.button("📋 Duplicar", use_container_width=True, key="btn_dup_q"):
                     blk    = row_d["bloque"]
                     tema_d = str(row_d.get("Tema", "1"))
                     nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
@@ -744,6 +813,7 @@ with tab_man:
                             "opciones_list": row_d.get("opciones_list", []) or [],
                             "usada": "",
                             "notas": row_d.get("notas", "") or "",
+                            "solucion": "",
                         }, nid)
                         st.session_state.excel_dfs[blk] = pd.concat(
                             [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
