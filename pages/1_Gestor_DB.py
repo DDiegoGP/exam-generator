@@ -113,10 +113,9 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             pid, datos
         )
         if ok:
-            reload_db()
-            # Sync el bloque editado (y el original si se cambió de bloque)
             _bloques_sync = list({datos["bloque"], row.get("bloque", datos["bloque"])})
             sync_bloques_gsheets(_bloques_sync)
+            reload_db()
             st.rerun()
         else:
             st.error(f"❌ {msg}")
@@ -294,8 +293,8 @@ def _dialog_solucion(pid: str, row: dict):
             pid, datos,
         )
         if ok:
-            reload_db()
             sync_bloques_gsheets([datos["bloque"]])
+            reload_db()
             st.success("✅ Solución guardada.")
             st.rerun()
         else:
@@ -464,8 +463,8 @@ with tab_add:
                 )
                 lib.guardar_excel_local(excel_path, excel_dfs)
                 st.success(f"✅ Pregunta guardada con ID: **{nid}**")
-                reload_db()
                 sync_bloques_gsheets([bloque_add])
+                reload_db()
                 st.rerun()
         else:
             st.error("❌ El enunciado no puede estar vacío.")
@@ -621,9 +620,9 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                 lib.guardar_excel_local(excel_path, excel_dfs)
                 st.success(f"✅ {imported} pregunta(s) importada(s). {skipped} duplicada(s) omitida(s).")
                 st.session_state.import_staging = []
-                reload_db()
                 _bloques_imp = list({staging[i].get("bloque", bloque_imp) for i in sel_ids})
                 sync_bloques_gsheets(_bloques_imp)
+                reload_db()
                 st.rerun()
             else:
                 st.warning(f"No se importó ninguna pregunta. {skipped} duplicada(s) omitida(s).")
@@ -755,8 +754,8 @@ with tab_man:
                                 bulk_ids, "dificultad", bulk_dif)
                             msgs.append(m)
                         if msgs:
-                            st.success(" | ".join(msgs)); reload_db()
                             sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
+                            st.success(" | ".join(msgs)); reload_db()
                             st.rerun()
                         else:
                             st.warning("No hay cambios que aplicar.")
@@ -773,8 +772,8 @@ with tab_man:
                                 st.session_state.excel_path, st.session_state.excel_dfs,
                                 bulk_ids, bulk_find, bulk_repl)
                             if ok:
-                                st.success(msg); reload_db()
                                 sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
+                                st.success(msg); reload_db()
                                 st.rerun()
                             else:  st.error(msg)
 
@@ -792,8 +791,8 @@ with tab_man:
                         ok, msg = lib.eliminar_preguntas_excel_local(
                             st.session_state.excel_path, st.session_state.excel_dfs, bulk_ids)
                         if ok:
-                            st.success(msg); reload_db()
                             sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
+                            st.success(msg); reload_db()
                             st.rerun()
                         else:  st.error(msg)
 
@@ -870,8 +869,8 @@ with tab_man:
                         lib.guardar_excel_local(st.session_state.excel_path,
                                                 st.session_state.excel_dfs)
                         st.success(f"✅ Duplicada como **{nid}**")
-                        reload_db()
                         sync_bloques_gsheets([blk])
+                        reload_db()
                         st.rerun()
             else:
                 st.markdown(
@@ -932,8 +931,8 @@ with tab_man:
                     st.session_state.excel_dfs[bloque_json] = blk_df
                     lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
                     st.success(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
-                    reload_db()
                     sync_bloques_gsheets([bloque_json])
+                    reload_db()
                     st.rerun()
                 else:
                     st.warning(f"No se importó ninguna pregunta nueva. {dupes} duplicadas omitidas.")

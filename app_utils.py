@@ -450,22 +450,13 @@ def connect_db_from_upload(uploaded_file) -> tuple:
         return False, f"Error al cargar Excel: {e}"
 
 def reload_db():
-    """Recarga la DB. GSheets: re-descarga desde la API. Local: desde disco. Upload: re-procesa memoria."""
-    # GSheets: re-descarga real desde la API
-    spreadsheet_id = st.session_state.get("_gsheets_id")
-    token          = st.session_state.get("google_token")
-    if spreadsheet_id and token:
-        url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
-        connect_db_from_gsheets(token, url)
-        return
-
-    # Local: re-lee desde disco
+    """Re-procesa los dfs en memoria. En local: re-lee desde disco.
+    NUNCA re-descarga desde GSheets — eso solo lo hace el botón Recargar."""
     path = st.session_state.get("excel_path", "")
     if path and os.path.isfile(path):
         connect_db(path)
         return
-
-    # Upload/cloud: re-procesa desde dfs ya en memoria
+    # GSheets / upload: re-procesa desde dfs ya en memoria
     dfs = st.session_state.get("excel_dfs", {})
     if dfs:
         dfs = _load_cfg(dfs)
@@ -731,7 +722,13 @@ def render_sidebar():
 
             col_r, col_d = st.columns(2)
             if col_r.button("🔄 Recargar", use_container_width=True, key="btn_reload"):
-                reload_db()
+                _gid   = st.session_state.get("_gsheets_id")
+                _token = st.session_state.get("google_token")
+                if _gid and _token:
+                    connect_db_from_gsheets(_token,
+                        f"https://docs.google.com/spreadsheets/d/{_gid}")
+                else:
+                    reload_db()
                 st.session_state["_reload_toast"] = True
                 st.rerun()
             if st.session_state.pop("_reload_toast", False):
