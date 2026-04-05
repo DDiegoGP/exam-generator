@@ -403,14 +403,34 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         sh = gc.open_by_key(spreadsheet_id)
         st.session_state["_gsheets_id"] = spreadsheet_id
         dfs = {}
+        existing_sheet_names = set()
         for ws in sh.worksheets():
             try:
                 records = ws.get_all_records(numericise_ignore=["all"])
             except Exception:
                 records = []
             dfs[ws.title] = pd.DataFrame(records) if records else pd.DataFrame()
+            existing_sheet_names.add(ws.title)
 
         dfs = _load_cfg(dfs)
+
+        # Empujar a GSheets las hojas de config que no existían allí (creadas en memoria)
+        for cfg_name in lib.CFG_SHEETS:
+            if cfg_name not in existing_sheet_names and cfg_name in dfs:
+                df_cfg = dfs[cfg_name]
+                try:
+                    ws_cfg = sh.add_worksheet(
+                        title=cfg_name,
+                        rows=max(100, len(df_cfg) + 5),
+                        cols=max(10, len(df_cfg.columns) + 1),
+                    )
+                    if len(df_cfg.columns) > 0:
+                        headers = list(df_cfg.columns)
+                        rows_data = df_cfg.fillna("").astype(str).values.tolist()
+                        ws_cfg.update([headers] + rows_data)
+                except Exception:
+                    pass  # no crítico, se intentará al guardar en Configuración
+
         df = procesar_excel_dfs(dfs)
         st.session_state.excel_path    = ""
         st.session_state.excel_dfs     = dfs
@@ -503,7 +523,8 @@ def sync_hoja_gsheets(bloque: str) -> bool:
         return True
 
     except Exception as e:
-        st.warning(
+        # Guardar el error en session_state para mostrarlo DESPUÉS del rerun
+        st.session_state.setdefault("_sync_errors", []).append(
             f"⚠️ No se pudo sincronizar '{bloque}' con Google Sheets: {e}. "
             "Descarga el Excel desde el sidebar para no perder los cambios."
         )
@@ -654,6 +675,11 @@ def _render_gsheets_oauth():
 # ── Sidebar (componente compartido) ─────────────────────────────────────────
 def render_sidebar():
     """Barra lateral compartida. Funciona tanto en local como en Streamlit Cloud."""
+    # Mostrar errores de sync GSheets que sobrevivieron al rerun
+    sync_errors = st.session_state.pop("_sync_errors", [])
+    for err in sync_errors:
+        st.warning(err)
+
     with st.sidebar:
         st.markdown(
             "<div style='background:linear-gradient(135deg,#1a252f,#2c3e50);"
