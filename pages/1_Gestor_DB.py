@@ -245,14 +245,41 @@ def _dialog_solucion(pid: str, row: dict):
 
     st.divider()
 
+    # ── Plantillas de inicio ──────────────────────────────────────────────────
+    _sol_key = f"dlg_sol_txt_{pid}"
+    st.markdown("<span style='font-size:0.82em;color:#888;font-weight:600'>PLANTILLA RÁPIDA</span>",
+                unsafe_allow_html=True)
+    tp1, tp2, tp3 = st.columns(3)
+    if tp1.button("📝 Razonamiento", key=f"tpl_razon_{pid}", use_container_width=True):
+        st.session_state[_sol_key] = (
+            f"La respuesta correcta es la **{corr})** porque...\n\n"
+            f"Las otras opciones son incorrectas porque..."
+        )
+    if tp2.button("🔢 Cálculo", key=f"tpl_calc_{pid}", use_container_width=True):
+        st.session_state[_sol_key] = (
+            "**Datos:**\n\n\n\n"
+            "**Desarrollo:**\n\n\n\n"
+            "**Resultado:**"
+        )
+    if tp3.button("💡 Concepto", key=f"tpl_concept_{pid}", use_container_width=True):
+        st.session_state[_sol_key] = (
+            f"**Concepto clave:** ...\n\n"
+            f"**Opción {corr})** es correcta porque...\n\n"
+            f"**Las demás son incorrectas** porque..."
+        )
+
     # ── Editor de solución ────────────────────────────────────────────────────
     sol_actual = str(row.get("solucion", "") or "").strip()
     nueva_sol  = st.text_area(
         "Solución — LaTeX: `$...$` inline · `$$...$$` o `\\[...\\]` bloque · TikZ renderiza al exportar PDF",
-        value=sol_actual, height=180, key="dlg_sol_txt",
+        value=sol_actual, height=180, key=_sol_key,
     )
 
+    # Auto-habilitar render si ya hay solución guardada
     _mjax_sol_key = f"dlg_sol_mjax_{pid}"
+    if sol_actual and _mjax_sol_key not in st.session_state:
+        st.session_state[_mjax_sol_key] = True
+
     rc1, rc2 = st.columns(2)
     if rc1.button("∑ Renderizar LaTeX", use_container_width=True, key="dlg_sol_render"):
         st.session_state[_mjax_sol_key] = True
@@ -401,8 +428,8 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # PESTAÑA PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
-tab_add, tab_imp, tab_man, tab_stat = st.tabs(
-    ["➕ Añadir", "📥 Importar", "✏️ Gestionar", "📊 Estadísticas"]
+tab_add, tab_imp, tab_man, tab_stat, tab_sol = st.tabs(
+    ["➕ Añadir", "📥 Importar", "✏️ Gestionar", "📊 Estadísticas", "📖 Soluciones"]
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -649,11 +676,17 @@ with tab_man:
                               format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
     f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif")
     f_uso    = fc4.selectbox("Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"], key="man_f_uso")
-    f_search = st.text_input("🔍 Buscar en enunciado", placeholder="Texto a buscar...", key="man_search")
+    srch1, srch2, srch3 = st.columns([4, 1, 1])
+    f_search    = srch1.text_input("🔍 Buscar", placeholder="Texto a buscar en enunciado, opciones y notas…", key="man_search")
+    f_global    = srch2.checkbox("🌐 Todos los bloques", key="man_search_global",
+                                  help="Buscar ignorando el filtro de bloque activo",
+                                  value=False)
+    f_sin_sol   = srch3.checkbox("Sin solución", key="man_filter_sin_sol",
+                                  help="Mostrar solo preguntas sin solución", value=False)
 
     # Aplicar filtros
     df_filt = df_total.copy()
-    if f_bloque != "Todos":
+    if f_bloque != "Todos" and not f_global:
         df_filt = df_filt[df_filt["bloque"] == f_bloque]
     if f_tema != "Todos":
         df_filt = df_filt[df_filt["Tema"].astype(str) == f_tema]
@@ -667,19 +700,31 @@ with tab_man:
         df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 6))]
     elif f_uso == "Usada >12 meses":
         df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 12))]
+    if f_sin_sol:
+        df_filt = df_filt[~df_filt["solucion"].apply(
+            lambda v: bool(str(v).strip() and str(v) not in ('nan', 'None', '')))]
     if f_search:
-        q = f_search.lower()
-        mask = df_filt["enunciado"].str.lower().str.contains(q, na=False)
+        sq = f_search.lower()
+        mask = df_filt["enunciado"].str.lower().str.contains(sq, na=False)
+        mask = mask | df_filt["notas"].astype(str).str.lower().str.contains(sq, na=False)
+        mask = mask | df_filt["opciones_list"].apply(
+            lambda ops: any(sq in str(o).lower() for o in (ops or []))
+        )
         df_filt = df_filt[mask]
 
     # Contador compacto
     n_filt = len(df_filt)
     pct_filt = int(n_filt / len(df_total) * 100) if len(df_total) else 0
+    _global_badge = (
+        "  ·  <span style='background:#dbeafe;color:#1e40af;border-radius:8px;"
+        "padding:1px 8px;font-size:0.9em;font-weight:600'>🌐 búsqueda global</span>"
+        if f_global and f_search else ""
+    )
     st.markdown(
         f"<div style='font-size:0.82em;color:#666;margin-bottom:8px'>"
         f"Mostrando <b style='color:#2c3e50'>{n_filt}</b> de {len(df_total)} preguntas"
         f"{'  ·  <b style=\"color:#3498db\">' + str(pct_filt) + '% del total</b>' if pct_filt < 100 else ''}"
-        f"</div>",
+        f"{_global_badge}</div>",
         unsafe_allow_html=True
     )
 
@@ -693,10 +738,14 @@ with tab_man:
 
         # ── Columna izquierda: tabla (navegación single-click) ───────────────
         with col_table:
-            display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad", "usada", "enunciado"]].copy()
+            display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad", "usada", "solucion", "enunciado"]].copy()
             display_df["enunciado"] = display_df["enunciado"].str[:130]
             display_df["usada"]     = display_df["usada"].apply(lambda v: v if v else "—")
-            display_df.columns      = ["ID", "Bloque", "T", "Dif.", "Usado", "Enunciado"]
+            display_df["bloque"]    = display_df["bloque"].apply(nombre_bloque)
+            display_df["solucion"]  = display_df["solucion"].apply(
+                lambda v: "✓" if str(v).strip() and str(v) not in ('nan', 'None', '') else "—"
+            )
+            display_df.columns      = ["ID", "Bloque", "T", "Dif.", "Usado", "Sol.", "Enunciado"]
             display_df              = display_df.reset_index(drop=True)
 
             sel = st.dataframe(
@@ -708,11 +757,12 @@ with tab_man:
                 key="man_df_sel",
                 height=420,
                 column_config={
-                    "ID":       st.column_config.TextColumn("ID", width=130),
-                    "Bloque":   st.column_config.TextColumn("Bloque", width=85),
+                    "ID":       st.column_config.TextColumn("ID", width=120),
+                    "Bloque":   st.column_config.TextColumn("Bloque", width=120),
                     "T":        st.column_config.TextColumn("T", width=35),
                     "Dif.":     st.column_config.TextColumn("Dif.", width=58),
                     "Usado":    st.column_config.TextColumn("Usado", width=80),
+                    "Sol.":     st.column_config.TextColumn("Sol.", width=42),
                     "Enunciado":st.column_config.TextColumn("Enunciado", width="large"),
                 },
             )
@@ -816,16 +866,25 @@ with tab_man:
                     )
                     st.markdown(notas_html, unsafe_allow_html=True)
 
-                # ── Badge solución disponible ───────────────────────────────
+                # ── Badge + expander solución ───────────────────────────────
                 sol_txt = str(row_d.get("solucion", "") or "").strip()
                 if sol_txt:
-                    st.markdown(
-                        "<div style='margin-top:4px;display:flex;align-items:center;gap:6px'>"
-                        "<span style='background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;"
-                        "border-radius:12px;padding:2px 10px;font-size:0.78em;font-weight:600;"
-                        "letter-spacing:0.02em'>📖 Solución disponible</span></div>",
-                        unsafe_allow_html=True,
-                    )
+                    with st.expander("📖 Ver solución", expanded=False):
+                        sol_preview_html = (
+                            "<div style='font-family:-apple-system,sans-serif;font-size:13px;"
+                            "color:#2c3e50;padding:10px;background:#f0f9ff;"
+                            "border-left:3px solid #3498db;border-radius:0 6px 6px 0;line-height:1.6'>"
+                            f"{sol_txt}</div>"
+                        )
+                        _mjax_exp_key = f"mjax_exp_{sel_pid}"
+                        if st.session_state.get(_mjax_exp_key, False):
+                            stcomponents.html(mathjax_html(sol_preview_html), height=200, scrolling=True)
+                        else:
+                            st.markdown(sol_preview_html, unsafe_allow_html=True)
+                        if st.button("∑ Renderizar LaTeX", key=f"mjax_exp_btn_{sel_pid}",
+                                     use_container_width=True):
+                            st.session_state[_mjax_exp_key] = not st.session_state.get(_mjax_exp_key, False)
+                            st.rerun()
 
                 # ── Botón MathJax ──────────────────────────────────────────
                 _mjax_key = f"mjax_gest_{sel_pid}"
@@ -1226,4 +1285,205 @@ with tab_stat:
                         f"</div></div>",
                         unsafe_allow_html=True
                     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 5 · SOLUCIONES (editor batch interactivo)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab_sol:
+    st.subheader("Editor de Soluciones")
+    st.caption("Repasa pregunta a pregunta y añade o edita la solución desarrollada.")
+
+    # ── Métricas globales ─────────────────────────────────────────────────────
+    def _tiene_sol(v) -> bool:
+        return bool(str(v).strip() and str(v) not in ('nan', 'None', ''))
+
+    n_sol_total  = len(df_total)
+    n_sol_con    = int(df_total["solucion"].apply(_tiene_sol).sum())
+    n_sol_sin    = n_sol_total - n_sol_con
+    pct_sol      = int(n_sol_con / n_sol_total * 100) if n_sol_total else 0
+
+    sm1, sm2, sm3 = st.columns(3)
+    sm1.markdown(
+        f"<div class='stat-card ok'><div class='stat-num' style='color:#27ae60'>{n_sol_con}</div>"
+        f"<div class='stat-label'>📖 Con solución</div></div>",
+        unsafe_allow_html=True)
+    sm2.markdown(
+        f"<div class='stat-card warn'><div class='stat-num' style='color:#f39c12'>{n_sol_sin}</div>"
+        f"<div class='stat-label'>⬜ Sin solución</div></div>",
+        unsafe_allow_html=True)
+    sm3.markdown(
+        f"<div class='stat-card'><div class='stat-num' style='color:#3498db'>{pct_sol}%</div>"
+        f"<div class='stat-label'>✅ Completado</div></div>",
+        unsafe_allow_html=True)
+
+    # Barra de progreso global
+    bar_w = pct_sol
+    bar_r = 100 - bar_w
+    st.markdown(
+        f"<div style='margin:12px 0 4px 0'>"
+        f"<div style='display:flex;justify-content:space-between;font-size:0.78em;color:#666;margin-bottom:3px'>"
+        f"<span>Progreso global de soluciones</span><span style='font-weight:700'>{n_sol_con}/{n_sol_total}</span></div>"
+        f"<div style='background:#e9ecef;border-radius:6px;height:12px;overflow:hidden'>"
+        f"<div style='background:#27ae60;width:{bar_w}%;height:12px;border-radius:6px;"
+        f"transition:width 0.4s'></div></div></div>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Filtros ───────────────────────────────────────────────────────────────
+    sf1, sf2 = st.columns([2, 2])
+    sol_blq = sf1.selectbox("Filtrar por bloque:", ["Todos"] + bloques,
+                            key="sol_blq_filter",
+                            format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b))
+    sol_modo = sf2.radio("Mostrar:", ["Sin solución", "Con solución", "Todas"],
+                         horizontal=True, key="sol_modo")
+
+    # Construir df de trabajo
+    df_work = df_total.copy()
+    if sol_blq != "Todos":
+        df_work = df_work[df_work["bloque"] == sol_blq]
+    _mask_sol = df_work["solucion"].apply(_tiene_sol)
+    if sol_modo == "Sin solución":
+        df_work = df_work[~_mask_sol]
+    elif sol_modo == "Con solución":
+        df_work = df_work[_mask_sol]
+    df_work = df_work.reset_index(drop=True)
+
+    if df_work.empty:
+        if sol_modo == "Sin solución":
+            st.success("✅ ¡Todas las preguntas de este filtro tienen solución!")
+        else:
+            st.info("No hay preguntas para los filtros activos.")
+    else:
+        # ── Navegación ────────────────────────────────────────────────────────
+        if "sol_edit_idx" not in st.session_state:
+            st.session_state.sol_edit_idx = 0
+        sol_idx = min(st.session_state.sol_edit_idx, len(df_work) - 1)
+
+        row_s  = dict(df_work.iloc[sol_idx])
+        pid_s  = row_s["ID_Pregunta"]
+        corr_s = str(row_s.get("letra_correcta", "A")).upper()
+
+        # Caption de progreso local
+        n_en_filtro = len(df_work)
+        st.markdown(
+            f"<div style='font-size:0.82em;color:#555;margin-bottom:6px'>"
+            f"Pregunta <b>{sol_idx + 1}</b> de <b>{n_en_filtro}</b> · "
+            f"(Progreso global: {n_sol_con}/{n_sol_total} con solución)</div>",
+            unsafe_allow_html=True
+        )
+
+        # ── Tarjeta de pregunta ───────────────────────────────────────────────
+        card_html_s = render_question_card_html(row_s, show_sol=False, include_notas=False)
+        st.markdown(card_html_s, unsafe_allow_html=True)
+
+        notas_s = str(row_s.get("notas", "") or "").strip()
+        if notas_s:
+            st.markdown(
+                "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
+                "border-radius:0 8px 8px 0;padding:8px 12px;margin-top:4px;"
+                "font-size:0.85em;color:#78350f'>"
+                f"<b style='color:#92400e'>📝 Notas:</b> {notas_s}</div>",
+                unsafe_allow_html=True
+            )
+
+        # ── Plantillas de inicio ──────────────────────────────────────────────
+        sol_key_b = f"sol_batch_txt_{pid_s}"
+        st.markdown(
+            "<span style='font-size:0.82em;color:#888;font-weight:600'>PLANTILLA RÁPIDA</span>",
+            unsafe_allow_html=True
+        )
+        btp1, btp2, btp3 = st.columns(3)
+        if btp1.button("📝 Razonamiento", key=f"bsol_razon_{pid_s}", use_container_width=True):
+            st.session_state[sol_key_b] = (
+                f"La respuesta correcta es la **{corr_s})** porque...\n\n"
+                f"Las otras opciones son incorrectas porque..."
+            )
+        if btp2.button("🔢 Cálculo", key=f"bsol_calc_{pid_s}", use_container_width=True):
+            st.session_state[sol_key_b] = (
+                "**Datos:**\n\n\n\n"
+                "**Desarrollo:**\n\n\n\n"
+                "**Resultado:**"
+            )
+        if btp3.button("💡 Concepto", key=f"bsol_concept_{pid_s}", use_container_width=True):
+            st.session_state[sol_key_b] = (
+                f"**Concepto clave:** ...\n\n"
+                f"**Opción {corr_s})** es correcta porque...\n\n"
+                f"**Las demás son incorrectas** porque..."
+            )
+
+        # ── Editor inline ──────────────────────────────────────────────────────
+        sol_actual_b = str(row_s.get("solucion", "") or "").strip()
+        nueva_sol_b  = st.text_area(
+            "Solución — LaTeX: `$...$` inline · `$$...$$` o `\\[...\\]` bloque",
+            value=sol_actual_b,
+            height=160,
+            key=sol_key_b,
+        )
+
+        # Render LaTeX
+        _mjax_b_key = f"sol_batch_mjax_{pid_s}"
+        if sol_actual_b and _mjax_b_key not in st.session_state:
+            st.session_state[_mjax_b_key] = True
+        rb1, rb2 = st.columns(2)
+        _rend_on = st.session_state.get(_mjax_b_key, False)
+        if rb1.button(
+            "✖ Cerrar render" if _rend_on else "∑ Renderizar LaTeX",
+            key=f"sol_batch_render_{pid_s}",
+            use_container_width=True
+        ):
+            st.session_state[_mjax_b_key] = not _rend_on
+            st.rerun()
+        if _rend_on and nueva_sol_b.strip():
+            _sol_rhtml = (
+                "<div style='font-family:-apple-system,sans-serif;font-size:13px;"
+                "color:#2c3e50;padding:12px;background:#f0f9ff;"
+                "border-left:3px solid #3498db;border-radius:0 8px 8px 0;line-height:1.65'>"
+                f"{nueva_sol_b}</div>"
+            )
+            stcomponents.html(mathjax_html(_sol_rhtml), height=240, scrolling=True)
+
+        # ── Botones de navegación ─────────────────────────────────────────────
+        st.markdown("---")
+        nav1, nav2, nav3 = st.columns(3)
+
+        if nav1.button("← Anterior", key="sol_batch_prev",
+                       use_container_width=True, disabled=(sol_idx == 0)):
+            st.session_state.sol_edit_idx = sol_idx - 1
+            st.rerun()
+
+        if nav2.button("⏭️ Saltar", key="sol_batch_skip", use_container_width=True):
+            st.session_state.sol_edit_idx = min(n_en_filtro - 1, sol_idx + 1)
+            st.rerun()
+
+        if nav3.button("💾 Guardar y siguiente →", type="primary",
+                       key="sol_batch_save", use_container_width=True):
+            datos_s = {
+                "bloque":     row_s.get("bloque", ""),
+                "enunciado":  row_s.get("enunciado", ""),
+                "tema":       str(row_s.get("Tema", "1")),
+                "correcta":   row_s.get("letra_correcta", "A"),
+                "dificultad": row_s.get("dificultad", "Media"),
+                "usada":      row_s.get("usada", ""),
+                "notas":      row_s.get("notas", ""),
+                "opciones":   row_s.get("opciones_list", []) or [],
+                "solucion":   nueva_sol_b.strip(),
+            }
+            ok_s, msg_s = lib.actualizar_pregunta_excel_local(
+                st.session_state.excel_path,
+                st.session_state.excel_dfs,
+                pid_s, datos_s,
+            )
+            if ok_s:
+                sync_bloques_gsheets([datos_s["bloque"]])
+                reload_db()
+                # En modo "Sin solución", la pregunta desaparece del filtro.
+                # Mantener el mismo índice (apuntará a la siguiente).
+                st.session_state.sol_edit_idx = sol_idx
+                st.success("✅ Solución guardada.")
+                st.rerun()
+            else:
+                st.error(f"❌ {msg_s}")
 
