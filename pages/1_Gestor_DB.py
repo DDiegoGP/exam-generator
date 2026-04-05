@@ -56,7 +56,8 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         # Intentar encontrar el tema actual
         tem_cur = str(row.get("Tema", "1"))
         tem_idx = temas_d.index(tem_cur) if tem_cur in temas_d else 0
-        ed_tema = st.selectbox("Tema", temas_d, index=tem_idx, key="dlg_tema")
+        ed_tema = st.selectbox("Tema", temas_d, index=tem_idx, key="dlg_tema",
+                               format_func=nombre_tema)
 
         dif_opts = ["Facil", "Media", "Dificil"]
         dif_cur  = str(row.get("dificultad", "Media")).capitalize()
@@ -145,7 +146,8 @@ def _dialog_editar_staging():
         temas_d = temas_de_bloque(ed_blq) or [str(i) for i in range(1, 51)]
         tem_cur = str(q.get("tema", "1"))
         tem_idx = temas_d.index(tem_cur) if tem_cur in temas_d else 0
-        ed_tema = st.selectbox("Tema", temas_d, index=tem_idx, key="stg_dlg_tema")
+        ed_tema = st.selectbox("Tema", temas_d, index=tem_idx, key="stg_dlg_tema",
+                               format_func=nombre_tema)
         dif_opts = ["Facil", "Media", "Dificil"]
         dif_cur  = str(q.get("dificultad", "Media")).capitalize()
         dif_idx  = dif_opts.index(dif_cur) if dif_cur in dif_opts else 1

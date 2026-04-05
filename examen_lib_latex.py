@@ -777,36 +777,76 @@ def get_cfg_general(dfs: dict) -> dict:
 
 def init_cfg_from_data(dfs: dict) -> dict:
     """
-    Crea hojas Cfg_Bloques y Cfg_Temas si no existen, auto-pobladas desde los
-    datos de preguntas con nombres genéricos. Retorna el dfs actualizado.
+    Sincroniza Cfg_Bloques y Cfg_Temas con los datos reales de preguntas:
+    - Añade bloques/temas nuevos que no estén en el config.
+    - Nunca sobreescribe nombres/descripciones ya guardados.
+    - Elimina filas huérfanas (bloques/temas que ya no existen en los datos).
     """
+    _k = lambda t: [int(x) if x.isdigit() else x.lower()
+                    for x in re.split(r"(\d+)", str(t))]
+
     question_sheets = [k for k in dfs if k not in CFG_SHEETS]
 
-    if CFG_BLOQUES_SHEET not in dfs or dfs[CFG_BLOQUES_SHEET].empty:
-        rows = [{"Bloque": b, "Descripcion": ""} for b in question_sheets]
-        dfs[CFG_BLOQUES_SHEET] = pd.DataFrame(rows)
+    # ── Cfg_Bloques ───────────────────────────────────────────────────────────
+    existing_b = dfs.get(CFG_BLOQUES_SHEET)
+    if existing_b is None or existing_b.empty:
+        existing_map_b = {}
+    else:
+        existing_map_b = {
+            str(r["Bloque"]): str(r.get("Descripcion", "") or "")
+            for _, r in existing_b.iterrows()
+            if str(r.get("Bloque", "")) not in ("", "nan", "None")
+        }
+    # Merge: keep existing desc, add new blank
+    merged_b = {b: existing_map_b.get(b, "") for b in question_sheets}
+    dfs[CFG_BLOQUES_SHEET] = pd.DataFrame(
+        [{"Bloque": b, "Descripcion": merged_b[b]} for b in question_sheets]
+    )
 
-    if CFG_TEMAS_SHEET not in dfs or dfs[CFG_TEMAS_SHEET].empty:
-        seen = {}  # tema -> bloque (first occurrence)
-        for b_name, df_sheet in dfs.items():
-            if b_name in CFG_SHEETS or df_sheet.empty:
-                continue
-            head = [str(h).lower().strip() for h in df_sheet.columns]
-            idx_t = next((i for i, h in enumerate(head)
-                          if "tema" in h and "id" not in h), -1)
-            if idx_t == -1:
-                continue
-            for _, row in df_sheet.iterrows():
-                t = str(row.iloc[idx_t]).strip()
-                if t.endswith(".0"):
-                    t = t[:-2]
-                if t and t not in ("nan", "None", "") and t not in seen:
-                    seen[t] = b_name
-        _k = lambda t: [int(x) if x.isdigit() else x.lower()
-                        for x in re.split(r"(\d+)", t)]
-        rows = [{"Tema": t, "Nombre": "", "Bloque": seen[t]}
-                for t in sorted(seen, key=_k)]
-        dfs[CFG_TEMAS_SHEET] = pd.DataFrame(rows)
+    # ── Cfg_Temas: recopilar todos los temas presentes en los datos ───────────
+    seen = {}  # tema -> bloque (first occurrence in data)
+    for b_name, df_sheet in dfs.items():
+        if b_name in CFG_SHEETS or df_sheet.empty:
+            continue
+        head = [str(h).lower().strip() for h in df_sheet.columns]
+        idx_t = next((i for i, h in enumerate(head)
+                      if "tema" in h and "id" not in h), -1)
+        if idx_t == -1:
+            continue
+        for _, row in df_sheet.iterrows():
+            t = str(row.iloc[idx_t]).strip()
+            if t.endswith(".0"):
+                t = t[:-2]
+            if t and t not in ("nan", "None", "") and t not in seen:
+                seen[t] = b_name
+
+    existing_t = dfs.get(CFG_TEMAS_SHEET)
+    if existing_t is None or existing_t.empty:
+        existing_map_t = {}
+    else:
+        existing_map_t = {}
+        for _, r in existing_t.iterrows():
+            t = str(r.get("Tema", "")).strip()
+            if t.endswith(".0"):
+                t = t[:-2]
+            if t and t not in ("nan", "None", ""):
+                existing_map_t[t] = {
+                    "nombre": str(r.get("Nombre", "") or ""),
+                    "bloque": str(r.get("Bloque", "") or ""),
+                }
+
+    # Merge: only keep temas that exist in data; preserve saved names
+    rows_t = []
+    for t in sorted(seen, key=_k):
+        prev = existing_map_t.get(t, {})
+        rows_t.append({
+            "Tema":   t,
+            "Nombre": prev.get("nombre", "") or "",
+            "Bloque": prev.get("bloque", "") or seen[t],
+        })
+    dfs[CFG_TEMAS_SHEET] = pd.DataFrame(rows_t) if rows_t else pd.DataFrame(
+        columns=["Tema", "Nombre", "Bloque"]
+    )
 
     return dfs
 

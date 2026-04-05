@@ -299,7 +299,8 @@ with tab_sel:
         temas_disp = (temas_de_bloque(f_bloque) if f_bloque != "Todos"
                       else sorted(df_total["Tema"].unique().tolist(), key=_nsort))
         f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disp],
-                                  key="sel_f_tema")
+                                  key="sel_f_tema",
+                                  format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
         f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"],
                                   key="sel_f_dif")
         f_uso    = fc4.selectbox(
@@ -1301,9 +1302,13 @@ with tab_exp:
 
         # ── 1. Configuración del examen ────────────────────────────────────────
         with st.expander("📋 Configuración del examen", expanded=True):
+            # Pre-rellenar desde cfg_general si el campo de examen está vacío
+            _cg = st.session_state.get("cfg_general", {})
+            _def_inst = cfg.get("inst") or _cg.get("universidad") or _cg.get("departamento") or "UCM"
+            _def_asig = cfg.get("asig") or _cg.get("asignatura") or "FÍSICA MÉDICA"
             e1, e2, e3 = st.columns(3)
-            inst  = e1.text_input("Institución",    value=cfg.get("inst", "UCM"),                  key="exp_inst")
-            asig  = e2.text_input("Asignatura",     value=cfg.get("asig", "FÍSICA MÉDICA"),         key="exp_asig")
+            inst  = e1.text_input("Institución",    value=_def_inst,  key="exp_inst")
+            asig  = e2.text_input("Asignatura",     value=_def_asig,  key="exp_asig")
             tipo  = e3.text_input("Tipo de examen", value=cfg.get("tipo", "EXAMEN FINAL"),          key="exp_tipo")
             e4, e5, e6 = st.columns(3)
             fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
