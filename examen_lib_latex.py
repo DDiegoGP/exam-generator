@@ -210,14 +210,25 @@ def validar_pregunta(pregunta):
     return len(warnings) == 0, warnings
 
 # --- UTILIDADES ---
+def _normalizar_texto(t: str) -> str:
+    """Normaliza texto para comparación: minúsculas, sin tildes, espacios colapsados."""
+    import unicodedata
+    t = unicodedata.normalize("NFD", str(t).lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return " ".join(t.split())
+
+
 def check_for_similar_enunciado(text, df):
     if df.empty: return False, 0.0
     from difflib import SequenceMatcher
-    text = str(text).lower().strip()
+    norm = _normalizar_texto(text)
+    if not norm: return False, 0.0
     if 'enunciado' not in df.columns: return False, 0.0
-    sims = df['enunciado'].astype(str).apply(lambda x: SequenceMatcher(None, text, x.lower().strip()).ratio())
+    sims = df['enunciado'].astype(str).apply(
+        lambda x: SequenceMatcher(None, norm, _normalizar_texto(x)).ratio()
+    )
     max_sim = sims.max()
-    return (max_sim > 0.9, max_sim)
+    return (max_sim > 0.85, max_sim)
 
 def generar_siguiente_id(df, bloque, tema):
     prefix = f"FM_{str(bloque).zfill(2)}_{str(tema).zfill(2)}"

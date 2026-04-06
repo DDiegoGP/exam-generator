@@ -25,7 +25,7 @@ import examen_lib_latex as lib
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     connect_db, reload_db,
-    bloques_disponibles, temas_de_bloque,
+    bloques_disponibles, temas_de_bloque, temas_en_db,
     nombre_bloque, nombre_tema,
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
     sync_hoja_gsheets, sync_bloques_gsheets,
@@ -667,26 +667,49 @@ with tab_man:
     st.subheader("Gestionar preguntas")
 
     # ── Filtros ──────────────────────────────────────────────────────────────
-    fc1, fc2, fc3, fc4 = st.columns(4)
-    f_bloque = fc1.selectbox("Bloque", ["Todos"] + bloques, key="man_f_bloque",
-                             format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b))
-    temas_disponibles = (
-        temas_de_bloque(f_bloque) if f_bloque != "Todos"
-        else sorted(df_total["Tema"].unique().tolist(), key=_nsort)
-    )
-    f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disponibles], key="man_f_tema",
-                              format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
-    f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif")
-    f_uso    = fc4.selectbox("Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"], key="man_f_uso")
-    srch1, srch2, srch3 = st.columns([4, 1, 1])
-    f_search    = srch1.text_input("🔍 Buscar", placeholder="Texto a buscar en enunciado, opciones y notas…", key="man_search")
-    f_global    = srch2.checkbox("🌐 Todos los bloques", key="man_search_global",
-                                  help="Buscar ignorando el filtro de bloque activo",
-                                  value=False)
-    f_sin_sol   = srch3.checkbox("Sin solución", key="man_filter_sin_sol",
-                                  help="Mostrar solo preguntas sin solución", value=False)
+    fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1.5, 2, 0.7])
 
-    # Aplicar filtros
+    f_bloque = fc1.selectbox(
+        "Bloque", ["Todos"] + bloques, key="man_f_bloque",
+        format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b),
+    )
+
+    # Reset tema si cambia el bloque
+    _prev_blq = st.session_state.get("_man_prev_bloque", f_bloque)
+    if _prev_blq != f_bloque:
+        st.session_state["man_f_tema"] = "Todos"
+    st.session_state["_man_prev_bloque"] = f_bloque
+
+    # Temas que REALMENTE existen en la DB (sin añadir 1-50)
+    temas_disponibles = temas_en_db(f_bloque)
+    # Asegurar que el valor guardado en session_state sea válido
+    _t_cur = st.session_state.get("man_f_tema", "Todos")
+    if _t_cur != "Todos" and _t_cur not in temas_disponibles:
+        st.session_state["man_f_tema"] = "Todos"
+
+    f_tema = fc2.selectbox(
+        "Tema", ["Todos"] + temas_disponibles, key="man_f_tema",
+        format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t),
+    )
+    f_dif  = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif")
+    f_uso  = fc4.selectbox(
+        "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6m", "Usada >12m"], key="man_f_uso",
+    )
+    # Botón limpiar filtros
+    fc5.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+    if fc5.button("🔄", key="btn_clear_filters", help="Limpiar todos los filtros"):
+        for k in ("man_f_bloque", "man_f_tema", "man_f_dif", "man_f_uso",
+                  "man_search", "man_search_global", "man_filter_sin_sol"):
+            st.session_state.pop(k, None)
+        st.rerun()
+
+    srch1, srch2, srch3 = st.columns([4, 1.2, 1])
+    f_search  = srch1.text_input("🔍 Buscar", placeholder="Enunciado, opciones, notas…", key="man_search")
+    f_global  = srch2.checkbox("🌐 Todos los bloques", key="man_search_global", value=False,
+                                help="Buscar ignorando el filtro de bloque")
+    f_sin_sol = srch3.checkbox("Sin solución", key="man_filter_sin_sol", value=False)
+
+    # ── Aplicar filtros ───────────────────────────────────────────────────────
     df_filt = df_total.copy()
     if f_bloque != "Todos" and not f_global:
         df_filt = df_filt[df_filt["bloque"] == f_bloque]
@@ -698,9 +721,9 @@ with tab_man:
         df_filt = df_filt[df_filt["usada"] == ""]
     elif f_uso == "Usada":
         df_filt = df_filt[df_filt["usada"] != ""]
-    elif f_uso == "Usada >6 meses":
+    elif f_uso == "Usada >6m":
         df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 6))]
-    elif f_uso == "Usada >12 meses":
+    elif f_uso == "Usada >12m":
         df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 12))]
     if f_sin_sol:
         df_filt = df_filt[~df_filt["solucion"].apply(
@@ -710,84 +733,78 @@ with tab_man:
         mask = df_filt["enunciado"].str.lower().str.contains(sq, na=False)
         mask = mask | df_filt["notas"].astype(str).str.lower().str.contains(sq, na=False)
         mask = mask | df_filt["opciones_list"].apply(
-            lambda ops: any(sq in str(o).lower() for o in (ops or []))
-        )
+            lambda ops: any(sq in str(o).lower() for o in (ops or [])))
         df_filt = df_filt[mask]
 
-    # Contador compacto
-    n_filt = len(df_filt)
+    # Contador + badge global search
+    n_filt   = len(df_filt)
     pct_filt = int(n_filt / len(df_total) * 100) if len(df_total) else 0
-    _global_badge = (
+    _gbadge  = (
         "  ·  <span style='background:#dbeafe;color:#1e40af;border-radius:8px;"
         "padding:1px 8px;font-size:0.9em;font-weight:600'>🌐 búsqueda global</span>"
         if f_global and f_search else ""
     )
     st.markdown(
-        f"<div style='font-size:0.82em;color:#666;margin-bottom:8px'>"
+        f"<div style='font-size:0.82em;color:#666;margin-bottom:6px'>"
         f"Mostrando <b style='color:#2c3e50'>{n_filt}</b> de {len(df_total)} preguntas"
-        f"{'  ·  <b style=\"color:#3498db\">' + str(pct_filt) + '% del total</b>' if pct_filt < 100 else ''}"
-        f"{_global_badge}</div>",
-        unsafe_allow_html=True
+        f"{'  ·  <b style=\"color:#3498db\">' + str(pct_filt) + '%</b>' if pct_filt < 100 else ''}"
+        f"{_gbadge}</div>",
+        unsafe_allow_html=True,
     )
 
-    # ── Layout 2 columnas: tabla (izq.) + preview (der.) ─────────────────────
-    sel_pid: str | None = None   # ID de la pregunta seleccionada (single-row)
-
+    # ── Layout 2 columnas: tabla + panel derecho ──────────────────────────────
     if df_filt.empty:
         st.info("No hay preguntas que coincidan con los filtros.")
     else:
         col_table, col_preview = st.columns([3, 2], gap="medium")
 
-        # ── Columna izquierda: tabla (navegación single-click) ───────────────
         with col_table:
-            display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad", "usada", "solucion", "enunciado"]].copy()
-            display_df["enunciado"] = display_df["enunciado"].str[:130]
-            display_df["usada"]     = display_df["usada"].apply(lambda v: v if v else "—")
+            display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad",
+                                   "usada", "solucion", "enunciado"]].copy()
+            display_df["enunciado"] = display_df["enunciado"].str[:120]
+            display_df["usada"]     = display_df["usada"].apply(lambda v: v or "—")
             display_df["bloque"]    = display_df["bloque"].apply(nombre_bloque)
             display_df["solucion"]  = display_df["solucion"].apply(
-                lambda v: "✓" if str(v).strip() and str(v) not in ('nan', 'None', '') else "—"
-            )
-            display_df.columns      = ["ID", "Bloque", "T", "Dif.", "Usado", "Sol.", "Enunciado"]
-            display_df              = display_df.reset_index(drop=True)
+                lambda v: "✓" if str(v).strip() and str(v) not in ('nan','None','') else "—")
+            display_df.columns = ["ID", "Bloque", "T", "Dif.", "Usado", "Sol.", "Enunciado"]
+            display_df = display_df.reset_index(drop=True)
 
             sel = st.dataframe(
                 display_df,
                 use_container_width=True,
                 hide_index=True,
-                selection_mode="single-row",   # ← single-row para navegar
+                selection_mode="multi-row",
                 on_select="rerun",
                 key="man_df_sel",
                 height=420,
                 column_config={
-                    "ID":       st.column_config.TextColumn("ID", width=120),
-                    "Bloque":   st.column_config.TextColumn("Bloque", width=120),
-                    "T":        st.column_config.TextColumn("T", width=35),
-                    "Dif.":     st.column_config.TextColumn("Dif.", width=58),
-                    "Usado":    st.column_config.TextColumn("Usado", width=80),
-                    "Sol.":     st.column_config.TextColumn("Sol.", width=42),
-                    "Enunciado":st.column_config.TextColumn("Enunciado", width="large"),
+                    "ID":        st.column_config.TextColumn("ID", width=115),
+                    "Bloque":    st.column_config.TextColumn("Bloque", width=115),
+                    "T":         st.column_config.TextColumn("T", width=32),
+                    "Dif.":      st.column_config.TextColumn("Dif.", width=55),
+                    "Usado":     st.column_config.TextColumn("Usado", width=80),
+                    "Sol.":      st.column_config.TextColumn("Sol.", width=40),
+                    "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
                 },
             )
 
             sel_rows = sel.selection.rows if sel.selection else []
-            sel_pid  = df_filt.iloc[sel_rows[0]]["ID_Pregunta"] if sel_rows else None
+            n_sel    = len(sel_rows)
+            sel_pid  = (df_filt.iloc[sel_rows[0]]["ID_Pregunta"]
+                        if n_sel == 1 else None)
+            sel_pids_multi = ([df_filt.iloc[r]["ID_Pregunta"] for r in sel_rows]
+                              if n_sel > 1 else [])
 
-            # ── Operaciones masivas (trabajan sobre df_filt, no sobre selección) ──
-            with st.expander(
-                f"⚙️ Operaciones masivas — aplicar a las {n_filt} preguntas filtradas",
-                expanded=False
-            ):
+            # ── Operaciones masivas (solo texto/dificultad, no borrado) ────────
+            with st.expander(f"⚙️ Operaciones sobre las {n_filt} preguntas filtradas",
+                             expanded=False):
                 bulk_ids = df_filt["ID_Pregunta"].tolist()
                 st.caption(
-                    "Estas operaciones afectan a **todas las preguntas visibles** "
-                    f"según los filtros activos ({n_filt} preguntas). "
-                    "Usa los filtros de arriba para acotar el conjunto antes de aplicar."
+                    f"Afectan a **todas las preguntas visibles** según los filtros "
+                    f"({n_filt}). Usa los filtros para acotar antes de aplicar."
                 )
-                bulk_tab1, bulk_tab2, bulk_tab3 = st.tabs(
-                    ["Cambiar Tema/Dificultad", "Buscar y Reemplazar", "Eliminar"]
-                )
-
-                with bulk_tab1:
+                bt1, bt2 = st.tabs(["Cambiar Tema / Dificultad", "Buscar y reemplazar"])
+                with bt1:
                     bc1, bc2 = st.columns(2)
                     bulk_tema = bc1.text_input("Nuevo tema (vacío = no cambiar)", key="bulk_tema")
                     bulk_dif  = bc2.selectbox("Nueva dificultad",
@@ -806,15 +823,14 @@ with tab_man:
                                 bulk_ids, "dificultad", bulk_dif)
                             msgs.append(m)
                         if msgs:
-                            sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                            st.success(" | ".join(msgs)); reload_db()
-                            st.rerun()
+                            sync_bloques_gsheets(list(
+                                df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
+                            st.success(" | ".join(msgs)); reload_db(); st.rerun()
                         else:
                             st.warning("No hay cambios que aplicar.")
-
-                with bulk_tab2:
+                with bt2:
                     fr1, fr2 = st.columns(2)
-                    bulk_find = fr1.text_input("Buscar texto en enunciado", key="bulk_find")
+                    bulk_find = fr1.text_input("Buscar en enunciado", key="bulk_find")
                     bulk_repl = fr2.text_input("Reemplazar por", key="bulk_repl")
                     if st.button(f"🔄 Reemplazar en {n_filt} preguntas", key="btn_bulk_repl"):
                         if not bulk_find.strip():
@@ -824,92 +840,118 @@ with tab_man:
                                 st.session_state.excel_path, st.session_state.excel_dfs,
                                 bulk_ids, bulk_find, bulk_repl)
                             if ok:
-                                sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                                st.success(msg); reload_db()
-                                st.rerun()
-                            else:  st.error(msg)
+                                sync_bloques_gsheets(list(
+                                    df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
+                                st.success(msg); reload_db(); st.rerun()
+                            else:
+                                st.error(msg)
 
-                with bulk_tab3:
-                    st.warning(
-                        f"⚠️ Se eliminarán **{n_filt} preguntas** de forma permanente "
-                        "(se creará un backup antes)."
-                    )
-                    confirm_del = st.checkbox(
-                        f"Confirmo que quiero eliminar estas {n_filt} preguntas",
-                        key="bulk_del_confirm"
-                    )
-                    if st.button("🗑️ Eliminar preguntas filtradas", type="primary",
-                                 disabled=not confirm_del, key="btn_bulk_del"):
-                        ok, msg = lib.eliminar_preguntas_excel_local(
-                            st.session_state.excel_path, st.session_state.excel_dfs, bulk_ids)
-                        if ok:
-                            sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                            st.success(msg); reload_db()
-                            st.rerun()
-                        else:  st.error(msg)
-
-        # ── Columna derecha: preview + botones de acción ─────────────────────
+        # ── Panel derecho: preview (1 fila) o acción multi (N filas) ─────────
         with col_preview:
-            if sel_pid:
+
+            # ══ MULTI-SELECT: N > 1 ══════════════════════════════════════════
+            if n_sel > 1:
+                st.markdown(
+                    f"<div style='background:#fff3cd;border-left:4px solid #f39c12;"
+                    f"border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px'>"
+                    f"<div style='font-size:1.05em;font-weight:700;color:#856404'>"
+                    f"📋 {n_sel} preguntas seleccionadas</div>"
+                    f"<div style='font-size:0.82em;color:#78350f;margin-top:4px'>"
+                    f"IDs: {', '.join(sel_pids_multi[:6])}"
+                    f"{'…' if len(sel_pids_multi) > 6 else ''}</div></div>",
+                    unsafe_allow_html=True,
+                )
+                _del_confirm = st.checkbox(
+                    f"Confirmo que quiero eliminar estas {n_sel} preguntas",
+                    key="multi_del_confirm",
+                )
+                if st.button(
+                    f"🗑️ Eliminar {n_sel} seleccionadas",
+                    type="primary",
+                    disabled=not _del_confirm,
+                    use_container_width=True,
+                    key="btn_multi_del",
+                ):
+                    ok, msg = lib.eliminar_preguntas_excel_local(
+                        st.session_state.excel_path,
+                        st.session_state.excel_dfs,
+                        sel_pids_multi,
+                    )
+                    if ok:
+                        sync_bloques_gsheets(list(
+                            df_total[df_total["ID_Pregunta"].isin(sel_pids_multi)]["bloque"].unique()))
+                        st.success(msg); reload_db(); st.rerun()
+                    else:
+                        st.error(msg)
+
+            # ══ SINGLE-SELECT: preview completo ══════════════════════════════
+            elif sel_pid:
                 row_d     = dict(df_total[df_total["ID_Pregunta"] == sel_pid].iloc[0])
                 card_html = render_question_card_html(row_d, show_sol=True, include_notas=False)
+                sol_txt   = str(row_d.get("solucion", "") or "").strip()
+                notas_txt = str(row_d.get("notas",    "") or "").strip()
+                notas_html = ""
+
+                # Tarjeta principal
                 st.markdown(card_html, unsafe_allow_html=True)
 
-                # ── Notas (fuera de la tarjeta) ────────────────────────────
-                notas_txt  = str(row_d.get("notas", "") or "").strip()
-                notas_html = ""
+                # Notas
                 if notas_txt:
                     notas_html = (
                         "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
-                        "border-radius:0 8px 8px 0;padding:10px 14px;margin-top:4px;"
-                        "font-size:0.875em;color:#78350f;line-height:1.55'>"
-                        "<b style='color:#92400e;display:block;margin-bottom:4px'>📝 Notas</b>"
+                        "border-radius:0 8px 8px 0;padding:8px 14px;margin-top:4px;"
+                        "font-size:0.875em;color:#78350f;line-height:1.5'>"
+                        "<b style='color:#92400e'>📝 Notas:</b> "
                         f"{notas_txt}</div>"
                     )
                     st.markdown(notas_html, unsafe_allow_html=True)
 
-                # ── Badge + expander solución ───────────────────────────────
-                sol_txt = str(row_d.get("solucion", "") or "").strip()
+                # Solución expandible
                 if sol_txt:
                     with st.expander("📖 Ver solución", expanded=False):
-                        sol_preview_html = (
-                            "<div style='font-family:-apple-system,sans-serif;font-size:13px;"
-                            "color:#2c3e50;padding:10px;background:#f0f9ff;"
-                            "border-left:3px solid #3498db;border-radius:0 6px 6px 0;line-height:1.6'>"
+                        _sol_prev_html = (
+                            "<div style='font-size:13px;color:#2c3e50;padding:10px;"
+                            "background:#f0f9ff;border-left:3px solid #3498db;"
+                            "border-radius:0 6px 6px 0;line-height:1.6'>"
                             f"{sol_txt}</div>"
                         )
-                        _mjax_exp_key = f"mjax_exp_{sel_pid}"
-                        if st.session_state.get(_mjax_exp_key, False):
-                            stcomponents.html(mathjax_html(sol_preview_html), height=200, scrolling=True)
+                        _mjax_exp = f"mjax_exp_{sel_pid}"
+                        if st.session_state.get(_mjax_exp, False):
+                            stcomponents.html(mathjax_html(_sol_prev_html), height=200, scrolling=True)
                         else:
-                            st.markdown(sol_preview_html, unsafe_allow_html=True)
+                            st.markdown(_sol_prev_html, unsafe_allow_html=True)
                         if st.button("∑ Renderizar LaTeX", key=f"mjax_exp_btn_{sel_pid}",
                                      use_container_width=True):
-                            st.session_state[_mjax_exp_key] = not st.session_state.get(_mjax_exp_key, False)
+                            st.session_state[_mjax_exp] = not st.session_state.get(_mjax_exp, False)
                             st.rerun()
 
-                # ── Botón MathJax ──────────────────────────────────────────
+                # ── Render LaTeX global (tarjeta + notas) ─────────────────
                 _mjax_key = f"mjax_gest_{sel_pid}"
-                _mj1, _mj2 = st.columns([2, 3])
-                if _mj1.button("∑ Renderizar LaTeX", key=f"mjax_btn_{sel_pid}",
-                                use_container_width=True):
-                    st.session_state[_mjax_key] = True
-                if st.session_state.get(_mjax_key, False):
-                    if _mj2.button("✖ Cerrar LaTeX", key=f"mjax_close_{sel_pid}",
-                                   use_container_width=True):
-                        st.session_state[_mjax_key] = False
-                        st.rerun()
-                    stcomponents.html(mathjax_html(card_html + notas_html), height=500, scrolling=True)
+                _rend_on  = st.session_state.get(_mjax_key, False)
+                if st.button(
+                    "✖ Cerrar LaTeX" if _rend_on else "∑ Renderizar LaTeX",
+                    key=f"mjax_btn_{sel_pid}",
+                    use_container_width=True,
+                ):
+                    st.session_state[_mjax_key] = not _rend_on
+                    st.rerun()
+                if _rend_on:
+                    stcomponents.html(
+                        mathjax_html(card_html + notas_html),
+                        height=480, scrolling=True,
+                    )
 
-                bc1, bc2, bc3 = st.columns(3)
-                if bc1.button("✏️ Editar", type="primary", use_container_width=True,
+                st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+
+                # ── Botones de acción: 4 en una fila ──────────────────────
+                ba1, ba2, ba3, ba4 = st.columns(4)
+                if ba1.button("✏️ Editar", type="primary", use_container_width=True,
                               key="btn_edit_q"):
                     _dialog_editar_pregunta(sel_pid, row_d)
-                if bc2.button("📖 Solución", use_container_width=True, key="btn_sol_q",
+                if ba2.button("📖 Solución", use_container_width=True, key="btn_sol_q",
                               help="Sin solución aún" if not sol_txt else "Ver / editar solución"):
                     _dialog_solucion(sel_pid, row_d)
-
-                if bc3.button("📋 Duplicar", use_container_width=True, key="btn_dup_q"):
+                if ba3.button("📋 Duplicar", use_container_width=True, key="btn_dup_q"):
                     blk    = row_d["bloque"]
                     tema_d = str(row_d.get("Tema", "1"))
                     nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
@@ -930,18 +972,43 @@ with tab_man:
                         lib.guardar_excel_local(st.session_state.excel_path,
                                                 st.session_state.excel_dfs)
                         st.success(f"✅ Duplicada como **{nid}**")
-                        sync_bloques_gsheets([blk])
-                        reload_db()
+                        sync_bloques_gsheets([blk]); reload_db(); st.rerun()
+
+                # Borrar con confirmación inline
+                _del_key = f"del_confirm_{sel_pid}"
+                if ba4.button("🗑️ Borrar", use_container_width=True, key="btn_del_q"):
+                    st.session_state[_del_key] = not st.session_state.get(_del_key, False)
+                if st.session_state.get(_del_key, False):
+                    st.warning(f"¿Eliminar **{sel_pid}** de forma permanente?")
+                    cd1, cd2 = st.columns(2)
+                    if cd1.button("✅ Sí, eliminar", type="primary",
+                                  use_container_width=True, key="btn_del_confirm"):
+                        ok, msg = lib.eliminar_preguntas_excel_local(
+                            st.session_state.excel_path,
+                            st.session_state.excel_dfs,
+                            [sel_pid],
+                        )
+                        if ok:
+                            sync_bloques_gsheets([row_d["bloque"]])
+                            st.session_state.pop(_del_key, None)
+                            reload_db(); st.rerun()
+                        else:
+                            st.error(msg)
+                    if cd2.button("✖ Cancelar", use_container_width=True, key="btn_del_cancel"):
+                        st.session_state.pop(_del_key, None)
                         st.rerun()
+
+            # ══ NADA SELECCIONADO ═════════════════════════════════════════════
             else:
                 st.markdown(
-                    "<div style='text-align:center;padding:40px 20px;"
-                    "color:#888;border:2px dashed #dee2e6;border-radius:10px;margin-top:10px'>"
+                    "<div style='text-align:center;padding:40px 20px;color:#888;"
+                    "border:2px dashed #dee2e6;border-radius:10px;margin-top:10px'>"
                     "<div style='font-size:2em;margin-bottom:8px'>👆</div>"
-                    "<div style='font-weight:600'>Haz clic en una fila</div>"
-                    "<div style='font-size:0.85em;margin-top:4px'>para ver la pregunta aquí</div>"
+                    "<div style='font-weight:600'>Haz clic en una fila para previsualizarla</div>"
+                    "<div style='font-size:0.85em;margin-top:4px'>"
+                    "Selecciona varias filas para borrarlas en grupo</div>"
                     "</div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
     # ── Export/Import JSON ───────────────────────────────────────────────────

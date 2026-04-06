@@ -815,6 +815,20 @@ def temas_de_bloque(bloque: str) -> list[str]:
     union |= {str(i) for i in range(1, 51)}
     return sorted(list(union), key=_nsort)
 
+def temas_en_db(bloque: str) -> list[str]:
+    """Temas que REALMENTE existen en los datos para un bloque (sin añadir 1-50).
+    Usar en filtros; para formularios de alta usar temas_de_bloque()."""
+    df = st.session_state.df_preguntas
+    if df.empty:
+        return []
+    if bloque and bloque != "Todos":
+        src = df[df["bloque"] == bloque]["Tema"]
+    else:
+        src = df["Tema"]
+    vals = {str(x) for x in src if str(x) not in ("nan", "None", "")}
+    return sorted(list(vals), key=_nsort)
+
+
 def bloques_disponibles() -> list[str]:
     return st.session_state.bloques or []
 
