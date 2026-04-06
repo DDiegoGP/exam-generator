@@ -695,12 +695,17 @@ with tab_man:
     f_uso  = fc4.selectbox(
         "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6m", "Usada >12m"], key="man_f_uso",
     )
-    # Botón limpiar filtros
+    # Botón limpiar filtros — asignar defaults explícitos (pop() no funciona con widgets)
     fc5.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
     if fc5.button("🔄", key="btn_clear_filters", help="Limpiar todos los filtros"):
-        for k in ("man_f_bloque", "man_f_tema", "man_f_dif", "man_f_uso",
-                  "man_search", "man_search_global", "man_filter_sin_sol"):
-            st.session_state.pop(k, None)
+        st.session_state["man_f_bloque"]       = "Todos"
+        st.session_state["man_f_tema"]         = "Todos"
+        st.session_state["man_f_dif"]          = "Todas"
+        st.session_state["man_f_uso"]          = "Todos"
+        st.session_state["man_search"]         = ""
+        st.session_state["man_search_global"]  = False
+        st.session_state["man_filter_sin_sol"] = False
+        st.session_state["_man_prev_bloque"]   = "Todos"
         st.rerun()
 
     srch1, srch2, srch3 = st.columns([4, 1.2, 1])
@@ -759,6 +764,14 @@ with tab_man:
         col_table, col_preview = st.columns([3, 2], gap="medium")
 
         with col_table:
+            # Toggle modo selección múltiple
+            _multi_mode = st.toggle(
+                "☑️ Modo selección múltiple",
+                value=st.session_state.get("man_multi_mode", False),
+                key="man_multi_mode",
+                help="Activa para seleccionar varias filas y borrarlas. Desactiva para navegar pregunta a pregunta.",
+            )
+
             display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad",
                                    "usada", "solucion", "enunciado"]].copy()
             display_df["enunciado"] = display_df["enunciado"].str[:120]
@@ -773,10 +786,10 @@ with tab_man:
                 display_df,
                 use_container_width=True,
                 hide_index=True,
-                selection_mode="multi-row",
+                selection_mode="multi-row" if _multi_mode else "single-row",
                 on_select="rerun",
                 key="man_df_sel",
-                height=420,
+                height=400,
                 column_config={
                     "ID":        st.column_config.TextColumn("ID", width=115),
                     "Bloque":    st.column_config.TextColumn("Bloque", width=115),
@@ -892,10 +905,10 @@ with tab_man:
                 notas_txt = str(row_d.get("notas",    "") or "").strip()
                 notas_html = ""
 
-                # Tarjeta principal
+                # 1. Tarjeta principal
                 st.markdown(card_html, unsafe_allow_html=True)
 
-                # Notas
+                # 2. Notas
                 if notas_txt:
                     notas_html = (
                         "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
@@ -906,26 +919,7 @@ with tab_man:
                     )
                     st.markdown(notas_html, unsafe_allow_html=True)
 
-                # Solución expandible
-                if sol_txt:
-                    with st.expander("📖 Ver solución", expanded=False):
-                        _sol_prev_html = (
-                            "<div style='font-size:13px;color:#2c3e50;padding:10px;"
-                            "background:#f0f9ff;border-left:3px solid #3498db;"
-                            "border-radius:0 6px 6px 0;line-height:1.6'>"
-                            f"{sol_txt}</div>"
-                        )
-                        _mjax_exp = f"mjax_exp_{sel_pid}"
-                        if st.session_state.get(_mjax_exp, False):
-                            stcomponents.html(mathjax_html(_sol_prev_html), height=200, scrolling=True)
-                        else:
-                            st.markdown(_sol_prev_html, unsafe_allow_html=True)
-                        if st.button("∑ Renderizar LaTeX", key=f"mjax_exp_btn_{sel_pid}",
-                                     use_container_width=True):
-                            st.session_state[_mjax_exp] = not st.session_state.get(_mjax_exp, False)
-                            st.rerun()
-
-                # ── Render LaTeX global (tarjeta + notas) ─────────────────
+                # 3. Render LaTeX toggle (tarjeta + notas)
                 _mjax_key = f"mjax_gest_{sel_pid}"
                 _rend_on  = st.session_state.get(_mjax_key, False)
                 if st.button(
@@ -941,17 +935,17 @@ with tab_man:
                         height=480, scrolling=True,
                     )
 
-                st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
-
-                # ── Botones de acción: 4 en una fila ──────────────────────
+                # 4. Botones de acción — solo icono, misma anchura, tooltip descriptivo
+                st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
                 ba1, ba2, ba3, ba4 = st.columns(4)
-                if ba1.button("✏️ Editar", type="primary", use_container_width=True,
-                              key="btn_edit_q"):
+                if ba1.button("✏️", use_container_width=True, type="primary",
+                              key="btn_edit_q", help="Editar pregunta"):
                     _dialog_editar_pregunta(sel_pid, row_d)
-                if ba2.button("📖 Solución", use_container_width=True, key="btn_sol_q",
+                if ba2.button("📖", use_container_width=True, key="btn_sol_q",
                               help="Sin solución aún" if not sol_txt else "Ver / editar solución"):
                     _dialog_solucion(sel_pid, row_d)
-                if ba3.button("📋 Duplicar", use_container_width=True, key="btn_dup_q"):
+                if ba3.button("📋", use_container_width=True, key="btn_dup_q",
+                              help="Duplicar pregunta"):
                     blk    = row_d["bloque"]
                     tema_d = str(row_d.get("Tema", "1"))
                     nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
@@ -976,7 +970,8 @@ with tab_man:
 
                 # Borrar con confirmación inline
                 _del_key = f"del_confirm_{sel_pid}"
-                if ba4.button("🗑️ Borrar", use_container_width=True, key="btn_del_q"):
+                if ba4.button("🗑️", use_container_width=True, key="btn_del_q",
+                              help="Eliminar esta pregunta"):
                     st.session_state[_del_key] = not st.session_state.get(_del_key, False)
                 if st.session_state.get(_del_key, False):
                     st.warning(f"¿Eliminar **{sel_pid}** de forma permanente?")
@@ -997,6 +992,25 @@ with tab_man:
                     if cd2.button("✖ Cancelar", use_container_width=True, key="btn_del_cancel"):
                         st.session_state.pop(_del_key, None)
                         st.rerun()
+
+                # 5. Solución expandible — debajo de los botones
+                if sol_txt:
+                    with st.expander("📖 Ver solución", expanded=False):
+                        _sol_prev_html = (
+                            "<div style='font-size:13px;color:#2c3e50;padding:10px;"
+                            "background:#f0f9ff;border-left:3px solid #3498db;"
+                            "border-radius:0 6px 6px 0;line-height:1.6'>"
+                            f"{sol_txt}</div>"
+                        )
+                        _mjax_exp = f"mjax_exp_{sel_pid}"
+                        if st.session_state.get(_mjax_exp, False):
+                            stcomponents.html(mathjax_html(_sol_prev_html), height=200, scrolling=True)
+                        else:
+                            st.markdown(_sol_prev_html, unsafe_allow_html=True)
+                        if st.button("∑ Renderizar LaTeX", key=f"mjax_exp_btn_{sel_pid}",
+                                     use_container_width=True):
+                            st.session_state[_mjax_exp] = not st.session_state.get(_mjax_exp, False)
+                            st.rerun()
 
             # ══ NADA SELECCIONADO ═════════════════════════════════════════════
             else:
