@@ -1302,13 +1302,28 @@ with tab_exp:
 
         # ── 1. Configuración del examen ────────────────────────────────────────
         with st.expander("📋 Configuración del examen", expanded=True):
-            # Pre-rellenar desde cfg_general si el campo de examen está vacío
             _cg = st.session_state.get("cfg_general", {})
-            _def_inst = cfg.get("inst") or _cg.get("universidad") or _cg.get("departamento") or "UCM"
-            _def_asig = cfg.get("asig") or _cg.get("asignatura") or "FÍSICA MÉDICA"
+
+            # Sincronizar desde cfg_general (flag pattern)
+            if st.session_state.pop("_sync_from_cfg_general", False):
+                st.session_state["exp_inst"]  = _cg.get("universidad") or _cg.get("departamento") or ""
+                st.session_state["exp_asig"]  = _cg.get("asignatura") or ""
+
+            # Inicializar desde cfg_general si el widget aún no existe en session_state
+            if "exp_inst" not in st.session_state:
+                st.session_state["exp_inst"] = cfg.get("inst") or _cg.get("universidad") or _cg.get("departamento") or ""
+            if "exp_asig" not in st.session_state:
+                st.session_state["exp_asig"] = cfg.get("asig") or _cg.get("asignatura") or ""
+
+            _sync_col, _ = st.columns([2, 4])
+            if _sync_col.button("↺ Rellenar desde Configuración", key="btn_sync_cfg",
+                                help="Sobreescribe Institución y Asignatura con los datos de ⚙️ Configuración"):
+                st.session_state["_sync_from_cfg_general"] = True
+                st.rerun()
+
             e1, e2, e3 = st.columns(3)
-            inst  = e1.text_input("Institución",    value=_def_inst,  key="exp_inst")
-            asig  = e2.text_input("Asignatura",     value=_def_asig,  key="exp_asig")
+            inst  = e1.text_input("Institución",    key="exp_inst")
+            asig  = e2.text_input("Asignatura",     key="exp_asig")
             tipo  = e3.text_input("Tipo de examen", value=cfg.get("tipo", "EXAMEN FINAL"),          key="exp_tipo")
             e4, e5, e6 = st.columns(3)
             fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")

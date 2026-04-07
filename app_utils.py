@@ -739,6 +739,29 @@ def render_sidebar():
                 else:
                     st.error(msg)
 
+        # ── Datos de la asignatura (cfg_general) ─────────────────────────────
+        _cg = st.session_state.get("cfg_general", {})
+        _asig_sb = _cg.get("asignatura", "") or ""
+        _grado_sb = _cg.get("grado", "") or ""
+        _anio_sb  = _cg.get("anio_academico", "") or ""
+        _dept_sb  = _cg.get("departamento", "") or ""
+        _univ_sb  = _cg.get("universidad", "") or ""
+        if any([_asig_sb, _grado_sb, _dept_sb, _univ_sb]):
+            _lines = []
+            if _asig_sb:  _lines.append(f"<b style='color:#2c3e50'>{_asig_sb}</b>")
+            if _grado_sb: _lines.append(f"<span style='color:#555'>{_grado_sb}</span>")
+            if _anio_sb:  _lines.append(f"<span style='color:#777;font-size:0.85em'>{_anio_sb}</span>")
+            if _dept_sb:  _lines.append(f"<span style='color:#888;font-size:0.82em'>{_dept_sb}</span>")
+            if _univ_sb:  _lines.append(f"<span style='color:#888;font-size:0.82em'>{_univ_sb}</span>")
+            st.markdown(
+                "<div style='background:#f0f7ff;border:1px solid #c8dff8;border-radius:8px;"
+                "padding:9px 13px;margin-bottom:10px;line-height:1.6'>"
+                + "<br>".join(_lines) +
+                "<div style='font-size:0.7em;color:#aaa;margin-top:4px'>📋 Configuración → General</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
         # ── Estado de conexión ────────────────────────────────────────────────
         if st.session_state.db_connected:
             fname = (st.session_state.get("_upload_name")
