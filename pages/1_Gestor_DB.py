@@ -430,8 +430,8 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # PESTAÑA PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
-tab_add, tab_imp, tab_man, tab_stat, tab_sol = st.tabs(
-    ["➕ Añadir", "📥 Importar", "✏️ Gestionar", "📊 Estadísticas", "📖 Soluciones"]
+tab_man, tab_sol, tab_add, tab_imp, tab_stat = st.tabs(
+    ["✏️ Gestionar", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas"]
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1087,24 +1087,46 @@ with tab_man:
 # TAB 4 · ESTADÍSTICAS
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_stat:
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        st.error("Instala plotly: `pip install plotly`")
+        go = None
+
     df = df_total
     if df.empty:
         st.info("Sin datos para mostrar.")
+    elif go is None:
+        pass
     else:
+        def _tiene_sol_s(v):
+            return bool(str(v).strip() and str(v) not in ('nan', 'None', ''))
+
         total   = len(df)
         nunca   = int((df["usada"] == "").sum())
         usadas  = total - nunca
+        n_sol_g = int(df["solucion"].apply(_tiene_sol_s).sum())
         pct_uso = int(usadas / total * 100) if total else 0
+        pct_sol = int(n_sol_g / total * 100) if total else 0
 
-        # ── Tarjetas de métricas globales ─────────────────────────────────────
-        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        _PLT_CFG = dict(
+            plot_bgcolor="rgba(248,249,250,0.6)",
+            paper_bgcolor="white",
+            font=dict(family="Inter, sans-serif", size=12, color="#2c3e50"),
+            margin=dict(l=10, r=10, t=36, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
+                        font=dict(size=11)),
+        )
+
+        # ── KPI cards ─────────────────────────────────────────────────────────
+        mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
         mc1.markdown(
             f"<div class='stat-card'><div class='stat-num'>{total}</div>"
-            f"<div class='stat-label'>📚 Total preguntas</div></div>",
+            f"<div class='stat-label'>📚 Total</div></div>",
             unsafe_allow_html=True)
         mc2.markdown(
             f"<div class='stat-card ok'><div class='stat-num' style='color:#27ae60'>{usadas}</div>"
-            f"<div class='stat-label'>✅ Usadas alguna vez</div></div>",
+            f"<div class='stat-label'>✅ Usadas</div></div>",
             unsafe_allow_html=True)
         mc3.markdown(
             f"<div class='stat-card warn'><div class='stat-num' style='color:#f39c12'>{nunca}</div>"
@@ -1116,142 +1138,166 @@ with tab_stat:
             unsafe_allow_html=True)
         mc5.markdown(
             f"<div class='stat-card used'><div class='stat-num' style='color:#8e44ad'>{pct_uso}%</div>"
-            f"<div class='stat-label'>🎯 % Cobertura</div></div>",
+            f"<div class='stat-label'>🎯 Cobertura</div></div>",
+            unsafe_allow_html=True)
+        mc6.markdown(
+            f"<div class='stat-card {'ok' if pct_sol >= 60 else 'warn'}'>"
+            f"<div class='stat-num' style='color:{'#27ae60' if pct_sol >= 60 else '#f39c12'}'>{pct_sol}%</div>"
+            f"<div class='stat-label'>📖 Con solución</div></div>",
             unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Selector de vista ─────────────────────────────────────────────────
+        # ── Selector de vista ──────────────────────────────────────────────────
         vista_opts = ["📊 Resumen global"] + bloques
-        sv1, sv2 = st.columns([3, 6])
-        vista = sv1.selectbox("🔍 Ver detalle:", vista_opts, key="stat_vista",
-                               label_visibility="collapsed",
-                               format_func=lambda b: b if b == "📊 Resumen global" else f"📦 {nombre_bloque(b)}")
-
+        sv1, _ = st.columns([3, 6])
+        vista = sv1.selectbox(
+            "Vista:", vista_opts, key="stat_vista", label_visibility="collapsed",
+            format_func=lambda b: b if b == "📊 Resumen global" else f"📦 {nombre_bloque(b)}"
+        )
         st.markdown("---")
+
+        # ── Calcular stats por bloque (siempre necesario) ─────────────────────
+        blq_stats = []
+        for blq in bloques:
+            dfb   = df[df["bloque"] == blq]
+            n_tot = len(dfb)
+            n_f   = int((dfb["dificultad"].str.lower() == "facil").sum())
+            n_m   = int((dfb["dificultad"].str.lower() == "media").sum())
+            n_d   = int((dfb["dificultad"].str.lower().isin(["dificil", "difícil"])).sum())
+            n_us  = int((dfb["usada"] != "").sum())
+            n_sol_b = int(dfb["solucion"].apply(_tiene_sol_s).sum())
+            blq_stats.append({
+                "bloque": blq, "total": n_tot,
+                "facil": n_f, "media": n_m, "dificil": n_d,
+                "usadas": n_us, "sol": n_sol_b,
+                "pct": int(n_us / n_tot * 100) if n_tot else 0,
+            })
 
         # ══════════════════════════════════════════════════════════════════════
         if vista == "📊 Resumen global":
         # ══════════════════════════════════════════════════════════════════════
-            st.markdown("#### 📊 Distribución por bloque y dificultad")
 
-            blq_stats = []
-            for blq in bloques:
-                dfb    = df[df["bloque"] == blq]
-                n_tot  = len(dfb)
-                n_f    = int((dfb["dificultad"].str.lower() == "facil").sum())
-                n_m    = int((dfb["dificultad"].str.lower() == "media").sum())
-                n_d    = int((dfb["dificultad"].str.lower().isin(["dificil","difícil"])).sum())
-                n_us   = int((dfb["usada"] != "").sum())
-                pct_us = int(n_us / n_tot * 100) if n_tot else 0
-                blq_stats.append({"bloque": blq, "total": n_tot,
-                                   "facil": n_f, "media": n_m, "dificil": n_d,
-                                   "usadas": n_us, "pct": pct_us})
+            col_a, col_b = st.columns([3, 2], gap="large")
 
-            hdr_html = "".join(
-                f"<th style='background:#2c3e50;color:white;padding:8px 12px;"
-                f"text-align:{{'left' if i==0 else 'center'}};font-size:0.82em'>{h}</th>"
-                for i, h in enumerate(["Bloque", "Total", "🟢 Fácil", "🟡 Media",
-                                        "🔴 Difícil", "Usadas", "Dif. mix", "Cobertura"])
-            )
-            rows_html = ""
-            for idx_s, s in enumerate(blq_stats):
-                col_uso = ("#27ae60" if s["pct"] >= 60
-                           else ("#f39c12" if s["pct"] >= 30 else "#c0392b"))
-                dif_bar = (
-                    f"<div style='display:flex;gap:1px;height:14px;border-radius:4px;overflow:hidden'>"
-                    f"<div style='background:#27ae60;width:{int(s['facil']/max(s['total'],1)*100)}%'></div>"
-                    f"<div style='background:#f39c12;width:{int(s['media']/max(s['total'],1)*100)}%'></div>"
-                    f"<div style='background:#c0392b;width:{int(s['dificil']/max(s['total'],1)*100)}%'></div>"
-                    f"</div>"
-                )
-                pct_bar = (
-                    f"<div style='display:flex;align-items:center;gap:5px'>"
-                    f"<div style='flex:1;background:#e9ecef;border-radius:3px;height:8px'>"
-                    f"<div style='background:{col_uso};width:{s['pct']}%;height:8px;border-radius:3px'></div></div>"
-                    f"<span style='font-size:0.8em;font-weight:700;color:{col_uso}'>{s['pct']}%</span>"
-                    f"</div>"
-                )
-                bg = "#fafbfc" if idx_s % 2 == 0 else "#fff"
-                rows_html += (
-                    f"<tr style='background:{bg}'>"
-                    f"<td style='padding:8px 12px;font-weight:700;color:#2c3e50'>{nombre_bloque(s['bloque'])}</td>"
-                    f"<td style='padding:8px;text-align:center;font-weight:600'>{s['total']}</td>"
-                    f"<td style='padding:8px;text-align:center;color:#27ae60;font-weight:600'>{s['facil']}</td>"
-                    f"<td style='padding:8px;text-align:center;color:#b7950b;font-weight:600'>{s['media']}</td>"
-                    f"<td style='padding:8px;text-align:center;color:#c0392b;font-weight:600'>{s['dificil']}</td>"
-                    f"<td style='padding:8px;text-align:center'>{s['usadas']}</td>"
-                    f"<td style='padding:8px;min-width:100px'>{dif_bar}</td>"
-                    f"<td style='padding:8px 12px;min-width:140px'>{pct_bar}</td>"
-                    f"</tr>"
-                )
-
-            st.markdown(
-                f"<table style='width:100%;border-collapse:collapse;border-radius:8px;"
-                f"overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)'>"
-                f"<thead><tr>{hdr_html}</tr></thead>"
-                f"<tbody>{rows_html}</tbody></table>",
-                unsafe_allow_html=True
-            )
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            col_dif, col_uso_det = st.columns(2)
-            with col_dif:
-                st.markdown("#### 🎯 Distribución global de dificultad")
-                dif_counts = df["dificultad"].value_counts()
-                total_dif  = sum(int(dif_counts.get(k, 0)) for k in ["Facil","Media","Dificil"])
-                for dif_key, col_d, label in [
-                    ("Facil","#27ae60","🟢 Fácil"),
-                    ("Media","#f39c12","🟡 Media"),
-                    ("Dificil","#c0392b","🔴 Difícil"),
+            with col_a:
+                st.markdown("#### Distribución por bloque y dificultad")
+                blq_labels = [nombre_bloque(s["bloque"])[:42] for s in blq_stats]
+                fig1 = go.Figure()
+                for vals, name, color in [
+                    ([s["facil"]   for s in blq_stats], "Fácil",   "#27ae60"),
+                    ([s["media"]   for s in blq_stats], "Media",   "#f39c12"),
+                    ([s["dificil"] for s in blq_stats], "Difícil", "#c0392b"),
                 ]:
-                    n_d  = int(dif_counts.get(dif_key, 0))
-                    pct  = int(n_d / total_dif * 100) if total_dif else 0
-                    st.markdown(
-                        f"<div style='display:flex;align-items:center;gap:10px;margin:7px 0'>"
-                        f"<div style='width:90px;font-size:0.85em;font-weight:600;color:{col_d}'>{label}</div>"
-                        f"<div style='flex:1;background:#e9ecef;border-radius:5px;height:18px'>"
-                        f"<div style='background:{col_d};width:{pct}%;height:18px;border-radius:5px;"
-                        f"display:flex;align-items:center;padding-left:6px;"
-                        f"color:white;font-size:0.75em;font-weight:700'>{n_d} ({pct}%)</div></div></div>",
-                        unsafe_allow_html=True
-                    )
+                    fig1.add_trace(go.Bar(
+                        y=blq_labels, x=vals, name=name, orientation="h",
+                        marker_color=color,
+                        text=vals, textposition="inside", insidetextanchor="middle",
+                        textfont=dict(color="white", size=11),
+                        hovertemplate=f"<b>%{{y}}</b><br>{name}: %{{x}}<extra></extra>",
+                    ))
+                fig1.update_layout(
+                    **_PLT_CFG,
+                    barmode="stack",
+                    height=max(260, 48 * len(blq_stats) + 70),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+                    xaxis=dict(title="Nº preguntas", gridcolor="#e9ecef"),
+                    title=dict(text="", x=0.5),
+                )
+                st.plotly_chart(fig1, use_container_width=True)
 
-            with col_uso_det:
-                st.markdown("#### 📅 Uso por bloque")
-                for s in blq_stats:
-                    n_sin = s["total"] - s["usadas"]
-                    w_us  = int(s["usadas"] / s["total"] * 100) if s["total"] else 0
-                    st.markdown(
-                        f"<div style='margin:5px 0'>"
-                        f"<div style='display:flex;justify-content:space-between;font-size:0.8em;margin-bottom:2px'>"
-                        f"<span style='font-weight:600;color:#2c3e50'>{s['bloque']}</span>"
-                        f"<span style='color:#888'>{s['usadas']} usadas · {n_sin} sin usar</span></div>"
-                        f"<div style='display:flex;height:12px;border-radius:4px;overflow:hidden'>"
-                        f"<div style='background:#27ae60;width:{w_us}%'></div>"
-                        f"<div style='background:#e9ecef;width:{100-w_us}%'></div>"
-                        f"</div></div>",
-                        unsafe_allow_html=True
-                    )
+                st.markdown("#### Cobertura de uso por bloque")
+                fig_cob = go.Figure()
+                for vals, name, color in [
+                    ([s["usadas"]           for s in blq_stats], "Usadas",   "#8e44ad"),
+                    ([s["total"]-s["usadas"] for s in blq_stats], "Sin usar", "#bdc3c7"),
+                ]:
+                    fig_cob.add_trace(go.Bar(
+                        y=blq_labels, x=vals, name=name, orientation="h",
+                        marker_color=color,
+                        text=vals, textposition="inside", insidetextanchor="middle",
+                        textfont=dict(color="white", size=11),
+                        hovertemplate=f"<b>%{{y}}</b><br>{name}: %{{x}}<extra></extra>",
+                    ))
+                fig_cob.update_layout(
+                    **_PLT_CFG,
+                    barmode="stack",
+                    height=max(220, 40 * len(blq_stats) + 70),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+                    xaxis=dict(title="Nº preguntas", gridcolor="#e9ecef"),
+                )
+                st.plotly_chart(fig_cob, use_container_width=True)
+
+            with col_b:
+                st.markdown("#### Dificultad global")
+                n_f_g = sum(s["facil"]   for s in blq_stats)
+                n_m_g = sum(s["media"]   for s in blq_stats)
+                n_d_g = sum(s["dificil"] for s in blq_stats)
+                fig_d = go.Figure(data=[go.Pie(
+                    labels=["Fácil", "Media", "Difícil"],
+                    values=[n_f_g, n_m_g, n_d_g],
+                    hole=0.55,
+                    marker=dict(colors=["#27ae60", "#f39c12", "#c0392b"],
+                                line=dict(color="white", width=2)),
+                    textinfo="percent+label",
+                    hoverinfo="label+percent+value",
+                    pull=[0.03, 0.03, 0.03],
+                )])
+                fig_d.update_layout(
+                    paper_bgcolor="white",
+                    height=300,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", yanchor="top", y=-0.05, x=0.1),
+                    annotations=[dict(
+                        text=f"<b>{total}</b><br>pregs.",
+                        x=0.5, y=0.5, font_size=14, showarrow=False,
+                        font=dict(color="#2c3e50"),
+                    )],
+                )
+                st.plotly_chart(fig_d, use_container_width=True)
+
+                st.markdown("#### Soluciones completadas")
+                n_sol_list  = [s["sol"]           for s in blq_stats]
+                n_sin_sol   = [s["total"]-s["sol"] for s in blq_stats]
+                fig_sol = go.Figure()
+                fig_sol.add_trace(go.Bar(
+                    y=blq_labels, x=n_sol_list, name="Con solución",
+                    orientation="h", marker_color="#3498db",
+                    hovertemplate="<b>%{y}</b><br>Con solución: %{x}<extra></extra>",
+                ))
+                fig_sol.add_trace(go.Bar(
+                    y=blq_labels, x=n_sin_sol, name="Sin solución",
+                    orientation="h", marker_color="#e0e7ef",
+                    hovertemplate="<b>%{y}</b><br>Sin solución: %{x}<extra></extra>",
+                ))
+                fig_sol.update_layout(
+                    **_PLT_CFG,
+                    barmode="stack",
+                    height=max(220, 40 * len(blq_stats) + 70),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+                    xaxis=dict(title="Nº preguntas", gridcolor="#e9ecef"),
+                )
+                st.plotly_chart(fig_sol, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════════
         else:  # Bloque específico
         # ══════════════════════════════════════════════════════════════════════
-            sel_blq = vista  # vista is now the raw block name
-            dfb     = df[df["bloque"] == sel_blq]
-
-            n_tot_b  = len(dfb)
-            n_us_b   = int((dfb["usada"] != "").sum())
-            n_nu_b   = n_tot_b - n_us_b
-            pct_b    = int(n_us_b / n_tot_b * 100) if n_tot_b else 0
-            temas_b  = sorted(dfb["Tema"].unique().tolist(), key=_nsort)
+            sel_blq   = vista
+            dfb       = df[df["bloque"] == sel_blq]
+            n_tot_b   = len(dfb)
+            n_us_b    = int((dfb["usada"] != "").sum())
+            n_nu_b    = n_tot_b - n_us_b
+            temas_b   = sorted(dfb["Tema"].unique().tolist(), key=_nsort)
             n_temas_b = len(temas_b)
+            n_sol_b   = int(dfb["solucion"].apply(_tiene_sol_s).sum())
+            pct_sol_b = int(n_sol_b / n_tot_b * 100) if n_tot_b else 0
+            pct_us_b  = int(n_us_b / n_tot_b * 100) if n_tot_b else 0
 
-            # 4 metric cards para el bloque
-            bc1, bc2, bc3, bc4 = st.columns(4)
+            # KPI cards del bloque
+            bc1, bc2, bc3, bc4, bc5 = st.columns(5)
             bc1.markdown(
                 f"<div class='stat-card'><div class='stat-num'>{n_tot_b}</div>"
-                f"<div class='stat-label'>📚 Total en bloque</div></div>",
+                f"<div class='stat-label'>📚 Total</div></div>",
                 unsafe_allow_html=True)
             bc2.markdown(
                 f"<div class='stat-card ok'><div class='stat-num' style='color:#27ae60'>{n_us_b}</div>"
@@ -1265,112 +1311,130 @@ with tab_stat:
                 f"<div class='stat-card'><div class='stat-num'>{n_temas_b}</div>"
                 f"<div class='stat-label'>📌 Temas</div></div>",
                 unsafe_allow_html=True)
-
-            st.markdown(f"<br>", unsafe_allow_html=True)
-            st.markdown(f"#### 📌 Detalle por tema — {nombre_bloque(sel_blq)}")
-
-            # Filtro de dificultad
-            tf1, _ = st.columns([2, 6])
-            filt_dif_b = tf1.selectbox(
-                "Filtrar dificultad:", ["Todas", "Facil", "Media", "Dificil"],
-                key="stat_blq_dif"
-            )
-            dfb_f = (dfb if filt_dif_b == "Todas"
-                     else dfb[dfb["dificultad"].str.lower() == filt_dif_b.lower()])
-
-            # Tabla de temas
-            hdr_t = "".join(
-                f"<th style='background:#2c3e50;color:white;padding:8px 12px;"
-                f"text-align:{{'left' if i==0 else 'center'}};font-size:0.82em'>{h}</th>"
-                for i, h in enumerate(["Tema", "Total", "🟢 Fácil", "🟡 Media",
-                                        "🔴 Difícil", "Usadas", "Cobertura"])
-            )
-            rows_t = ""
-            for idx_t, tema in enumerate(temas_b):
-                dft = dfb_f[dfb_f["Tema"].astype(str) == str(tema)]
-                if dft.empty:
-                    continue
-                n_t   = len(dft)
-                n_ft  = int((dft["dificultad"].str.lower() == "facil").sum())
-                n_mt  = int((dft["dificultad"].str.lower() == "media").sum())
-                n_dt  = int((dft["dificultad"].str.lower().isin(["dificil","difícil"])).sum())
-                n_ut  = int((dft["usada"] != "").sum())
-                pct_t = int(n_ut / n_t * 100) if n_t else 0
-                col_t = ("#27ae60" if pct_t >= 60
-                         else ("#f39c12" if pct_t >= 30 else "#c0392b"))
-                cob_bar = (
-                    f"<div style='display:flex;align-items:center;gap:5px'>"
-                    f"<div style='flex:1;background:#e9ecef;border-radius:3px;height:8px'>"
-                    f"<div style='background:{col_t};width:{pct_t}%;height:8px;border-radius:3px'></div></div>"
-                    f"<span style='font-size:0.8em;font-weight:700;color:{col_t}'>{pct_t}%</span></div>"
-                )
-                bg_t = "#fafbfc" if idx_t % 2 == 0 else "#fff"
-                rows_t += (
-                    f"<tr style='background:{bg_t}'>"
-                    f"<td style='padding:7px 12px;font-weight:700;color:#2c3e50'>{nombre_tema(str(tema))}</td>"
-                    f"<td style='padding:7px;text-align:center;font-weight:600'>{n_t}</td>"
-                    f"<td style='padding:7px;text-align:center;color:#27ae60'>{n_ft}</td>"
-                    f"<td style='padding:7px;text-align:center;color:#b7950b'>{n_mt}</td>"
-                    f"<td style='padding:7px;text-align:center;color:#c0392b'>{n_dt}</td>"
-                    f"<td style='padding:7px;text-align:center'>{n_ut}</td>"
-                    f"<td style='padding:7px 12px;min-width:130px'>{cob_bar}</td>"
-                    f"</tr>"
-                )
-
-            if rows_t:
-                st.markdown(
-                    f"<table style='width:100%;border-collapse:collapse;border-radius:8px;"
-                    f"overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)'>"
-                    f"<thead><tr>{hdr_t}</tr></thead>"
-                    f"<tbody>{rows_t}</tbody></table>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.info(f"No hay datos para dificultad: {filt_dif_b}")
+            bc5.markdown(
+                f"<div class='stat-card {'ok' if pct_sol_b >= 60 else 'warn'}'>"
+                f"<div class='stat-num' style='color:{'#27ae60' if pct_sol_b >= 60 else '#f39c12'}'>"
+                f"{pct_sol_b}%</div>"
+                f"<div class='stat-label'>📖 Con solución</div></div>",
+                unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            col_db1, col_db2 = st.columns(2)
+            # Calcular datos por tema
+            tema_data = []
+            for tema in temas_b:
+                dft   = dfb[dfb["Tema"].astype(str) == str(tema)]
+                n_t   = len(dft)
+                n_ft  = int((dft["dificultad"].str.lower() == "facil").sum())
+                n_mt  = int((dft["dificultad"].str.lower() == "media").sum())
+                n_dt  = int((dft["dificultad"].str.lower().isin(["dificil", "difícil"])).sum())
+                n_ut  = int((dft["usada"] != "").sum())
+                n_st  = int(dft["solucion"].apply(_tiene_sol_s).sum())
+                tema_data.append({
+                    "tema": tema, "n": n_t,
+                    "facil": n_ft, "media": n_mt, "dificil": n_dt,
+                    "usadas": n_ut, "sol": n_st,
+                })
+            tema_labels = [nombre_tema(str(t["tema"]))[:45] for t in tema_data]
 
-            with col_db1:
-                st.markdown(f"#### 🎯 Dificultad en {sel_blq}")
-                dif_counts_b = dfb["dificultad"].value_counts()
-                for dif_key, col_d, label in [
-                    ("Facil","#27ae60","🟢 Fácil"),
-                    ("Media","#f39c12","🟡 Media"),
-                    ("Dificil","#c0392b","🔴 Difícil"),
+            col_c, col_d = st.columns([3, 2], gap="large")
+
+            with col_c:
+                st.markdown(f"#### Distribución por tema — {nombre_bloque(sel_blq)}")
+                fig_t = go.Figure()
+                for vals, name, color in [
+                    ([t["facil"]   for t in tema_data], "Fácil",   "#27ae60"),
+                    ([t["media"]   for t in tema_data], "Media",   "#f39c12"),
+                    ([t["dificil"] for t in tema_data], "Difícil", "#c0392b"),
                 ]:
-                    n_db  = int(dif_counts_b.get(dif_key, 0))
-                    pct_db = int(n_db / n_tot_b * 100) if n_tot_b else 0
-                    st.markdown(
-                        f"<div style='display:flex;align-items:center;gap:10px;margin:7px 0'>"
-                        f"<div style='width:90px;font-size:0.85em;font-weight:600;color:{col_d}'>{label}</div>"
-                        f"<div style='flex:1;background:#e9ecef;border-radius:5px;height:18px'>"
-                        f"<div style='background:{col_d};width:{pct_db}%;height:18px;border-radius:5px;"
-                        f"display:flex;align-items:center;padding-left:6px;"
-                        f"color:white;font-size:0.75em;font-weight:700'>{n_db} ({pct_db}%)</div></div></div>",
-                        unsafe_allow_html=True
-                    )
+                    fig_t.add_trace(go.Bar(
+                        y=tema_labels, x=vals, name=name, orientation="h",
+                        marker_color=color,
+                        text=vals, textposition="inside", insidetextanchor="middle",
+                        textfont=dict(color="white", size=10),
+                        hovertemplate=f"<b>%{{y}}</b><br>{name}: %{{x}}<extra></extra>",
+                    ))
+                fig_t.update_layout(
+                    **_PLT_CFG,
+                    barmode="stack",
+                    height=max(280, 40 * len(tema_data) + 90),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=10)),
+                    xaxis=dict(title="Nº preguntas", gridcolor="#e9ecef"),
+                )
+                st.plotly_chart(fig_t, use_container_width=True)
 
-            with col_db2:
-                st.markdown(f"#### 📅 Uso por tema en {sel_blq}")
-                for tema in temas_b:
-                    dft2  = dfb[dfb["Tema"].astype(str) == str(tema)]
-                    n_t2  = len(dft2)
-                    n_ut2 = int((dft2["usada"] != "").sum())
-                    n_nu2 = n_t2 - n_ut2
-                    w_us2 = int(n_ut2 / n_t2 * 100) if n_t2 else 0
-                    st.markdown(
-                        f"<div style='margin:5px 0'>"
-                        f"<div style='display:flex;justify-content:space-between;font-size:0.8em;margin-bottom:2px'>"
-                        f"<span style='font-weight:600'>Tema {tema}</span>"
-                        f"<span style='color:#888'>{n_ut2} usadas · {n_nu2} sin usar</span></div>"
-                        f"<div style='display:flex;height:12px;border-radius:4px;overflow:hidden'>"
-                        f"<div style='background:#27ae60;width:{w_us2}%'></div>"
-                        f"<div style='background:#e9ecef;width:{100-w_us2}%'></div>"
-                        f"</div></div>",
-                        unsafe_allow_html=True
-                    )
+                st.markdown("#### Uso por tema")
+                fig_uso = go.Figure()
+                for vals, name, color in [
+                    ([t["usadas"]       for t in tema_data], "Usadas",   "#8e44ad"),
+                    ([t["n"]-t["usadas"] for t in tema_data], "Sin usar", "#bdc3c7"),
+                ]:
+                    fig_uso.add_trace(go.Bar(
+                        y=tema_labels, x=vals, name=name, orientation="h",
+                        marker_color=color,
+                        text=vals, textposition="inside", insidetextanchor="middle",
+                        textfont=dict(color="white", size=10),
+                        hovertemplate=f"<b>%{{y}}</b><br>{name}: %{{x}}<extra></extra>",
+                    ))
+                fig_uso.update_layout(
+                    **_PLT_CFG,
+                    barmode="stack",
+                    height=max(280, 40 * len(tema_data) + 90),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=10)),
+                    xaxis=dict(title="Nº preguntas", gridcolor="#e9ecef"),
+                )
+                st.plotly_chart(fig_uso, use_container_width=True)
+
+            with col_d:
+                st.markdown("#### Dificultad en el bloque")
+                n_f_b = int((dfb["dificultad"].str.lower() == "facil").sum())
+                n_m_b = int((dfb["dificultad"].str.lower() == "media").sum())
+                n_d_b = int((dfb["dificultad"].str.lower().isin(["dificil", "difícil"])).sum())
+                fig_d2 = go.Figure(data=[go.Pie(
+                    labels=["Fácil", "Media", "Difícil"],
+                    values=[n_f_b, n_m_b, n_d_b],
+                    hole=0.55,
+                    marker=dict(colors=["#27ae60", "#f39c12", "#c0392b"],
+                                line=dict(color="white", width=2)),
+                    textinfo="percent+label",
+                    hoverinfo="label+percent+value",
+                    pull=[0.03, 0.03, 0.03],
+                )])
+                fig_d2.update_layout(
+                    paper_bgcolor="white",
+                    height=290,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", yanchor="top", y=-0.05, x=0.1),
+                    annotations=[dict(
+                        text=f"<b>{n_tot_b}</b><br>pregs.",
+                        x=0.5, y=0.5, font_size=14, showarrow=False,
+                        font=dict(color="#2c3e50"),
+                    )],
+                )
+                st.plotly_chart(fig_d2, use_container_width=True)
+
+                st.markdown("#### Soluciones por tema")
+                fig_sol_t = go.Figure()
+                fig_sol_t.add_trace(go.Bar(
+                    y=tema_labels, x=[t["sol"] for t in tema_data],
+                    name="Con solución", orientation="h",
+                    marker_color="#3498db",
+                    hovertemplate="<b>%{y}</b><br>Con solución: %{x}<extra></extra>",
+                ))
+                fig_sol_t.add_trace(go.Bar(
+                    y=tema_labels, x=[t["n"] - t["sol"] for t in tema_data],
+                    name="Sin solución", orientation="h",
+                    marker_color="#e0e7ef",
+                    hovertemplate="<b>%{y}</b><br>Sin solución: %{x}<extra></extra>",
+                ))
+                fig_sol_t.update_layout(
+                    **_PLT_CFG,
+                    barmode="stack",
+                    height=max(280, 40 * len(tema_data) + 90),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=10)),
+                    xaxis=dict(title="Nº preguntas", gridcolor="#e9ecef"),
+                )
+                st.plotly_chart(fig_sol_t, use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

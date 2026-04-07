@@ -681,11 +681,20 @@ def render_sidebar():
         st.warning(err)
 
     with st.sidebar:
+        cfg_gen = st.session_state.get("cfg_general", {})
+        asig    = cfg_gen.get("asignatura", "")
+        inst    = cfg_gen.get("universidad", "") or cfg_gen.get("departamento", "")
+        _sub    = asig or "Generador de Exámenes"
+        _inst_line = (
+            f"<div style='font-size:0.7em;opacity:0.55;margin-top:1px'>{inst}</div>"
+            if inst else ""
+        )
         st.markdown(
             "<div style='background:linear-gradient(135deg,#1a252f,#2c3e50);"
             "border-radius:10px;padding:12px 16px;margin-bottom:14px;color:white'>"
             "<div style='font-size:1.15em;font-weight:800;letter-spacing:-.01em'>📝 ExamGen UCM</div>"
-            "<div style='font-size:0.72em;opacity:0.65;margin-top:2px'>Generador de Exámenes</div>"
+            f"<div style='font-size:0.78em;opacity:0.85;margin-top:3px;font-weight:600'>{_sub}</div>"
+            f"{_inst_line}"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -899,11 +908,18 @@ def render_question_card_html(row, show_sol: bool = True, num: int = None, inclu
         nota_html = (f'<div style="margin-top:5px;padding:3px 8px;background:#fef3cd;'
                      f'border-radius:3px;font-size:0.8em">📝 {notas}</div>')
 
+    def _trunc(s: str, n: int = 32) -> str:
+        return s if len(s) <= n else s[:n] + "…"
+
+    _blq_label = _trunc(nombre_bloque(str(row.get("bloque", ""))), 30)
+    _tem_label = _trunc(nombre_tema(str(row.get("Tema", ""))), 35)
+
     return (
         f'<div class="q-card {cls_card}">'
         f'<div class="q-head">'
         f'<span class="q-num">{num_s} &nbsp;<small style="font-weight:400;color:#888">{row.get("ID_Pregunta","")}</small></span>'
-        f'<span>{nombre_bloque(str(row.get("bloque","")))} · {nombre_tema(str(row.get("Tema","")))} '
+        f'<span title="{nombre_bloque(str(row.get("bloque","")))} · {nombre_tema(str(row.get("Tema","")))}">'
+        f'{_blq_label} · {_tem_label} '
         f'<span class="tag {cls_tag}">{dif}</span>'
         f'<span class="tag {cls_u}">{u_t}</span></span></div>'
         f'<div class="q-enun">{row.get("enunciado","")}</div>'
