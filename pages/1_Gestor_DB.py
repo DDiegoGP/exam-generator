@@ -601,7 +601,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
 
             if c_edit.button("✏️", key=f"stg_edit_{i}", help="Ver / editar pregunta completa"):
                 st.session_state["_staging_edit_idx"] = i
-                _dialog_editar_staging()
+                st.rerun()
 
         st.divider()
 
@@ -667,6 +667,17 @@ with tab_man:
     st.subheader("Gestionar preguntas")
 
     # ── Filtros ──────────────────────────────────────────────────────────────
+    # Flag pattern: aplicar resets ANTES de renderizar widgets
+    if st.session_state.pop("_do_clear_filters", False):
+        st.session_state["man_f_bloque"]       = "Todos"
+        st.session_state["man_f_tema"]         = "Todos"
+        st.session_state["man_f_dif"]          = "Todas"
+        st.session_state["man_f_uso"]          = "Todos"
+        st.session_state["man_search"]         = ""
+        st.session_state["man_search_global"]  = False
+        st.session_state["man_filter_sin_sol"] = False
+        st.session_state["_man_prev_bloque"]   = "Todos"
+
     fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1.5, 2, 0.7])
 
     f_bloque = fc1.selectbox(
@@ -695,17 +706,9 @@ with tab_man:
     f_uso  = fc4.selectbox(
         "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6m", "Usada >12m"], key="man_f_uso",
     )
-    # Botón limpiar filtros — asignar defaults explícitos (pop() no funciona con widgets)
     fc5.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
     if fc5.button("🔄", key="btn_clear_filters", help="Limpiar todos los filtros"):
-        st.session_state["man_f_bloque"]       = "Todos"
-        st.session_state["man_f_tema"]         = "Todos"
-        st.session_state["man_f_dif"]          = "Todas"
-        st.session_state["man_f_uso"]          = "Todos"
-        st.session_state["man_search"]         = ""
-        st.session_state["man_search_global"]  = False
-        st.session_state["man_filter_sin_sol"] = False
-        st.session_state["_man_prev_bloque"]   = "Todos"
+        st.session_state["_do_clear_filters"] = True
         st.rerun()
 
     srch1, srch2, srch3 = st.columns([4, 1.2, 1])
