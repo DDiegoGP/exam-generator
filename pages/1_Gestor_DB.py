@@ -1099,13 +1099,15 @@ with tab_stat:
     elif go is None:
         pass
     else:
-        def _tiene_sol_s(v):
-            return bool(str(v).strip() and str(v) not in ('nan', 'None', ''))
+        def _sol_count(series) -> int:
+            """Cuenta filas con solución real en una columna solucion."""
+            s = series.fillna("").astype(str)
+            return int((s.str.strip().ne("") & ~s.isin(["nan", "None"])).sum())
 
         total   = len(df)
         nunca   = int((df["usada"] == "").sum())
         usadas  = total - nunca
-        n_sol_g = int(df["solucion"].apply(_tiene_sol_s).sum())
+        n_sol_g = _sol_count(df["solucion"]) if "solucion" in df.columns else 0
         pct_uso = int(usadas / total * 100) if total else 0
         pct_sol = int(n_sol_g / total * 100) if total else 0
 
@@ -1140,9 +1142,11 @@ with tab_stat:
             f"<div class='stat-card used'><div class='stat-num' style='color:#8e44ad'>{pct_uso}%</div>"
             f"<div class='stat-label'>🎯 Cobertura</div></div>",
             unsafe_allow_html=True)
+        _sol_cls = "ok" if pct_sol >= 60 else "warn"
+        _sol_clr = "#27ae60" if pct_sol >= 60 else "#f39c12"
         mc6.markdown(
-            f"<div class='stat-card {'ok' if pct_sol >= 60 else 'warn'}'>"
-            f"<div class='stat-num' style='color:{'#27ae60' if pct_sol >= 60 else '#f39c12'}'>{pct_sol}%</div>"
+            f"<div class='stat-card {_sol_cls}'>"
+            f"<div class='stat-num' style='color:{_sol_clr}'>{pct_sol}%</div>"
             f"<div class='stat-label'>📖 Con solución</div></div>",
             unsafe_allow_html=True)
 
@@ -1166,7 +1170,7 @@ with tab_stat:
             n_m   = int((dfb["dificultad"].str.lower() == "media").sum())
             n_d   = int((dfb["dificultad"].str.lower().isin(["dificil", "difícil"])).sum())
             n_us  = int((dfb["usada"] != "").sum())
-            n_sol_b = int(dfb["solucion"].apply(_tiene_sol_s).sum())
+            n_sol_b = _sol_count(dfb["solucion"]) if "solucion" in dfb.columns else 0
             blq_stats.append({
                 "bloque": blq, "total": n_tot,
                 "facil": n_f, "media": n_m, "dificil": n_d,
@@ -1289,7 +1293,7 @@ with tab_stat:
             n_nu_b    = n_tot_b - n_us_b
             temas_b   = sorted(dfb["Tema"].unique().tolist(), key=_nsort)
             n_temas_b = len(temas_b)
-            n_sol_b   = int(dfb["solucion"].apply(_tiene_sol_s).sum())
+            n_sol_b   = _sol_count(dfb["solucion"]) if "solucion" in dfb.columns else 0
             pct_sol_b = int(n_sol_b / n_tot_b * 100) if n_tot_b else 0
             pct_us_b  = int(n_us_b / n_tot_b * 100) if n_tot_b else 0
 
@@ -1311,9 +1315,11 @@ with tab_stat:
                 f"<div class='stat-card'><div class='stat-num'>{n_temas_b}</div>"
                 f"<div class='stat-label'>📌 Temas</div></div>",
                 unsafe_allow_html=True)
+            _sb_cls = "ok" if pct_sol_b >= 60 else "warn"
+            _sb_clr = "#27ae60" if pct_sol_b >= 60 else "#f39c12"
             bc5.markdown(
-                f"<div class='stat-card {'ok' if pct_sol_b >= 60 else 'warn'}'>"
-                f"<div class='stat-num' style='color:{'#27ae60' if pct_sol_b >= 60 else '#f39c12'}'>"
+                f"<div class='stat-card {_sb_cls}'>"
+                f"<div class='stat-num' style='color:{_sb_clr}'>"
                 f"{pct_sol_b}%</div>"
                 f"<div class='stat-label'>📖 Con solución</div></div>",
                 unsafe_allow_html=True)
@@ -1329,7 +1335,7 @@ with tab_stat:
                 n_mt  = int((dft["dificultad"].str.lower() == "media").sum())
                 n_dt  = int((dft["dificultad"].str.lower().isin(["dificil", "difícil"])).sum())
                 n_ut  = int((dft["usada"] != "").sum())
-                n_st  = int(dft["solucion"].apply(_tiene_sol_s).sum())
+                n_st  = _sol_count(dft["solucion"]) if "solucion" in dft.columns else 0
                 tema_data.append({
                     "tema": tema, "n": n_t,
                     "facil": n_ft, "media": n_mt, "dificil": n_dt,
