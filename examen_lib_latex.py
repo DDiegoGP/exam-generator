@@ -1527,6 +1527,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
 
     _DEFAULT_TEX = r"""\documentclass[a4paper,[[FONTSIZE]]pt]{[[DOCTYPE]]}
 \usepackage{estilo_examen_moderno_v2}
+[[DOS_POR_HOJA_CMD]]
 [[LINESPREAD_CMD]]
 [[WATERMARK_CMD]]
 [[FANCYHDR_CUSTOM]]
@@ -1556,6 +1557,18 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         tex = tex.replace('[[FONTSIZE]]',    str(font_size))
         tex = tex.replace('[[DOCTYPE]]',     doc_class)
         tex = tex.replace('[[LINESPREAD_CMD]]', linespread_cmd)
+
+        # ── 2 páginas por hoja (pgfpages) ────────────────────────────────────
+        if cfg.get('dos_por_hoja'):
+            dos_por_hoja_cmd = (
+                '\\geometry{a5paper,left=14mm,right=14mm,top=20mm,bottom=16mm,'
+                'headheight=14mm,headsep=5mm}\n'
+                '\\usepackage{pgfpages}\n'
+                '\\pgfpagesuselayout{2 on 1}[a4paper,landscape,border shrink=3mm]\n'
+            )
+        else:
+            dos_por_hoja_cmd = ''
+        tex = tex.replace('[[DOS_POR_HOJA_CMD]]', dos_por_hoja_cmd)
 
         # ── Marca de agua (solo si está activa y, por defecto, en soluciones) ──
         watermark_on = cfg.get('watermark_sol', False) and modo_solucion
@@ -1817,6 +1830,16 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
             cfg_for_setup       = dict(cfg)
             cfg_for_setup['tipo_examen'] = tipo_raw
             _setup_word_styles(doc, cfg_for_setup, m['letra_version'])
+            # ── 2 páginas por hoja → tamaño A5 (Word no tiene pgfpages) ──────
+            if cfg.get('dos_por_hoja'):
+                from docx.shared import Cm
+                sec = doc.sections[0]
+                sec.page_width  = Cm(14.85)
+                sec.page_height = Cm(21.0)
+                sec.left_margin   = Cm(1.4)
+                sec.right_margin  = Cm(1.4)
+                sec.top_margin    = Cm(1.8)
+                sec.bottom_margin = Cm(1.4)
         else:
             # Plantilla personalizada: hacer reemplazos de texto
             replacements = {

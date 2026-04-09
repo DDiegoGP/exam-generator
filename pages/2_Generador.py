@@ -579,6 +579,92 @@ with tab_sel:
                 unsafe_allow_html=True,
             )
 
+    # ── Panel de estadísticas de selección (tiempo real) ─────────────────────
+    if sel_ids_actual:
+        import plotly.graph_objects as go
+        df_sel_stat = df_total[df_total["ID_Pregunta"].isin(sel_ids_actual)].copy()
+        n_total_db = len(df_total)
+
+        # Conteos por dificultad
+        dif_counts = df_sel_stat["dificultad"].str.lower().value_counts()
+        n_facil  = int(dif_counts.get("facil",  0))
+        n_media  = int(dif_counts.get("media",  0))
+        n_dificil= int(dif_counts.get("dificil",0))
+
+        # Alertas
+        _alerts = []
+        if n_sel < n_obj:
+            _alerts.append(f"⚠️ Faltan {n_obj - n_sel} preguntas para el objetivo")
+        if n_sel > n_obj:
+            _alerts.append(f"ℹ️ {n_sel - n_obj} preguntas extra sobre el objetivo")
+        _pct_dif = round(n_dificil / n_sel * 100) if n_sel else 0
+        if _pct_dif > 50:
+            _alerts.append(f"⚠️ Mucha dificultad alta: {_pct_dif}% de difíciles")
+
+        st.markdown("---")
+        _sc1, _sc2, _sc3 = st.columns([2, 3, 3])
+
+        # Donut dificultad
+        with _sc1:
+            st.markdown("**📊 Dificultad**")
+            _dif_fig = go.Figure(go.Pie(
+                labels=["Fácil", "Media", "Difícil"],
+                values=[n_facil, n_media, n_dificil],
+                hole=0.55,
+                marker_colors=["#27ae60", "#f39c12", "#c0392b"],
+                textinfo="value",
+                hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
+            ))
+            _dif_fig.update_layout(
+                margin=dict(t=0, b=0, l=0, r=0), height=150,
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                showlegend=True,
+                legend=dict(orientation="v", x=1.0, y=0.5, font=dict(size=10)),
+            )
+            st.plotly_chart(_dif_fig, use_container_width=True, config={"displayModeBar": False})
+
+        # Cobertura por bloque
+        with _sc2:
+            st.markdown("**📦 Bloques cubiertos**")
+            _blq_sel = df_sel_stat["bloque"].value_counts()
+            _blq_tot = df_total["bloque"].value_counts()
+            _blq_all = sorted(_blq_tot.index.tolist(), key=_nsort)
+            _blq_labels = [nombre_bloque(str(b))[:20] for b in _blq_all]
+            _blq_n_sel  = [int(_blq_sel.get(b, 0)) for b in _blq_all]
+            _blq_n_rest = [max(0, int(_blq_tot.get(b, 0)) - int(_blq_sel.get(b, 0))) for b in _blq_all]
+            _blq_fig = go.Figure()
+            _blq_fig.add_trace(go.Bar(
+                y=_blq_labels, x=_blq_n_sel, orientation="h",
+                name="Seleccionadas", marker_color="#3498db",
+                hovertemplate="%{y}: %{x} seleccionadas<extra></extra>",
+            ))
+            _blq_fig.add_trace(go.Bar(
+                y=_blq_labels, x=_blq_n_rest, orientation="h",
+                name="Disponibles", marker_color="#ecf0f1",
+                hovertemplate="%{y}: %{x} disponibles<extra></extra>",
+            ))
+            _blq_fig.update_layout(
+                barmode="stack", margin=dict(t=0, b=0, l=0, r=5),
+                height=max(120, 28 * len(_blq_all)),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                showlegend=False, xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=False, tickfont=dict(size=10)),
+            )
+            st.plotly_chart(_blq_fig, use_container_width=True, config={"displayModeBar": False})
+
+        # Alertas y métricas clave
+        with _sc3:
+            st.markdown("**📋 Resumen**")
+            _m1, _m2 = st.columns(2)
+            _m1.metric("Seleccionadas", n_sel, delta=f"{n_sel - n_obj:+d} vs objetivo")
+            _m2.metric("% del banco", f"{round(n_sel / n_total_db * 100)}%")
+            _m3, _m4, _m5 = st.columns(3)
+            _m3.metric("Fácil",    n_facil)
+            _m4.metric("Media",    n_media)
+            _m5.metric("Difícil",  n_dificil)
+            for _alert in _alerts:
+                st.warning(_alert)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 · DESARROLLO
 # ─────────────────────────────────────────────────────────────────────────────
@@ -986,6 +1072,7 @@ def _ejecutar_export():
         # Encabezado/pie
         "fancyhdr_on":   cfg.get("fancyhdr_on", True),
         "footer_text":   cfg.get("footer_text", ""),
+        "dos_por_hoja":  cfg.get("dos_por_hoja", False),
         # Info en soluciones
         "sol_info_bloque": cfg.get("sol_info_bloque", False),
         "sol_info_tema":   cfg.get("sol_info_tema",   False),
@@ -1073,7 +1160,11 @@ def _ejecutar_export():
         df_sheet.loc[mask, usa_col] = hoy
     reload_db()
 
-    # Historial
+    # Historial — estadísticas de dificultad y bloques
+    _df_exp = st.session_state.df_preguntas
+    _df_used = _df_exp[_df_exp["ID_Pregunta"].isin(sel_actual)]
+    _dif_ctr = _df_used["dificultad"].str.lower().value_counts()
+    _bloques_usados = sorted(_df_used["bloque"].dropna().unique().tolist(), key=_nsort)
     append_historial({
         "fecha":        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "nombre":       nombre_arch,
@@ -1084,6 +1175,11 @@ def _ejecutar_export():
         "n_modelos":    n_mod,
         "ids":          sel_actual[:],
         "usuario":      st.session_state.get("google_user_email", ""),
+        "n_facil":      int(_dif_ctr.get("facil",  0)),
+        "n_media":      int(_dif_ctr.get("media",  0)),
+        "n_dificil":    int(_dif_ctr.get("dificil",0)),
+        "bloques":      _bloques_usados,
+        "exam_cfg":     dict(cfg),
     })
     st.session_state.cache_examen   = pool
     st.session_state["export_files"] = ef
@@ -1135,12 +1231,16 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
 .ep-title { font-size:15pt; font-weight:bold; margin:4px 0; }
 .ep-subtitle { font-size:12pt; }
 .ep-meta { font-size:9.5pt; color:#444; margin-top:4px; }
-.ep-nameline { display:flex; gap:16px; align-items:baseline; margin:12px 0 6px 0; font-size:11pt; border-top:1px solid #aaa; padding-top:10px; }
-.ep-nameline .ep-underline { flex:1; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
-.ep-nameline .ep-underline-short { width:120px; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
+.ep-scoring { font-size:9.5pt; color:#1a5276; background:#eaf4fb; border:1px solid #aed6f1; border-radius:4px; padding:3px 10px; margin-top:6px; display:inline-block; }
+.ep-campos { border-top:1px solid #aaa; padding-top:10px; margin:12px 0 6px 0; display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; font-size:11pt; }
+.ep-campo { display:flex; align-items:baseline; gap:4px; }
+.ep-campo b { white-space:nowrap; }
+.ep-campo .ep-underline { min-width:80px; flex:1; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
+.ep-campo .ep-underline-xs { width:100px; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
 .ep-instr { background:#f7f7f7; border:1px solid #bbb; border-radius:4px; padding:8px 12px; font-size:10pt; font-style:italic; margin:10px 0 14px 0; }
 .ep-part { font-size:12pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:5px 12px; margin:16px 0 8px 0; border-radius:4px; }
 .ep-part-info { font-size:10pt; font-style:italic; color:#444; margin-bottom:8px; }
+.ep-bloque-sep { font-size:10pt; font-weight:bold; color:#2c3e50; border-bottom:1px solid #adb5bd; margin:10px 0 4px 0; padding-bottom:2px; }
 .ep-q { margin-bottom:10px; page-break-inside:avoid; }
 .ep-q-stem { margin:0 0 5px 0; }
 .ep-q-num { font-weight:bold; }
@@ -1158,6 +1258,9 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
     tipo  = cfg.get("tipo", "Examen")
     fecha = cfg.get("fecha", "")
     tiem  = cfg.get("tiem", "")
+    pts_fund    = str(cfg.get("pts_fund", "")).strip()
+    pts_test    = str(cfg.get("pts_test", "")).strip()
+    penalizacion = str(cfg.get("penalizacion", "")).strip()
 
     html.append('<div class="ep-header">')
     if inst:
@@ -1169,15 +1272,38 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
     if tiem:  meta_parts.append(f"Tiempo: {tiem}")
     if meta_parts:
         html.append(f'<div class="ep-meta">{" &nbsp;|&nbsp; ".join(meta_parts)}</div>')
+
+    # Puntuación en cabecera
+    _score_parts = []
+    if pts_fund:  _score_parts.append(f"Desarrollo: {pts_fund} pts")
+    if pts_test:  _score_parts.append(f"Test: {pts_test} pts")
+    if penalizacion and penalizacion not in ("Sin penalización", ""):
+        _score_parts.append(f"Penalización: {penalizacion}")
+    if _score_parts:
+        html.append(f'<div class="ep-scoring">{"&nbsp;&nbsp;|&nbsp;&nbsp;".join(_score_parts)}</div>')
+
     html.append('</div>')  # ep-header
 
-    # ── Nombre / Grupo ────────────────────────────────────────────────────────
-    html.append(
-        '<div class="ep-nameline">'
-        '<b>Nombre:&nbsp;</b><span class="ep-underline"></span>'
-        '&nbsp;&nbsp;<b>Grupo:&nbsp;</b><span class="ep-underline-short"></span>'
-        '</div>'
-    )
+    # ── Campos del alumno ─────────────────────────────────────────────────────
+    campos_alumno = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
+    _campo_labels = {
+        "nombre": "Nombre", "dni": "DNI/NIE", "grupo": "Grupo/Aula",
+        "firma": "Firma", "email": "Email", "matricula": "Nº Matrícula",
+        "titulacion": "Titulación", "telefono": "Teléfono", "notas": "Observaciones",
+    }
+    _short_campos = {"dni", "grupo", "firma", "matricula", "telefono"}
+    if campos_alumno:
+        html.append('<div class="ep-campos">')
+        for campo in campos_alumno:
+            lbl = _campo_labels.get(campo, campo.capitalize())
+            ul_cls = "ep-underline-xs" if campo in _short_campos else "ep-underline"
+            html.append(
+                f'<div class="ep-campo">'
+                f'<b>{lbl}:&nbsp;</b>'
+                f'<span class="{ul_cls}"></span>'
+                f'</div>'
+            )
+        html.append('</div>')
 
     # ── Instrucciones generales ───────────────────────────────────────────────
     instr = cfg.get("ins", "")
@@ -1185,9 +1311,14 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
         html.append(f'<div class="ep-instr">{instr}</div>')
 
     # ── PARTE I: Desarrollo ───────────────────────────────────────────────────
+    both_sections = bool(dev_qs) and bool(pool_p)
+    tit_fund = cfg.get("titulo_fund", "PREGUNTAS DE DESARROLLO")
+    tit_test = cfg.get("titulo_test", "PREGUNTAS TEST")
     if dev_qs:
         info_fund = cfg.get("h1", "")
-        html.append('<div class="ep-part">PARTE I &mdash; PREGUNTAS DE DESARROLLO</div>')
+        _fund_hdr = f"PARTE I &mdash; {tit_fund}" if both_sections else tit_fund
+        _fund_info = f" &nbsp;<span style='font-weight:normal;font-size:10pt'>[{pts_fund} pts]</span>" if pts_fund else ""
+        html.append(f'<div class="ep-part">{_fund_hdr}{_fund_info}</div>')
         if info_fund:
             html.append(f'<div class="ep-part-info">{info_fund}</div>')
         for i, q in enumerate(dev_qs):
@@ -1210,10 +1341,27 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
     # ── PARTE II: Test ────────────────────────────────────────────────────────
     if pool_p:
         info_test = cfg.get("h2", "")
-        html.append('<div class="ep-part">PARTE II &mdash; PREGUNTAS TEST</div>')
+        _pen_info = ""
+        if penalizacion and penalizacion not in ("Sin penalización", ""):
+            _pen_info = f" &nbsp;<span style='font-weight:normal;font-size:10pt'>pen. {penalizacion}</span>"
+        _test_hdr = f"PARTE II &mdash; {tit_test}" if both_sections else tit_test
+        _test_info = (
+            f" &nbsp;<span style='font-weight:normal;font-size:10pt'>[{pts_test} pts{_pen_info}]</span>"
+            if pts_test else _pen_info
+        )
+        html.append(f'<div class="ep-part">{_test_hdr}{_test_info}</div>')
         if info_test:
             html.append(f'<div class="ep-part-info">{info_test}</div>')
+
+        # Separadores de bloque
+        _cur_bloque = None
         for i, p in enumerate(pool_p):
+            _p_bloque = str(p.get("bloque", ""))
+            if _p_bloque and _p_bloque != _cur_bloque:
+                _cur_bloque = _p_bloque
+                _blq_name = nombre_bloque(_p_bloque)
+                html.append(f'<div class="ep-bloque-sep">&#9658; {_blq_name}</div>')
+
             enun      = p.get("enunciado", "")
             ops_list  = p.get("opciones_list", ["", "", "", ""])
             letra_c   = p.get("letra_correcta", "A")
@@ -1437,6 +1585,11 @@ with tab_exp:
                                           value=cfg.get("footer_text", ""), key="exp_footer",
                                           placeholder="ej: Prohibido el uso de móvil",
                                           disabled=not fancyhdr_on)
+            dos_por_hoja = st.checkbox(
+                "2 páginas por hoja (A5 → A4 apaisado)",
+                value=cfg.get("dos_por_hoja", False), key="exp_dos_por_hoja",
+                help="LaTeX: imprime 2 páginas A5 en una hoja A4 apaisada (pgfpages). Word: genera en tamaño A5."
+            )
 
         # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
         with st.expander("📋 Hoja de respuestas", expanded=False):
@@ -1597,6 +1750,7 @@ with tab_exp:
             "font_size": font_size_val, "modo_compacto": modo_compacto,
             "estilo_num": estilo_num,
             "fancyhdr_on": fancyhdr_on, "footer_text": footer_text,
+            "dos_por_hoja": dos_por_hoja,
             # Puntos y penalización
             "pts_fund": pts_fund_val, "pts_test": pts_test_val,
             "penalizacion": penalizacion_val,
@@ -1768,27 +1922,73 @@ with tab_hist:
     else:
         hist_rev = list(reversed(hist))  # más reciente primero
         for i, entry in enumerate(hist_rev):
+            ids         = entry.get("ids", [])
+            n_f         = entry.get("n_facil",   0)
+            n_m         = entry.get("n_media",   0)
+            n_d         = entry.get("n_dificil", 0)
+            n_total_e   = len(ids)
+            bloques_e   = entry.get("bloques", [])
+            exam_cfg_e  = entry.get("exam_cfg", {})
+            _blq_str    = ", ".join(nombre_bloque(str(b)) for b in bloques_e[:4])
+            if len(bloques_e) > 4: _blq_str += "…"
+
             with st.expander(
-                f"📄 {entry.get('nombre','?')} · {entry.get('fecha','?')} · {entry.get('n_pregs','?')} pregs",
+                f"📄 {entry.get('nombre','?')} · {entry.get('fecha','?')} · {n_total_e} pregs",
                 expanded=(i == 0)
             ):
-                hc1, hc2 = st.columns(2)
+                hc1, hc2, hc3 = st.columns([2, 2, 2])
                 with hc1:
-                    st.markdown(f"**Asig:** {entry.get('asig','')}")
-                    st.markdown(f"**Tipo:** {entry.get('tipo','')}")
-                    st.markdown(f"**Modelos:** {entry.get('modelos','')}")
-                    st.markdown(f"**Ruta:** `{entry.get('ruta','')}`")
+                    st.markdown(f"**Asig:** {entry.get('asig','—')}")
+                    st.markdown(f"**Tipo:** {entry.get('tipo','—')}")
+                    st.markdown(f"**Modelos:** {entry.get('n_modelos','—')}")
+                    if entry.get("usuario"):
+                        st.caption(f"👤 {entry['usuario']}")
                 with hc2:
-                    ids = entry.get("ids", [])
-                    st.markdown(f"**Preguntas ({len(ids)}):**")
-                    st.caption(", ".join(ids[:10]) + ("..." if len(ids) > 10 else ""))
+                    st.markdown("**Dificultad:**")
+                    _dif_total = n_f + n_m + n_d or 1
+                    _pct_f = round(n_f / _dif_total * 100)
+                    _pct_m = round(n_m / _dif_total * 100)
+                    _pct_d = round(n_d / _dif_total * 100)
+                    st.markdown(
+                        f"<div style='font-size:0.85em'>"
+                        f"<span style='color:#27ae60'>⬤ Fácil: {n_f} ({_pct_f}%)</span> &nbsp; "
+                        f"<span style='color:#f39c12'>⬤ Media: {n_m} ({_pct_m}%)</span> &nbsp; "
+                        f"<span style='color:#c0392b'>⬤ Difícil: {n_d} ({_pct_d}%)</span>"
+                        f"</div>"
+                        f"<div style='display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:4px'>"
+                        f"<div style='width:{_pct_f}%;background:#27ae60'></div>"
+                        f"<div style='width:{_pct_m}%;background:#f39c12'></div>"
+                        f"<div style='width:{_pct_d}%;background:#c0392b'></div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if _blq_str:
+                        st.markdown(f"**Bloques:** {_blq_str}")
+                with hc3:
+                    st.markdown(f"**IDs ({n_total_e}):**")
+                    st.caption(", ".join(ids[:8]) + ("…" if len(ids) > 8 else ""))
 
-                if st.button("↩️ Recargar preguntas de este examen",
-                             key=f"hist_reload_{i}"):
-                    # Recargar en selección
+                _ha1, _ha2, _ha3 = st.columns(3)
+                if _ha1.button("↩️ Recargar preguntas", key=f"hist_reload_{i}",
+                               use_container_width=True, help="Restaura las preguntas en la pestaña Selección"):
                     valid = [pid for pid in ids if pid in df_total["ID_Pregunta"].values]
                     set_sel_ids(valid)
                     st.success(f"Recargadas {len(valid)} preguntas. Ve a la pestaña Selección.")
+                    st.rerun()
+                if exam_cfg_e and _ha2.button("↺ Restaurar configuración", key=f"hist_cfg_{i}",
+                                               use_container_width=True,
+                                               help="Recupera toda la configuración de exportación (institución, tipo, fecha, estilo…)"):
+                    st.session_state.exam_cfg = dict(exam_cfg_e)
+                    st.success("Configuración restaurada. Ve a la pestaña Exportar.")
+                    st.rerun()
+                if _ha3.button("↩️+↺ Ambos", key=f"hist_both_{i}",
+                               use_container_width=True,
+                               help="Restaura tanto las preguntas como la configuración"):
+                    valid = [pid for pid in ids if pid in df_total["ID_Pregunta"].values]
+                    set_sel_ids(valid)
+                    if exam_cfg_e:
+                        st.session_state.exam_cfg = dict(exam_cfg_e)
+                    st.success(f"Restauradas {len(valid)} preguntas y configuración. Ve a Selección o Exportar.")
                     st.rerun()
 
     # ── Recuperar desde CSV ────────────────────────────────────────────────
