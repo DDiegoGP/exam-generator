@@ -558,6 +558,17 @@ _WORD_COLOR_SCHEMES = {
     'byn':  {'primary': (60, 60, 60),   'secondary': (40, 40, 40),  'bg': (245, 245, 245)},
 }
 
+# Colores para el marcado de la opción correcta
+_SOL_COLOR_LATEX = {
+    'red':    'CC0000', 'green':  '1E8A1E', 'blue':   '0A4E8A',
+    'orange': 'CC6600', 'purple': '6A0DAD',
+}
+_SOL_COLOR_WORD = {
+    'red':    (192, 0,   0),   'green':  (30,  138, 30),
+    'blue':   (10,  78,  138), 'orange': (204, 102, 0),
+    'purple': (106, 13,  173),
+}
+
 # ── Paletas de color para el .sty (LaTeX) ──────────────────────────────────
 _STY_COLORS = {
     'azul': (
@@ -1409,7 +1420,9 @@ def rellenar_plantilla_word(master, ruta, nombre, cfg, tpl_path=None, modo_soluc
                         p_op = _insert_paragraph_after(insert_after, f"    {l}) {ops[i]}")
                         if modo_solucion and i == idx_corr:
                             if cfg.get('sol_negrita'): p_op.runs[0].bold = True
-                            if cfg.get('sol_rojo'): p_op.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+                            _sc = cfg.get('sol_color', '')
+                            if _sc and _sc in _SOL_COLOR_WORD:
+                                p_op.runs[0].font.color.rgb = RGBColor(*_SOL_COLOR_WORD[_sc])
                             if cfg.get('sol_ast'): p_op.add_run(" *")
                         insert_after = p_op
 
@@ -1640,7 +1653,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
             bloque_fund += f'\\begin{{enumerate}}[{_setlist_label},leftmargin=*,itemsep=1.5em,topsep=1em]\n'
             _esp_map = {'5 líneas': '4cm', '10 líneas': '7cm',
                         'media cara': '11cm', 'cara completa': '20cm'}
-            for c in fund_data:
+            for ci, c in enumerate(fund_data):
                 esp    = c.get('espacio', 'Automático')
                 h_base = next((v for k, v in _esp_map.items() if k.lower() in esp.lower()), '6cm')
                 # Modo adaptado: aumentar altura si adapt_espacio_extra definido
@@ -1651,10 +1664,19 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                     if m2:
                         h_base = f"{float(m2.group(1)) * (1 + extra_pct/100):.1f}cm"
                 pts_q = str(c.get('pts', '')).strip()
-                # Pts justo después del número (antes del enunciado, no al final)
                 pts_prefix = f'\\textbf{{({pts_q} pts)}} ' if pts_q else ''
+                img_name = c.get('imagen_name', '')
+                img_pos  = c.get('imagen_pos', 'debajo')
+                _img_cmd = (
+                    '\n\\begin{center}\\includegraphics[max width=0.85\\linewidth]{'
+                    + img_name + '}\\end{center}\n'
+                ) if img_name else ''
                 bloque_fund += '\\item \\begin{minipage}[t]{\\linewidth}\n'
+                if img_name and img_pos == 'encima':
+                    bloque_fund += _img_cmd
                 bloque_fund += pts_prefix + _markdown_to_latex(c['txt']) + '\n'
+                if img_name and img_pos in ('debajo', 'lado'):
+                    bloque_fund += _img_cmd
                 if modo_solucion:
                     bloque_fund += f'\\par\\textit{{[Espacio de respuesta ({esp})]}}\n'
                 else:
@@ -1753,7 +1775,10 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
 def _fmt_sol_latex(txt: str, cfg: dict) -> str:
     """Aplica marcado de solución a una opción correcta en LaTeX."""
     if cfg.get('sol_negrita'): txt = r'\textbf{' + txt + '}'
-    if cfg.get('sol_rojo'):    txt = r'\textcolor{red}{' + txt + '}'
+    _color = cfg.get('sol_color', '')
+    if _color and _color in _SOL_COLOR_LATEX:
+        _hex = _SOL_COLOR_LATEX[_color]
+        txt = r'\textcolor[HTML]{' + _hex + r'}{' + txt + r'}'
     if cfg.get('sol_ast'):     txt = txt + r' \textbf{*}'
     return txt
 
@@ -1876,11 +1901,21 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
                 extra_pct = cfg.get('adapt_espacio_pct', 0)
 
                 for ci, c in enumerate(fund_data):
-                    esp  = c.get('espacio', 'Automático')
-                    pts_q = str(c.get('pts', '')).strip()
-                    lines = next((v for k, v in _esp_map.items() if k.lower() in esp.lower()), 8)
+                    import io as _io2
+                    esp     = c.get('espacio', 'Automático')
+                    pts_q   = str(c.get('pts', '')).strip()
+                    lines   = next((v for k, v in _esp_map.items() if k.lower() in esp.lower()), 8)
                     if extra_pct:
                         lines = int(lines * (1 + extra_pct / 100))
+                    img_bytes = c.get('imagen_bytes')
+                    img_pos   = c.get('imagen_pos', 'debajo')
+
+                    # Imagen encima del enunciado
+                    if img_bytes and img_pos == 'encima':
+                        p_img = _insert_paragraph_after(ins_after)
+                        from docx.shared import Cm as _Cm
+                        p_img.add_run().add_picture(_io2.BytesIO(img_bytes), width=_Cm(12))
+                        ins_after = p_img
 
                     p_fund = _insert_paragraph_after(ins_after)
                     r_num_f = p_fund.add_run(f"{ci+1}. ")
@@ -1891,6 +1926,13 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
                         r_pts.italic = True; r_pts.font.name = font_name; r_pts.font.size = Pt(font_size - 1)
                     _keep_together(p_fund)
                     ins_after = p_fund
+
+                    # Imagen debajo del enunciado / al lado (Word no soporta flotante real, se pone debajo)
+                    if img_bytes and img_pos in ('debajo', 'lado'):
+                        p_img = _insert_paragraph_after(ins_after)
+                        from docx.shared import Cm as _Cm
+                        p_img.add_run().add_picture(_io2.BytesIO(img_bytes), width=_Cm(12))
+                        ins_after = p_img
 
                     if not modo_solucion:
                         tbl = _insert_table_after(ins_after, rows=1, cols=1, doc=doc)
@@ -1956,7 +1998,9 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
                             r_txt.font.name = font_name; r_txt.font.size = Pt(font_size)
                             if modo_solucion and oi == idx_c:
                                 if cfg.get('sol_negrita'): r_txt.bold = True
-                                if cfg.get('sol_rojo'):    r_txt.font.color.rgb = RGBColor(255, 0, 0)
+                                _sc = cfg.get('sol_color', '')
+                                if _sc and _sc in _SOL_COLOR_WORD:
+                                    r_txt.font.color.rgb = RGBColor(*_SOL_COLOR_WORD[_sc])
                                 if cfg.get('sol_ast'):     p_cell.add_run(" *")
                     sep_el2 = tbl_op._tbl.makeelement(
                         '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p', {})
@@ -1971,7 +2015,9 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
                         p_op.runs[0].font.color.rgb = sec_rgb
                         if modo_solucion and i == idx_c:
                             if cfg.get('sol_negrita'): p_op.runs[0].bold = True
-                            if cfg.get('sol_rojo'):    p_op.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+                            _sc = cfg.get('sol_color', '')
+                            if _sc and _sc in _SOL_COLOR_WORD:
+                                p_op.runs[0].font.color.rgb = RGBColor(*_SOL_COLOR_WORD[_sc])
                             if cfg.get('sol_ast'):     p_op.add_run(" *")
                         if i < 3:
                             _keep_together(p_op)
@@ -1982,6 +2028,191 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
         doc.save(buf)
         result[m['letra_version']] = buf.getvalue()
     return result
+
+
+def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
+    """Genera un .tex de la guía de corrección para las preguntas de desarrollo."""
+    titulo  = _escape_latex(cfg.get('titulo', 'Guía de Corrección'))
+    asig    = _escape_latex(cfg.get('asig',   ''))
+    inst    = _escape_latex(cfg.get('inst',   ''))
+    fecha   = _escape_latex(cfg.get('fecha',  ''))
+
+    lines = [
+        r'\documentclass[a4paper,11pt]{article}',
+        r'\usepackage[utf8]{inputenc}',
+        r'\usepackage[T1]{fontenc}',
+        r'\usepackage[spanish]{babel}',
+        r'\usepackage{geometry}',
+        r'\geometry{a4paper,left=25mm,right=25mm,top=30mm,bottom=25mm}',
+        r'\usepackage{xcolor,booktabs,enumitem,amsmath,amssymb}',
+        r'\usepackage{graphicx}',
+        r'\definecolor{rubcolor}{HTML}{2C3E50}',
+        r'\definecolor{critbg}{HTML}{EAF4FB}',
+        r'\usepackage{fancyhdr}',
+        r'\pagestyle{fancy}',
+        r'\fancyhf{}',
+        r'\fancyhead[L]{\textbf{' + titulo + r'}}',
+        r'\fancyhead[R]{\textit{' + asig + r'}}',
+        r'\fancyfoot[C]{\thepage}',
+        r'\setlength{\parindent}{0pt}',
+        r'\begin{document}',
+        r'{\Large\bfseries\color{rubcolor} ' + titulo + r'}\par\medskip',
+    ]
+    if asig or inst or fecha:
+        meta = r' $\cdot$ '.join(x for x in [inst, asig, fecha] if x)
+        lines.append(r'\textit{' + meta + r'}\par\bigskip')
+    lines.append(r'\hrule\bigskip')
+
+    for i, q in enumerate(dev_questions):
+        txt      = _markdown_to_latex(q.get('txt', ''))
+        pts      = q.get('pts', '')
+        esp      = q.get('espacio', '')
+        criterios = q.get('criterios', [])
+        sol_mod  = q.get('solucion_modelo', '').strip()
+        img_name = q.get('imagen_name', '')
+        img_pos  = q.get('imagen_pos', 'debajo')
+
+        lines.append(r'\vspace{6pt}')
+        lines.append(
+            r'{\large\bfseries\color{rubcolor}Pregunta '
+            + str(i + 1)
+            + (f' ({pts} pts)' if pts else '')
+            + r'}\par\smallskip'
+        )
+        # Imagen encima del enunciado
+        if img_name and img_pos == 'encima':
+            lines.append(
+                r'\begin{center}\includegraphics[max width=0.8\linewidth]{'
+                + img_name + r'}\end{center}'
+            )
+        lines.append(txt + r'\par')
+        # Imagen entre texto y solución
+        if img_name and img_pos == 'debajo':
+            lines.append(
+                r'\begin{center}\includegraphics[max width=0.8\linewidth]{'
+                + img_name + r'}\end{center}'
+            )
+        lines.append(r'\smallskip')
+
+        if criterios:
+            lines.append(r'\textbf{Criterios de evaluación:}')
+            lines.append(r'\begin{itemize}[leftmargin=*,itemsep=2pt]')
+            total_crit = 0.0
+            for c in criterios:
+                desc = _escape_latex(c.get('desc', ''))
+                cpts = c.get('pts', 0)
+                total_crit += float(cpts)
+                lines.append(r'\item ' + desc + rf' \hfill \textbf{{{cpts} pts}}')
+            lines.append(r'\end{itemize}')
+            lines.append(rf'\textit{{Total criterios: {total_crit:.2f} pts}}\par\smallskip')
+
+        if sol_mod:
+            lines.append(r'\textbf{Solución modelo:}\par\smallskip')
+            lines.append(
+                r'\colorbox{critbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{'
+                + sol_mod
+                + r'}}\par'
+            )
+        lines.append(r'\medskip\hrule')
+
+    lines.append(r'\end{document}')
+    return '\n'.join(lines)
+
+
+def generar_rubrica_word_bytes(dev_questions: list, cfg: dict) -> bytes:
+    """Genera un .docx de la guía de corrección para las preguntas de desarrollo."""
+    import io as _io
+    from docx import Document
+    from docx.shared import Pt, RGBColor as _RGB, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+    sec = doc.sections[0]
+    sec.left_margin = Cm(2.5); sec.right_margin = Cm(2.5)
+    sec.top_margin  = Cm(3.0); sec.bottom_margin = Cm(2.5)
+
+    titulo = cfg.get('titulo', 'Guía de Corrección')
+    asig   = cfg.get('asig',   '')
+    inst   = cfg.get('inst',   '')
+    fecha  = cfg.get('fecha',  '')
+
+    _pri = _RGB(44, 62, 80)
+    _acc = _RGB(41, 128, 185)
+
+    # Título
+    p_tit = doc.add_paragraph()
+    p_tit.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_tit = p_tit.add_run(titulo)
+    r_tit.bold = True; r_tit.font.size = Pt(16); r_tit.font.color.rgb = _pri
+    if any([inst, asig, fecha]):
+        p_sub = doc.add_paragraph()
+        p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        meta = '  ·  '.join(x for x in [inst, asig, fecha] if x)
+        r_sub = p_sub.add_run(meta)
+        r_sub.italic = True; r_sub.font.size = Pt(11)
+    doc.add_paragraph()
+
+    for i, q in enumerate(dev_questions):
+        txt       = q.get('txt', '')
+        pts       = q.get('pts', '')
+        criterios = q.get('criterios', [])
+        sol_mod   = q.get('solucion_modelo', '').strip()
+        img_bytes = q.get('imagen_bytes')
+        img_pos   = q.get('imagen_pos', 'debajo')
+
+        # Número pregunta
+        p_num = doc.add_paragraph()
+        r_num = p_num.add_run(f'Pregunta {i+1}' + (f'  ({pts} pts)' if pts else ''))
+        r_num.bold = True; r_num.font.size = Pt(13); r_num.font.color.rgb = _pri
+
+        # Imagen encima
+        if img_bytes and img_pos == 'encima':
+            doc.add_picture(_io.BytesIO(img_bytes), width=Cm(12))
+
+        # Enunciado
+        p_enun = doc.add_paragraph(txt)
+        p_enun.runs[0].font.size = Pt(11) if p_enun.runs else None
+
+        # Imagen debajo del texto
+        if img_bytes and img_pos == 'debajo':
+            doc.add_picture(_io.BytesIO(img_bytes), width=Cm(12))
+
+        # Criterios
+        if criterios:
+            p_crit_hdr = doc.add_paragraph()
+            r_c = p_crit_hdr.add_run('Criterios de evaluación:')
+            r_c.bold = True; r_c.font.size = Pt(11); r_c.font.color.rgb = _acc
+            total_crit = 0.0
+            for c in criterios:
+                total_crit += float(c.get('pts', 0))
+                p_c = doc.add_paragraph(style='List Bullet')
+                p_c.add_run(c.get('desc', '')).font.size = Pt(11)
+                p_c.add_run(f"  [{c.get('pts', 0)} pts]").font.size = Pt(10)
+            p_tot = doc.add_paragraph()
+            r_tot = p_tot.add_run(f'Total criterios: {total_crit:.2f} pts')
+            r_tot.italic = True; r_tot.font.size = Pt(10)
+
+        # Solución modelo
+        if sol_mod:
+            p_sol_hdr = doc.add_paragraph()
+            r_sh = p_sol_hdr.add_run('Solución modelo:')
+            r_sh.bold = True; r_sh.font.size = Pt(11); r_sh.font.color.rgb = _acc
+            p_sol = doc.add_paragraph(sol_mod)
+            p_sol.runs[0].font.size = Pt(11) if p_sol.runs else None
+            from docx.oxml.ns import qn as _qn
+            from docx.oxml import OxmlElement as _OE
+            pPr = p_sol._p.get_or_add_pPr()
+            shd = _OE('w:shd')
+            shd.set(_qn('w:val'), 'clear')
+            shd.set(_qn('w:color'), 'auto')
+            shd.set(_qn('w:fill'), 'EAF4FB')
+            pPr.append(shd)
+
+        doc.add_paragraph('─' * 60)
+
+    buf = _io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 
 def generar_zip_bytes(files_dict: dict) -> bytes:

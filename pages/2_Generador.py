@@ -699,7 +699,9 @@ with tab_dev:
     dev_qs: list = st.session_state.dev_questions
 
     if st.button("➕ Añadir pregunta de desarrollo", key="btn_add_dev"):
-        dev_qs.append({"txt": "", "pts": 1.0, "espacio": "Automático"})
+        dev_qs.append({"txt": "", "pts": 1.0, "espacio": "Automático",
+                       "criterios": [], "solucion_modelo": "",
+                       "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo"})
         st.session_state.dev_questions = dev_qs
         st.rerun()
 
@@ -757,7 +759,92 @@ with tab_dev:
 </div>"""
                 stcomponents.html(mathjax_html(prev_html), height=200, scrolling=False)
 
-            dev_qs[i] = {"txt": new_txt, "pts": new_pts, "espacio": new_esp}
+            # Inicializar con valores actuales (se sobreescriben dentro del expander)
+            criterios      = list(q.get("criterios", []))
+            new_sol_modelo = q.get("solucion_modelo", "")
+            new_img_bytes  = q.get("imagen_bytes")
+            new_img_name   = q.get("imagen_name", "")
+            new_img_pos    = q.get("imagen_pos", "debajo")
+
+            # ── Rúbrica + Imagen + Solución modelo ───────────────────────────
+            with st.expander("📋 Rúbrica / Imagen / Solución modelo", expanded=False):
+                _rub_tab, _img_tab, _sol_tab = st.tabs(["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo"])
+
+                with _rub_tab:
+                    st.caption("Define los criterios de evaluación con su puntuación parcial.")
+                    to_del_crit = []
+                    for ci, crit in enumerate(criterios):
+                        rc1, rc2, rc3 = st.columns([5, 1, 1])
+                        new_desc = rc1.text_input("Criterio", value=crit.get("desc", ""),
+                                                   key=f"crit_desc_{i}_{ci}",
+                                                   label_visibility="collapsed",
+                                                   placeholder="Descripción del criterio…")
+                        new_cpts = rc2.number_input("pts", value=float(crit.get("pts", 0.5)),
+                                                     min_value=0.0, step=0.25,
+                                                     key=f"crit_pts_{i}_{ci}",
+                                                     label_visibility="collapsed")
+                        if rc3.button("🗑️", key=f"crit_del_{i}_{ci}", help="Eliminar criterio"):
+                            to_del_crit.append(ci)
+                        else:
+                            criterios[ci] = {"desc": new_desc, "pts": new_cpts}
+                    for ci in sorted(to_del_crit, reverse=True):
+                        criterios.pop(ci)
+                    if st.button("➕ Añadir criterio", key=f"crit_add_{i}"):
+                        criterios.append({"desc": "", "pts": 0.5})
+                    _total_crit = sum(c.get("pts", 0) for c in criterios)
+                    if criterios:
+                        st.caption(f"Total criterios: **{_total_crit:.2f} pts** (pregunta: {new_pts} pts)")
+
+                with _img_tab:
+                    _img_pos_opts = {"debajo": "Entre texto y caja de respuesta",
+                                     "encima": "Encima del texto",
+                                     "lado":   "Al lado del texto (flotante)"}
+                    _img_cur_pos  = q.get("imagen_pos", "debajo")
+                    _img_pos_idx  = list(_img_pos_opts.keys()).index(_img_cur_pos) if _img_cur_pos in _img_pos_opts else 0
+                    new_img_pos = st.selectbox("Posición de la imagen", list(_img_pos_opts.keys()),
+                                               index=_img_pos_idx,
+                                               format_func=lambda x: _img_pos_opts[x],
+                                               key=f"dev_img_pos_{i}")
+                    img_up = st.file_uploader("Subir imagen (PNG/JPG/PDF recortado)",
+                                              type=["png", "jpg", "jpeg"],
+                                              key=f"dev_img_{i}")
+                    if img_up:
+                        new_img_bytes = img_up.getvalue()
+                        new_img_name  = img_up.name
+                        st.image(img_up, width=300)
+                    elif q.get("imagen_bytes"):
+                        import io as _io_tmp
+                        new_img_bytes = q["imagen_bytes"]
+                        new_img_name  = q.get("imagen_name", f"dev_img_{i+1}.png")
+                        st.image(_io_tmp.BytesIO(new_img_bytes), width=300, caption=new_img_name)
+                        if st.button("🗑️ Quitar imagen", key=f"dev_img_del_{i}"):
+                            new_img_bytes = None
+                            new_img_name  = ""
+                    else:
+                        new_img_bytes = None
+                        new_img_name  = ""
+
+                with _sol_tab:
+                    st.caption("Solución modelo (puede contener LaTeX). Aparecerá en el Solucionario del preview y en el archivo de rúbrica.")
+                    new_sol_modelo = st.text_area(
+                        "Solución modelo", value=q.get("solucion_modelo", ""),
+                        height=140, key=f"dev_sol_{i}",
+                        label_visibility="collapsed",
+                        placeholder="Escribe la solución modelo…\n$E = mc^2$\n$$\\int_0^\\infty e^{-x}\\,dx = 1$$"
+                    )
+                    if new_sol_modelo.strip():
+                        stcomponents.html(mathjax_html(
+                            f'<div style="padding:8px;font-family:serif;font-size:11pt">{new_sol_modelo}</div>'
+                        ), height=120, scrolling=False)
+
+            dev_qs[i] = {
+                "txt": new_txt, "pts": new_pts, "espacio": new_esp,
+                "criterios": criterios,
+                "solucion_modelo": new_sol_modelo,
+                "imagen_bytes": new_img_bytes,
+                "imagen_name":  new_img_name,
+                "imagen_pos":   new_img_pos,
+            }
 
     if to_delete:
         for i in sorted(to_delete, reverse=True):
@@ -1038,12 +1125,19 @@ def _ejecutar_export():
         "barajar_preguntas":  cfg.get("ord", "bloques") != "manual",
         "barajar_respuestas": cfg.get("bar", True),
         "frases_anclaje_extra": cfg.get("anc_txt","") if cfg.get("anc_chk", True) else "",
-        "sol_negrita": cfg.get("sol_bold", False),
-        "sol_rojo":    cfg.get("sol_red",  False),
+        "sol_negrita": cfg.get("sol_bold",  False),
+        "sol_color":   cfg.get("sol_color", "red"),
         "sol_ast":     cfg.get("sol_ast",  True),
         "fundamentales_data": [
-            {"txt": q["txt"], "pts": q["pts"], "espacio": q["espacio"]}
-            for q in st.session_state.get("dev_questions", [])
+            {
+                "txt":          q["txt"],
+                "pts":          q["pts"],
+                "espacio":      q["espacio"],
+                "imagen_bytes": q.get("imagen_bytes"),
+                "imagen_name":  q.get("imagen_name", f"dev_img_{di+1}.png"),
+                "imagen_pos":   q.get("imagen_pos", "debajo"),
+            }
+            for di, q in enumerate(st.session_state.get("dev_questions", []))
         ],
         # Estilo visual
         "color_scheme":  cfg.get("color_scheme", "azul"),
@@ -1125,6 +1219,29 @@ def _ejecutar_export():
             with open(_logo_p, "rb") as _lf:
                 ef["_zip_all"][_os.path.basename(_logo_p)] = _lf.read()
 
+    # Imágenes de preguntas de desarrollo → bundlear en ZIP
+    dev_qs_export = st.session_state.get("dev_questions", [])
+    for di, dq in enumerate(dev_qs_export):
+        if dq.get("imagen_bytes"):
+            _ext   = os.path.splitext(dq.get("imagen_name", "img.png"))[1] or ".png"
+            _fname = f"dev_img_{di+1}{_ext}"
+            ef["_zip_all"][_fname] = dq["imagen_bytes"]
+
+    # Guía de corrección (rúbrica)
+    if cfg.get("incl_rubrica", False) and dev_qs_export:
+        _rub_cfg = {
+            "titulo": cfg.get("tit_rubrica", "Guía de Corrección"),
+            "asig":   cfg.get("asig", ""),
+            "inst":   cfg.get("inst", ""),
+            "fecha":  cfg.get("fecha", ""),
+        }
+        if cfg.get("fmt_rubrica_tex", True) and exp_tex:
+            _rub_tex = lib.generar_rubrica_latex(dev_qs_export, _rub_cfg)
+            ef["_zip_all"][f"{nombre_arch}_RUBRICA.tex"] = _rub_tex
+        if cfg.get("fmt_rubrica_word", True) and exp_word:
+            _rub_word = lib.generar_rubrica_word_bytes(dev_qs_export, _rub_cfg)
+            ef["_zip_all"][f"{nombre_arch}_RUBRICA.docx"] = _rub_word
+
     # Versión adaptada
     if cfg.get("adapt_enabled", False) and (exp_word or exp_tex):
         cfg_adapt = dict(cfg_export)
@@ -1203,7 +1320,8 @@ def _dialog_confirmar_export():
         st.markdown(f"• {f_item}")
     sol_lb = []
     if cfg.get("sol_bold"): sol_lb.append("negrita")
-    if cfg.get("sol_red"):  sol_lb.append("rojo")
+    _clbl = {"red": "rojo", "green": "verde", "blue": "azul", "orange": "naranja", "purple": "morado"}
+    if cfg.get("sol_color"): sol_lb.append(_clbl.get(cfg["sol_color"], cfg["sol_color"]))
     if cfg.get("sol_ast"):  sol_lb.append("asterisco (*)")
     if sol_lb: st.caption(f"Soluciones marcadas con: {', '.join(sol_lb)}")
     st.markdown("---")
@@ -1221,33 +1339,40 @@ def _dialog_confirmar_export():
         st.rerun()
 
 
+_SOL_COLOR_CSS = {
+    "red": "#c0392b", "green": "#1e8a1e", "blue": "#0a4e8a",
+    "orange": "#cc6600", "purple": "#6a0dad",
+}
+
+
 def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
     """Genera HTML que imita el aspecto del examen impreso."""
+    _sol_css_color = _SOL_COLOR_CSS.get(cfg.get("sol_color", ""), "#1a7a2e")
     html = []
-    html.append("""<style>
-.ep-wrap { max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:#111; background:#fff; padding:24px 32px; border:1px solid #ccc; border-radius:6px; }
-.ep-header { text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:14px; }
-.ep-inst { font-size:12pt; font-weight:bold; }
-.ep-title { font-size:15pt; font-weight:bold; margin:4px 0; }
-.ep-subtitle { font-size:12pt; }
-.ep-meta { font-size:9.5pt; color:#444; margin-top:4px; }
-.ep-scoring { font-size:9.5pt; color:#1a5276; background:#eaf4fb; border:1px solid #aed6f1; border-radius:4px; padding:3px 10px; margin-top:6px; display:inline-block; }
-.ep-campos { border-top:1px solid #aaa; padding-top:10px; margin:12px 0 6px 0; display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; font-size:11pt; }
-.ep-campo { display:flex; align-items:baseline; gap:4px; }
-.ep-campo b { white-space:nowrap; }
-.ep-campo .ep-underline { min-width:80px; flex:1; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
-.ep-campo .ep-underline-xs { width:100px; border-bottom:1px solid #555; min-height:18px; display:inline-block; }
-.ep-instr { background:#f7f7f7; border:1px solid #bbb; border-radius:4px; padding:8px 12px; font-size:10pt; font-style:italic; margin:10px 0 14px 0; }
-.ep-part { font-size:12pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:5px 12px; margin:16px 0 8px 0; border-radius:4px; }
-.ep-part-info { font-size:10pt; font-style:italic; color:#444; margin-bottom:8px; }
-.ep-bloque-sep { font-size:10pt; font-weight:bold; color:#2c3e50; border-bottom:1px solid #adb5bd; margin:10px 0 4px 0; padding-bottom:2px; }
-.ep-q { margin-bottom:10px; page-break-inside:avoid; }
-.ep-q-stem { margin:0 0 5px 0; }
-.ep-q-num { font-weight:bold; }
-.ep-options { margin:3px 0 3px 22px; font-size:10.5pt; }
-.ep-opt { display:block; padding:1px 4px; }
-.ep-opt.correct { font-weight:bold; color:#1a7a2e; }
-.ep-space-box { border:1px solid #999; margin:5px 0 12px 22px; border-radius:3px; background:#fafafa; }
+    html.append(f"""<style>
+.ep-wrap {{ max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:#111; background:#fff; padding:24px 32px; border:1px solid #ccc; border-radius:6px; }}
+.ep-header {{ text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:14px; }}
+.ep-inst {{ font-size:12pt; font-weight:bold; }}
+.ep-title {{ font-size:15pt; font-weight:bold; margin:4px 0; }}
+.ep-subtitle {{ font-size:12pt; }}
+.ep-meta {{ font-size:9.5pt; color:#444; margin-top:4px; }}
+.ep-scoring {{ font-size:9.5pt; color:#1a5276; background:#eaf4fb; border:1px solid #aed6f1; border-radius:4px; padding:3px 10px; margin-top:6px; display:inline-block; }}
+.ep-campos {{ border-top:1px solid #aaa; padding-top:10px; margin:12px 0 6px 0; display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; font-size:11pt; }}
+.ep-campo {{ display:flex; align-items:baseline; gap:4px; }}
+.ep-campo b {{ white-space:nowrap; }}
+.ep-campo .ep-underline {{ min-width:80px; flex:1; border-bottom:1px solid #555; min-height:18px; display:inline-block; }}
+.ep-campo .ep-underline-xs {{ width:100px; border-bottom:1px solid #555; min-height:18px; display:inline-block; }}
+.ep-instr {{ background:#f7f7f7; border:1px solid #bbb; border-radius:4px; padding:8px 12px; font-size:10pt; font-style:italic; margin:10px 0 14px 0; }}
+.ep-part {{ font-size:12pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:5px 12px; margin:16px 0 8px 0; border-radius:4px; }}
+.ep-part-info {{ font-size:10pt; font-style:italic; color:#444; margin-bottom:8px; }}
+.ep-bloque-sep {{ font-size:10pt; font-weight:bold; color:#2c3e50; border-bottom:1px solid #adb5bd; margin:10px 0 4px 0; padding-bottom:2px; }}
+.ep-q {{ margin-bottom:10px; page-break-inside:avoid; }}
+.ep-q-stem {{ margin:0 0 5px 0; }}
+.ep-q-num {{ font-weight:bold; }}
+.ep-options {{ margin:3px 0 3px 22px; font-size:10.5pt; }}
+.ep-opt {{ display:block; padding:1px 4px; }}
+.ep-opt.correct {{ font-weight:bold; color:{_sol_css_color}; }}
+.ep-space-box {{ border:1px solid #999; margin:5px 0 12px 22px; border-radius:3px; background:#fafafa; }}
 </style>""")
 
     html.append('<div class="ep-wrap">')
@@ -1322,21 +1447,36 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
         if info_fund:
             html.append(f'<div class="ep-part-info">{info_fund}</div>')
         for i, q in enumerate(dev_qs):
-            pts  = q.get("pts", 1)
-            esp  = q.get("espacio", "Automático")
-            txt  = q.get("txt", "")
-            heights = {"5 líneas": 70, "10 líneas": 130, "media cara": 200, "cara completa": 360}
-            box_h = next((v for k, v in heights.items() if k.lower() in esp.lower()), 100)
+            import base64 as _b64
+            pts       = q.get("pts", 1)
+            esp       = q.get("espacio", "Automático")
+            txt       = q.get("txt", "")
+            img_bytes = q.get("imagen_bytes")
+            img_pos   = q.get("imagen_pos", "debajo")
+            img_name  = q.get("imagen_name", "")
+            heights   = {"5 líneas": 70, "10 líneas": 130, "media cara": 200, "cara completa": 360}
+            box_h     = next((v for k, v in heights.items() if k.lower() in esp.lower()), 100)
+            _img_ext  = (os.path.splitext(img_name)[1].lstrip(".") or "png") if img_name else "png"
+            _img_html = (
+                f'<div style="text-align:center;margin:6px 0">'
+                f'<img src="data:image/{_img_ext};base64,{_b64.b64encode(img_bytes).decode()}" '
+                f'style="max-width:85%;border:1px solid #ccc;border-radius:3px"></div>'
+            ) if img_bytes else ""
+
+            html.append('<div class="ep-q">')
+            if img_bytes and img_pos == 'encima':
+                html.append(_img_html)
             html.append(
-                f'<div class="ep-q">'
                 f'<div class="ep-q-stem">'
                 f'<span class="ep-q-num">{i+1}.</span>'
                 f' <em style="font-size:9.5pt;color:#555">({pts} pt{"s" if float(pts) != 1 else ""})</em>'
                 f'<span style="margin-left:6px">{txt}</span>'
                 f'</div>'
-                f'<div class="ep-space-box" style="min-height:{box_h}px"></div>'
-                f'</div>'
             )
+            if img_bytes and img_pos in ('debajo', 'lado'):
+                html.append(_img_html)
+            html.append(f'<div class="ep-space-box" style="min-height:{box_h}px"></div>')
+            html.append('</div>')
 
     # ── PARTE II: Test ────────────────────────────────────────────────────────
     if pool_p:
@@ -1389,6 +1529,66 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
     return "\n".join(html)
 
 
+def _build_solucionario_html(cfg, pool_p, dev_qs):
+    """Genera HTML del solucionario: enunciado + respuesta correcta + texto de solución."""
+    _sol_css_color = _SOL_COLOR_CSS.get(cfg.get("sol_color", ""), "#1a7a2e")
+    html = [f"""<style>
+.sol-wrap {{ max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:#111; background:#fff; padding:24px 32px; border:1px solid #ccc; border-radius:6px; }}
+.sol-title {{ font-size:14pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:8px 16px; border-radius:6px; margin-bottom:18px; }}
+.sol-q {{ border:1px solid #dee2e6; border-radius:6px; padding:12px 16px; margin-bottom:14px; page-break-inside:avoid; }}
+.sol-q-num {{ font-weight:bold; color:#2c3e50; font-size:10.5pt; }}
+.sol-stem {{ margin:4px 0 8px 0; font-size:10.5pt; color:#333; }}
+.sol-resp {{ font-size:10pt; font-weight:bold; color:{_sol_css_color}; margin-bottom:6px; }}
+.sol-text {{ background:#f8f9fa; border-left:3px solid {_sol_css_color}; padding:8px 12px; font-size:10.5pt; line-height:1.6; border-radius:0 4px 4px 0; }}
+.sol-no-sol {{ font-size:9.5pt; color:#aaa; font-style:italic; }}
+.sol-dev {{ background:#fff8e1; border:1px solid #f0c040; border-radius:6px; padding:12px 16px; margin-bottom:14px; }}
+.sol-dev-title {{ font-size:10.5pt; font-weight:bold; color:#7a5500; margin-bottom:6px; }}
+</style>"""]
+    html.append('<div class="sol-wrap">')
+    tit_sol = cfg.get("titulo_solucionario", "Solucionario")
+    html.append(f'<div class="sol-title">📖 {tit_sol}</div>')
+
+    # ── Preguntas de desarrollo ──────────────────────────────────────────────
+    if dev_qs:
+        html.append('<div class="sol-q" style="border-color:#f0c040">')
+        html.append('<div class="sol-q-num">PREGUNTAS DE DESARROLLO</div>')
+        for i, q in enumerate(dev_qs):
+            sol_mod = q.get("solucion_modelo", "").strip()
+            html.append(f'<div style="margin:8px 0 4px 0"><b>{i+1}.</b> {q.get("txt","")}</div>')
+            if sol_mod:
+                html.append(f'<div class="sol-text" style="margin-bottom:8px">{sol_mod}</div>')
+            else:
+                html.append('<div class="sol-no-sol">Sin solución modelo</div>')
+        html.append('</div>')
+
+    # ── Preguntas test ───────────────────────────────────────────────────────
+    labels_map = {0: "a", 1: "b", 2: "c", 3: "d"}
+    for i, p in enumerate(pool_p):
+        enun     = p.get("enunciado", "")
+        ops_list = p.get("opciones_list", ["", "", "", ""])
+        letra_c  = p.get("letra_correcta", "A")
+        idx_c    = {"A": 0, "B": 1, "C": 2, "D": 3}.get(letra_c, 0)
+        sol_txt  = str(p.get("solucion", "")).strip()
+        sol_txt  = "" if sol_txt in ("nan", "None", "NaN") else sol_txt
+        resp_lbl = labels_map.get(idx_c, "?")
+        resp_txt = ops_list[idx_c] if idx_c < len(ops_list) else ""
+
+        html.append('<div class="sol-q">')
+        html.append(f'<div class="sol-q-num">Pregunta {i+1}</div>')
+        html.append(f'<div class="sol-stem">{enun}</div>')
+        html.append(
+            f'<div class="sol-resp">&#10003; Respuesta: {resp_lbl}) {resp_txt}</div>'
+        )
+        if sol_txt:
+            html.append(f'<div class="sol-text">{sol_txt}</div>')
+        else:
+            html.append('<div class="sol-no-sol">Sin texto de solución en la base de datos</div>')
+        html.append('</div>')
+
+    html.append('</div>')
+    return "\n".join(html)
+
+
 @st.dialog("👁 Vista previa · Modelo A", width="large")
 def _dialog_preview_examen():
     cache  = st.session_state.get("cache_examen") or []
@@ -1414,19 +1614,33 @@ def _dialog_preview_examen():
 
     cfg = st.session_state.get("exam_cfg", {})
 
-    pc1, pc2 = st.columns(2)
-    show_sol_p = pc1.checkbox("Mostrar soluciones", value=True, key="_dlg_show_sol")
-    render_mjax = pc2.button("∑ Renderizar LaTeX", key="_dlg_mjax_btn")
-    if render_mjax:
-        st.session_state["_dlg_mjax"] = True
+    dlg_tab_exam, dlg_tab_sol = st.tabs(["📄 Examen", "📖 Solucionario"])
 
-    exam_html = _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=show_sol_p, modelo="A")
+    with dlg_tab_exam:
+        dc1, dc2 = st.columns([3, 1])
+        show_sol_p = dc1.checkbox("Mostrar respuesta correcta inline", value=True, key="_dlg_show_sol")
+        render_mjax = dc2.button("∑ MathJax", key="_dlg_mjax_btn")
+        if render_mjax:
+            st.session_state["_dlg_mjax"] = True
+        exam_html = _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=show_sol_p, modelo="A")
+        if st.session_state.get("_dlg_mjax"):
+            stcomponents.html(mathjax_html(exam_html), height=660, scrolling=True)
+        else:
+            st.caption("Pulsa **∑ MathJax** para renderizar fórmulas.")
+            stcomponents.html(exam_html, height=660, scrolling=True)
 
-    if st.session_state.get("_dlg_mjax"):
-        stcomponents.html(mathjax_html(exam_html), height=700, scrolling=True)
-    else:
-        st.caption("Pulsa **∑ Renderizar LaTeX** para ver fórmulas matemáticas renderizadas.")
-        stcomponents.html(exam_html, height=700, scrolling=True)
+    with dlg_tab_sol:
+        ds1, ds2 = st.columns([3, 1])
+        ds1.caption("Muestra el texto completo del campo **solución** de cada pregunta.")
+        render_mjax_sol = ds2.button("∑ MathJax", key="_dlg_mjax_sol_btn")
+        if render_mjax_sol:
+            st.session_state["_dlg_mjax_sol"] = True
+        sol_html = _build_solucionario_html(cfg, pool_p, dev_qs)
+        if st.session_state.get("_dlg_mjax_sol"):
+            stcomponents.html(mathjax_html(sol_html), height=660, scrolling=True)
+        else:
+            st.caption("Pulsa **∑ MathJax** para renderizar fórmulas LaTeX.")
+            stcomponents.html(sol_html, height=660, scrolling=True)
 
 
 with tab_exp:
@@ -1513,9 +1727,15 @@ with tab_exp:
                 st.caption("ℹ️ LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
             st.markdown("**Marcado de la versión soluciones:**")
             sc1, sc2, sc3 = st.columns(3)
-            sol_bold = sc1.checkbox("Negrita",        value=cfg.get("sol_bold", False), key="exp_sol_bold")
-            sol_red  = sc2.checkbox("Color rojo",     value=cfg.get("sol_red",  False), key="exp_sol_red")
-            sol_ast  = sc3.checkbox("Asterisco (*)",  value=cfg.get("sol_ast",  True),  key="exp_sol_ast")
+            sol_bold = sc1.checkbox("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
+            _color_opts = {"": "Sin color", "red": "Rojo", "green": "Verde",
+                           "blue": "Azul", "orange": "Naranja", "purple": "Morado"}
+            _color_cur  = cfg.get("sol_color", "red")
+            _color_idx  = list(_color_opts.keys()).index(_color_cur) if _color_cur in _color_opts else 1
+            sol_color = sc2.selectbox("Color respuesta correcta", list(_color_opts.keys()),
+                                      index=_color_idx, format_func=lambda x: _color_opts[x],
+                                      key="exp_sol_color")
+            sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
             st.markdown("**Marca de agua en versión soluciones:**")
             wc1, wc2 = st.columns([1, 2])
             watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
@@ -1615,6 +1835,30 @@ with tab_exp:
                                         index=_estilo_hoja_idx,
                                         format_func=lambda x: _estilo_hoja_opts[x],
                                         key="exp_estilo_hoja", disabled=not hoja_respuestas)
+
+        # ── 4b-cuarto. Guía de corrección (rúbrica) ──────────────────────────
+        _dev_qs_now  = st.session_state.get("dev_questions", [])
+        _has_rubrica = any(q.get("criterios") or q.get("solucion_modelo","").strip()
+                           for q in _dev_qs_now)
+        with st.expander("📐 Guía de corrección (rúbrica)", expanded=_has_rubrica):
+            st.caption(
+                "Genera un documento separado con la rúbrica y soluciones modelo "
+                "de las preguntas de desarrollo. Se incluye en el ZIP."
+            )
+            rb1, rb2, rb3 = st.columns(3)
+            incl_rubrica = rb1.checkbox("Incluir guía de corrección",
+                                        value=cfg.get("incl_rubrica", _has_rubrica),
+                                        key="exp_incl_rubrica",
+                                        disabled=not _has_rubrica)
+            if not _has_rubrica:
+                rb1.caption("⚠️ Define rúbrica/solución en Tab ✍️ Desarrollo")
+            fmt_rubrica_word = rb2.checkbox("Formato Word (.docx)", value=cfg.get("fmt_rubrica_word", True),
+                                             key="exp_rubrica_word", disabled=not incl_rubrica)
+            fmt_rubrica_tex  = rb3.checkbox("Formato LaTeX (.tex)",  value=cfg.get("fmt_rubrica_tex",  True),
+                                             key="exp_rubrica_tex",  disabled=not incl_rubrica)
+            tit_rubrica = st.text_input("Título del documento",
+                                        value=cfg.get("tit_rubrica", "Guía de Corrección"),
+                                        key="exp_tit_rubrica", disabled=not incl_rubrica)
 
         # ── 4c. Puntos y penalización ─────────────────────────────────────────
         with st.expander("📊 Puntos y penalización", expanded=False):
@@ -1743,7 +1987,7 @@ with tab_exp:
             "vers": num_modelos, "ord": orden, "bar": barajar,
             "opciones_cols": opciones_cols, "campos_alumno": campos_alumno,
             "exp_word": exp_word, "exp_tex": exp_tex,
-            "sol_bold": sol_bold, "sol_red": sol_red, "sol_ast": sol_ast,
+            "sol_bold": sol_bold, "sol_color": sol_color, "sol_ast": sol_ast,
             "anc_chk": anclaje_auto, "anc_txt": anclaje_extra,
             # Estilo visual
             "color_scheme": color_scheme, "tipografia": tipografia,
@@ -1774,6 +2018,11 @@ with tab_exp:
             # Solucionario
             "incluir_solucionario": incluir_solucionario,
             "titulo_solucionario":  titulo_solucionario,
+            # Guía de corrección (rúbrica)
+            "incl_rubrica":     incl_rubrica,
+            "fmt_rubrica_word": fmt_rubrica_word,
+            "fmt_rubrica_tex":  fmt_rubrica_tex,
+            "tit_rubrica":      tit_rubrica,
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────
@@ -1782,7 +2031,8 @@ with tab_exp:
         # Construir textos del resumen
         _sol_marks = []
         if sol_bold: _sol_marks.append("negrita")
-        if sol_red:  _sol_marks.append("rojo")
+        _color_label = {"red": "rojo", "green": "verde", "blue": "azul", "orange": "naranja", "purple": "morado"}
+        if sol_color: _sol_marks.append(_color_label.get(sol_color, sol_color))
         if sol_ast:  _sol_marks.append("asterisco *")
         _sol_str = ", ".join(_sol_marks) if _sol_marks else "sin marcar"
 
