@@ -670,10 +670,88 @@ def _gen_seccion_info(pts: str, penalizacion: str) -> str:
 
 
 # --- UTILIDADES LATEX ---
+# Tabla de sustituciones unicode → LaTeX para texto plano (fuera de math)
+# Cubre los caracteres más comunes en enunciados de física/ciencias
+_UNICODE_TO_LATEX = {
+    # Operadores matemáticos
+    '\u00d7': r'\ensuremath{\times}',        # ×
+    '\u00f7': r'\ensuremath{\div}',          # ÷
+    '\u2212': r'\ensuremath{-}',             # − (minus sign)
+    '\u00b1': r'\ensuremath{\pm}',           # ±
+    '\u2248': r'\ensuremath{\approx}',       # ≈
+    '\u2260': r'\ensuremath{\neq}',          # ≠
+    '\u2264': r'\ensuremath{\leq}',          # ≤
+    '\u2265': r'\ensuremath{\geq}',          # ≥
+    '\u221e': r'\ensuremath{\infty}',        # ∞
+    '\u221a': r'\ensuremath{\sqrt{\;}}',     # √
+    '\u00b7': r'\ensuremath{\cdot}',         # · (punto medio)
+    '\u2192': r'\ensuremath{\rightarrow}',   # →
+    '\u2190': r'\ensuremath{\leftarrow}',    # ←
+    '\u2194': r'\ensuremath{\leftrightarrow}', # ↔
+    '\u21d2': r'\ensuremath{\Rightarrow}',   # ⇒
+    '\u2207': r'\ensuremath{\nabla}',        # ∇
+    '\u222b': r'\ensuremath{\int}',          # ∫
+    '\u2211': r'\ensuremath{\sum}',          # ∑
+    '\u220f': r'\ensuremath{\prod}',         # ∏
+    '\u2202': r'\ensuremath{\partial}',      # ∂
+    # Subíndices numéricos
+    '\u2080': r'\ensuremath{_0}',   # ₀
+    '\u2081': r'\ensuremath{_1}',   # ₁
+    '\u2082': r'\ensuremath{_2}',   # ₂
+    '\u2083': r'\ensuremath{_3}',   # ₃
+    '\u2084': r'\ensuremath{_4}',   # ₄
+    '\u2085': r'\ensuremath{_5}',   # ₅
+    '\u2086': r'\ensuremath{_6}',   # ₆
+    '\u2087': r'\ensuremath{_7}',   # ₇
+    '\u2088': r'\ensuremath{_8}',   # ₈
+    '\u2089': r'\ensuremath{_9}',   # ₉
+    # Superíndices numéricos
+    '\u00b2': r'\ensuremath{^2}',   # ²
+    '\u00b3': r'\ensuremath{^3}',   # ³
+    '\u00b9': r'\ensuremath{^1}',   # ¹
+    '\u2070': r'\ensuremath{^0}',   # ⁰
+    '\u2074': r'\ensuremath{^4}',   # ⁴
+    '\u2075': r'\ensuremath{^5}',   # ⁵
+    '\u2076': r'\ensuremath{^6}',   # ⁶
+    '\u2077': r'\ensuremath{^7}',   # ⁷
+    '\u2078': r'\ensuremath{^8}',   # ⁸
+    '\u2079': r'\ensuremath{^9}',   # ⁹
+    '\u207a': r'\ensuremath{^+}',   # ⁺
+    '\u207b': r'\ensuremath{^-}',   # ⁻
+    '\u207f': r'\ensuremath{^n}',   # ⁿ
+    # Letras griegas comunes (por si aparecen fuera de $...$)
+    '\u03b1': r'\ensuremath{\alpha}',    # α
+    '\u03b2': r'\ensuremath{\beta}',     # β
+    '\u03b3': r'\ensuremath{\gamma}',    # γ
+    '\u03b4': r'\ensuremath{\delta}',    # δ
+    '\u03b5': r'\ensuremath{\varepsilon}', # ε
+    '\u03b7': r'\ensuremath{\eta}',      # η
+    '\u03b8': r'\ensuremath{\theta}',    # θ
+    '\u03bb': r'\ensuremath{\lambda}',   # λ
+    '\u03bc': r'\ensuremath{\mu}',       # μ
+    '\u03bd': r'\ensuremath{\nu}',       # ν
+    '\u03c0': r'\ensuremath{\pi}',       # π
+    '\u03c1': r'\ensuremath{\rho}',      # ρ
+    '\u03c3': r'\ensuremath{\sigma}',    # σ
+    '\u03c4': r'\ensuremath{\tau}',      # τ
+    '\u03c6': r'\ensuremath{\varphi}',   # φ
+    '\u03c9': r'\ensuremath{\omega}',    # ω
+    '\u0394': r'\ensuremath{\Delta}',    # Δ
+    '\u0393': r'\ensuremath{\Gamma}',    # Γ
+    '\u03a9': r'\ensuremath{\Omega}',    # Ω
+    '\u03a3': r'\ensuremath{\Sigma}',    # Σ
+    '\u03a6': r'\ensuremath{\Phi}',      # Φ
+    # Otros símbolos frecuentes en ciencias
+    '\u00b0': r'\ensuremath{^\circ}',    # °
+    '\u212b': r'\ensuremath{\text{\AA}}', # Å (angstrom)
+    '\u00e5': r'\aa{}',                  # å
+    '\u2103': r'\ensuremath{^\circ\text{C}}', # ℃
+}
+
+
 def _escape_latex(text):
     """Escapa caracteres especiales de LaTeX, preservando secciones math ($...$, $$...$$)."""
     text = str(text)
-    # Extraer secciones math para protegerlas del escape
     import re as _re
     _math_parts = []
     def _save_math(m):
@@ -682,14 +760,22 @@ def _escape_latex(text):
     # Proteger $$...$$ primero, luego $...$
     text = _re.sub(r'\$\$.+?\$\$', _save_math, text, flags=_re.DOTALL)
     text = _re.sub(r'\$.+?\$', _save_math, text)
+    # Marcar unicode común con placeholders ANTES de escapar
+    _uc_parts = []
+    def _save_uc(ch):
+        _uc_parts.append(_UNICODE_TO_LATEX[ch])
+        return f'\x00UC{len(_uc_parts)-1}\x00'
+    for uc in _UNICODE_TO_LATEX:
+        text = text.replace(uc, _save_uc(uc))
     # Escapar texto plano
     text = text.replace('\\', r'\textbackslash{}')
     for char in ['&', '%', '#', '_', '{', '}']:
         text = text.replace(char, '\\' + char)
     text = text.replace('~', r'\textasciitilde{}')
     text = text.replace('^', r'\textasciicircum{}')
-    text = text.replace('\u2212', '-')   # U+2212 MINUS SIGN → guión ASCII
-    text = text.replace('\u00b7', r'\ensuremath{\cdot}')  # U+00B7 · punto medio
+    # Restaurar unicode
+    for i, ltx in enumerate(_uc_parts):
+        text = text.replace(f'\x00UC{i}\x00', ltx)
     # Restaurar secciones math
     for i, mp in enumerate(_math_parts):
         text = text.replace(f'\x00MATH{i}\x00', mp)

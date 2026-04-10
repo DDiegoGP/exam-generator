@@ -1647,6 +1647,96 @@ def _dialog_preview_examen():
             stcomponents.html(sol_html, height=660, scrolling=True)
 
 
+@st.dialog("🔨 Compilando PDF…", width="large")
+def _dialog_compilar_pdf():
+    """Diálogo que compila el PDF y muestra progreso + resultado."""
+    req = st.session_state.get("_compile_request", {})
+    if not req:
+        st.error("Sin datos de compilación.")
+        return
+
+    st.caption(
+        "Enviando a [latexonline.cc](https://latexonline.cc) · "
+        "⚠️ Servidor externo — no incluyas datos personales en los enunciados."
+    )
+    _prog = st.progress(0, text="Preparando archivos…")
+    _status = st.empty()
+
+    _sty = req["sty"]
+    if isinstance(_sty, str):
+        _sty = _sty.encode("utf-8")
+
+    _prog.progress(20, text="Empaquetando .tex + .sty…")
+    _status.info("Enviando a latexonline.cc…")
+
+    try:
+        _prog.progress(40, text="Compilando con pdflatex…")
+        _pdf_bytes = lib.compilar_latex_online(
+            tex_str=req["tex"],
+            sty_bytes=_sty,
+            extra_files=req.get("imgs", {}),
+            nombre=req["nombre"],
+        )
+        _prog.progress(100, text="✅ Compilación correcta")
+        _status.success(f"PDF generado correctamente — {len(_pdf_bytes)//1024} KB")
+        st.session_state["_compiled_pdf"] = {
+            "bytes": _pdf_bytes,
+            "pdf_name": req["pdf_name"],
+        }
+        st.session_state.pop("_compile_request", None)
+
+        # Previsualización inline dentro del diálogo
+        import base64 as _b64
+        _pdf_b64 = _b64.b64encode(_pdf_bytes).decode()
+        st.download_button(
+            "⬇️ Descargar PDF",
+            data=_pdf_bytes,
+            file_name=req["pdf_name"],
+            mime="application/pdf",
+            use_container_width=True,
+            key="dl_pdf_dialog",
+        )
+        stcomponents.html(
+            f'<iframe src="data:application/pdf;base64,{_pdf_b64}" '
+            f'width="100%" height="700px" '
+            f'style="border:1px solid #ccc;border-radius:6px;display:block"></iframe>',
+            height=720,
+            scrolling=False,
+        )
+
+    except Exception as _ex:
+        _prog.progress(100, text="❌ Error")
+        _status.error("Error de compilación")
+        _log = str(_ex)
+        # Resaltar errores reales (líneas con "error:")
+        _err_lines = [l for l in _log.splitlines() if "error" in l.lower()]
+        if _err_lines:
+            st.warning("**Errores detectados:**\n\n" + "\n".join(f"- `{l.strip()}`" for l in _err_lines[:10]))
+        with st.expander("📋 Log completo"):
+            st.code(_log[:4000], language="")
+
+
+@st.dialog("📄 Vista PDF compilado", width="large")
+def _dialog_ver_pdf(cpdf: dict):
+    import base64 as _b64
+    _pdf_b64 = _b64.b64encode(cpdf["bytes"]).decode()
+    st.download_button(
+        "⬇️ Descargar",
+        data=cpdf["bytes"],
+        file_name=cpdf["pdf_name"],
+        mime="application/pdf",
+        use_container_width=True,
+        key="dl_pdf_viewer_dlg",
+    )
+    stcomponents.html(
+        f'<iframe src="data:application/pdf;base64,{_pdf_b64}" '
+        f'width="100%" height="750px" '
+        f'style="border:none;display:block"></iframe>',
+        height=770,
+        scrolling=False,
+    )
+
+
 with tab_exp:
     sel_actual = get_sel_ids()
     n_pregs    = len(sel_actual)
@@ -2202,77 +2292,65 @@ with tab_exp:
 
         # ── Compilación PDF online ────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("**📄 Compilar PDF (LaTeX online)**")
-        st.caption(
-            "Envía el .tex + .sty a [latexonline.cc](https://latexonline.cc) y devuelve el PDF compilado. "
-            "⚠️ Los archivos se transmiten a un servidor público externo — no incluyas datos personales identificativos."
-        )
 
         _ef_now    = st.session_state.get("export_files")
         _tex_avail = _ef_now and _ef_now.get("latex_exam")
 
         if not _tex_avail:
-            st.info("Primero genera y exporta el examen (activa **📑 LaTeX**) para poder compilar.")
+            st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
         else:
-            _latex_exam = _ef_now["latex_exam"]
-            _sty_b      = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
-            # Imágenes de desarrollo
-            _img_files  = {k: v for k, v in _ef_now["_zip_all"].items()
-                           if k.startswith("dev_img_")}
-
+            _latex_exam   = _ef_now["latex_exam"]
+            _sty_b        = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
+            _img_files    = {k: v for k, v in _ef_now["_zip_all"].items()
+                             if k.startswith("dev_img_")}
             _modelos_disp = list(_latex_exam.keys())
-            _cc1, _cc2, _cc3 = st.columns([1, 1, 2])
-            _modelo_sel = _cc1.selectbox("Modelo", _modelos_disp,
-                                         key="compile_modelo",
-                                         format_func=lambda x: f"Modelo {x}")
-            _sol_sel    = _cc2.radio("Versión", ["Alumno", "Soluciones"],
-                                     horizontal=True, key="compile_ver")
+            nombre_compile = _ef_now.get("nombre", "examen")
 
-            if _cc3.button("🔨 Compilar PDF", type="primary",
-                           use_container_width=True, key="btn_compile_pdf"):
+            _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
+            _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
+                                          key="compile_modelo",
+                                          format_func=lambda x: f"Modelo {x}")
+            _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
+                                      horizontal=True, key="compile_ver")
+
+            if _cx3.button("🔨 Compilar PDF", type="primary",
+                            use_container_width=True, key="btn_compile_pdf"):
                 _tex_src = (
                     _ef_now["latex_exam"][_modelo_sel]
                     if _sol_sel == "Alumno"
                     else _ef_now.get("latex_sol", _ef_now["latex_exam"])[_modelo_sel]
                 )
-                nombre_compile = _ef_now.get("nombre", "examen")
-                with st.spinner("Compilando en latexonline.cc…"):
-                    try:
-                        _pdf_bytes = lib.compilar_latex_online(
-                            tex_str=_tex_src,
-                            sty_bytes=_sty_b if isinstance(_sty_b, bytes) else _sty_b.encode(),
-                            extra_files=_img_files,
-                            nombre=nombre_compile,
-                        )
-                        st.session_state["_compiled_pdf"] = {
-                            "bytes": _pdf_bytes,
-                            "nombre": f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf",
-                        }
-                        st.success("✅ Compilación correcta")
-                    except Exception as _ex:
-                        st.session_state.pop("_compiled_pdf", None)
-                        st.error(f"❌ Error de compilación")
-                        with st.expander("📋 Log de error"):
-                            st.code(str(_ex)[:3000])
+                _pdf_name = f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf"
+                st.session_state["_compile_request"] = {
+                    "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
+                    "nombre": nombre_compile, "pdf_name": _pdf_name,
+                }
+                st.session_state.pop("_compiled_pdf", None)
+                st.session_state["_show_compile_dialog"] = True
+                st.rerun()
 
+            # Abrir el diálogo si hay petición pendiente
+            if st.session_state.pop("_show_compile_dialog", False):
+                _dialog_compilar_pdf()
+
+            # Resultado previo (persiste entre reruns)
             _cpdf = st.session_state.get("_compiled_pdf")
             if _cpdf:
                 import base64 as _b64
-                _pdf_b64 = _b64.b64encode(_cpdf["bytes"]).decode()
-                st.download_button(
-                    "⬇️ Descargar PDF",
+                _da, _db = st.columns([1, 1])
+                _da.download_button(
+                    "⬇️ Descargar PDF compilado",
                     data=_cpdf["bytes"],
-                    file_name=_cpdf["nombre"],
+                    file_name=_cpdf["pdf_name"],
                     mime="application/pdf",
                     use_container_width=True,
                     key="dl_compiled_pdf",
                 )
-                stcomponents.html(
-                    f'<iframe src="data:application/pdf;base64,{_pdf_b64}" '
-                    f'width="100%" height="800" style="border:1px solid #ccc;border-radius:6px"></iframe>',
-                    height=820,
-                    scrolling=False,
-                )
+                if _db.button("🔍 Ver PDF", use_container_width=True, key="btn_ver_pdf"):
+                    st.session_state["_show_pdf_viewer"] = True
+                    st.rerun()
+                if st.session_state.pop("_show_pdf_viewer", False):
+                    _dialog_ver_pdf(_cpdf)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 · HISTORIAL
