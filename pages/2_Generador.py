@@ -2197,7 +2197,82 @@ with tab_exp:
             if st.button("🔄 Nueva exportación", use_container_width=True, key="btn_clear_export"):
                 st.session_state.pop("export_files", None)
                 st.session_state.pop("_prev_mjax", None)
+                st.session_state.pop("_compiled_pdf", None)
                 st.rerun()
+
+        # ── Compilación PDF online ────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("**📄 Compilar PDF (LaTeX online)**")
+        st.caption(
+            "Envía el .tex + .sty a [latexonline.cc](https://latexonline.cc) y devuelve el PDF compilado. "
+            "⚠️ Los archivos se transmiten a un servidor público externo — no incluyas datos personales identificativos."
+        )
+
+        _ef_now    = st.session_state.get("export_files")
+        _tex_avail = _ef_now and _ef_now.get("latex_exam")
+
+        if not _tex_avail:
+            st.info("Primero genera y exporta el examen (activa **📑 LaTeX**) para poder compilar.")
+        else:
+            _latex_exam = _ef_now["latex_exam"]
+            _sty_b      = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
+            # Imágenes de desarrollo
+            _img_files  = {k: v for k, v in _ef_now["_zip_all"].items()
+                           if k.startswith("dev_img_")}
+
+            _modelos_disp = list(_latex_exam.keys())
+            _cc1, _cc2, _cc3 = st.columns([1, 1, 2])
+            _modelo_sel = _cc1.selectbox("Modelo", _modelos_disp,
+                                         key="compile_modelo",
+                                         format_func=lambda x: f"Modelo {x}")
+            _sol_sel    = _cc2.radio("Versión", ["Alumno", "Soluciones"],
+                                     horizontal=True, key="compile_ver")
+
+            if _cc3.button("🔨 Compilar PDF", type="primary",
+                           use_container_width=True, key="btn_compile_pdf"):
+                _tex_src = (
+                    _ef_now["latex_exam"][_modelo_sel]
+                    if _sol_sel == "Alumno"
+                    else _ef_now.get("latex_sol", _ef_now["latex_exam"])[_modelo_sel]
+                )
+                nombre_compile = _ef_now.get("nombre", "examen")
+                with st.spinner("Compilando en latexonline.cc…"):
+                    try:
+                        _pdf_bytes = lib.compilar_latex_online(
+                            tex_str=_tex_src,
+                            sty_bytes=_sty_b if isinstance(_sty_b, bytes) else _sty_b.encode(),
+                            extra_files=_img_files,
+                            nombre=nombre_compile,
+                        )
+                        st.session_state["_compiled_pdf"] = {
+                            "bytes": _pdf_bytes,
+                            "nombre": f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf",
+                        }
+                        st.success("✅ Compilación correcta")
+                    except Exception as _ex:
+                        st.session_state.pop("_compiled_pdf", None)
+                        st.error(f"❌ Error de compilación")
+                        with st.expander("📋 Log de error"):
+                            st.code(str(_ex)[:3000])
+
+            _cpdf = st.session_state.get("_compiled_pdf")
+            if _cpdf:
+                import base64 as _b64
+                _pdf_b64 = _b64.b64encode(_cpdf["bytes"]).decode()
+                st.download_button(
+                    "⬇️ Descargar PDF",
+                    data=_cpdf["bytes"],
+                    file_name=_cpdf["nombre"],
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="dl_compiled_pdf",
+                )
+                stcomponents.html(
+                    f'<iframe src="data:application/pdf;base64,{_pdf_b64}" '
+                    f'width="100%" height="800" style="border:1px solid #ccc;border-radius:6px"></iframe>',
+                    height=820,
+                    scrolling=False,
+                )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 · HISTORIAL

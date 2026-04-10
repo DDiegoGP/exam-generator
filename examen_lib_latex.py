@@ -2275,6 +2275,57 @@ def generar_rubrica_word_bytes(dev_questions: list, cfg: dict) -> bytes:
     return buf.getvalue()
 
 
+def compilar_latex_online(tex_str: str, sty_bytes: bytes,
+                          extra_files: dict = None,
+                          nombre: str = "examen") -> bytes:
+    """Compila un .tex en latexonline.cc y devuelve el PDF como bytes.
+
+    Parámetros:
+        tex_str     : contenido del .tex (str)
+        sty_bytes   : contenido del .sty (bytes)
+        extra_files : {nombre_archivo: bytes} — imágenes u otros recursos
+        nombre      : nombre base para el .tex dentro del tar
+
+    Retorna: bytes del PDF compilado.
+    Lanza:   RuntimeError con el log de error si falla.
+
+    PRIVACIDAD: los archivos se envían a texlive2020.latexonline.cc
+    (servidor público). Se procesan en memoria y se borran tras compilar.
+    No incluyas datos personales sensibles si esto te preocupa.
+    """
+    import io as _io, tarfile as _tar, requests as _req
+
+    tex_fname = f"{nombre}.tex"
+
+    # Construir archivo tar.gz en memoria con .tex + .sty + extras
+    buf = _io.BytesIO()
+    with _tar.open(fileobj=buf, mode='w:gz') as tf:
+        def _add(name, data):
+            if isinstance(data, str):
+                data = data.encode('utf-8')
+            ti = _tar.TarInfo(name=name)
+            ti.size = len(data)
+            tf.addfile(ti, _io.BytesIO(data))
+
+        _add(tex_fname, tex_str)
+        if sty_bytes:
+            _add('estilo_examen_moderno_v2.sty', sty_bytes)
+        for fname, fdata in (extra_files or {}).items():
+            _add(fname, fdata)
+    buf.seek(0)
+
+    resp = _req.post(
+        'https://texlive2020.latexonline.cc/data',
+        files={'file': (f'{nombre}.tar.gz', buf, 'application/gzip')},
+        params={'target': tex_fname, 'command': 'pdflatex'},
+        timeout=120,
+    )
+
+    if resp.status_code == 200 and resp.content[:4] == b'%PDF':
+        return resp.content
+    raise RuntimeError(resp.text or f"HTTP {resp.status_code}")
+
+
 def generar_zip_bytes(files_dict: dict) -> bytes:
     """Empaqueta archivos en un ZIP en memoria. files_dict: {nombre_archivo: bytes_o_str}."""
     import io as _io, zipfile
