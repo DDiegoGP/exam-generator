@@ -2315,7 +2315,7 @@ def compilar_latex_online(tex_str: str, sty_bytes: bytes,
     buf.seek(0)
 
     resp = _req.post(
-        'https://texlive2020.latexonline.cc/data',
+        'https://latexonline.cc/data',
         files={'file': (f'{nombre}.tar.gz', buf, 'application/gzip')},
         params={'target': tex_fname, 'command': 'pdflatex'},
         timeout=120,
