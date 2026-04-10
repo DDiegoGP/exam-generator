@@ -1647,6 +1647,31 @@ def _dialog_preview_examen():
             stcomponents.html(sol_html, height=660, scrolling=True)
 
 
+def _render_pdf_viewer(pdf_bytes: bytes, height: int = 700):
+    """Muestra un PDF en un iframe usando blob URL (funciona en Chrome/Firefox).
+    Chrome bloquea data: URIs en iframes, pero permite createObjectURL."""
+    import base64 as _b64
+    _b64_str = _b64.b64encode(pdf_bytes).decode()
+    _uid = abs(hash(pdf_bytes[:64]))  # ID único para el elemento
+    stcomponents.html(f"""
+<script>
+(function() {{
+  var b64 = "{_b64_str}";
+  var bin = atob(b64);
+  var arr = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  var blob = new Blob([arr], {{type: "application/pdf"}});
+  var url  = URL.createObjectURL(blob);
+  var el   = document.getElementById("pdfviewer_{_uid}");
+  if (el) el.src = url;
+}})();
+</script>
+<iframe id="pdfviewer_{_uid}" src="" width="100%" height="{height}px"
+  style="border:1px solid #ccc;border-radius:6px;display:block">
+</iframe>
+""", height=height + 20, scrolling=False)
+
+
 @st.dialog("🔨 Compilando PDF…", width="large")
 def _dialog_compilar_pdf():
     """Diálogo que compila el PDF y muestra progreso + resultado."""
@@ -1686,8 +1711,6 @@ def _dialog_compilar_pdf():
         st.session_state.pop("_compile_request", None)
 
         # Previsualización inline dentro del diálogo
-        import base64 as _b64
-        _pdf_b64 = _b64.b64encode(_pdf_bytes).decode()
         st.download_button(
             "⬇️ Descargar PDF",
             data=_pdf_bytes,
@@ -1696,19 +1719,12 @@ def _dialog_compilar_pdf():
             use_container_width=True,
             key="dl_pdf_dialog",
         )
-        stcomponents.html(
-            f'<iframe src="data:application/pdf;base64,{_pdf_b64}" '
-            f'width="100%" height="700px" '
-            f'style="border:1px solid #ccc;border-radius:6px;display:block"></iframe>',
-            height=720,
-            scrolling=False,
-        )
+        _render_pdf_viewer(_pdf_bytes, height=700)
 
     except Exception as _ex:
         _prog.progress(100, text="❌ Error")
         _status.error("Error de compilación")
         _log = str(_ex)
-        # Resaltar errores reales (líneas con "error:")
         _err_lines = [l for l in _log.splitlines() if "error" in l.lower()]
         if _err_lines:
             st.warning("**Errores detectados:**\n\n" + "\n".join(f"- `{l.strip()}`" for l in _err_lines[:10]))
@@ -1718,8 +1734,6 @@ def _dialog_compilar_pdf():
 
 @st.dialog("📄 Vista PDF compilado", width="large")
 def _dialog_ver_pdf(cpdf: dict):
-    import base64 as _b64
-    _pdf_b64 = _b64.b64encode(cpdf["bytes"]).decode()
     st.download_button(
         "⬇️ Descargar",
         data=cpdf["bytes"],
@@ -1728,13 +1742,7 @@ def _dialog_ver_pdf(cpdf: dict):
         use_container_width=True,
         key="dl_pdf_viewer_dlg",
     )
-    stcomponents.html(
-        f'<iframe src="data:application/pdf;base64,{_pdf_b64}" '
-        f'width="100%" height="750px" '
-        f'style="border:none;display:block"></iframe>',
-        height=770,
-        scrolling=False,
-    )
+    _render_pdf_viewer(cpdf["bytes"], height=750)
 
 
 with tab_exp:
