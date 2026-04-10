@@ -452,21 +452,14 @@
 \newcommand{\notacalificacion}[2][CALIFICACIÓN]{%
     \vspace{6mm}%
     \begin{tcolorbox}[
-        enhanced,
-        colback=white,
+        colback=primario!6,
         colframe=primario,
+        coltitle=white,
+        colbacktitle=primario,
         arc=2mm,
         boxrule=1.5pt,
-        left=5mm, right=5mm, top=8mm, bottom=5mm,
-        attach boxed title to top left={yshift=-3mm, xshift=4mm},
-        boxed title style={
-            colback=primario,
-            colframe=primario,
-            arc=1.5mm,
-            boxrule=0pt,
-            left=5pt, right=5pt, top=2pt, bottom=2pt
-        },
-        title={\small\bfseries\textcolor{white}{#1}}
+        left=5mm, right=5mm, top=3mm, bottom=5mm,
+        title={\small\bfseries #1}
     ]
         #2
     \end{tcolorbox}%
