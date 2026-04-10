@@ -616,7 +616,9 @@ _WORD_FONTS = {
 
 
 def _generar_sty(cfg) -> bytes:
-    """Carga el .sty y aplica overrides de color/fuente/modo según cfg."""
+    """Carga el .sty y lo retorna tal cual.
+    Las opciones (color, fuente, modo) se pasan via \\usepackage[...]{...} en el .tex generado.
+    """
     import os as _os
     _base = _os.path.dirname(_os.path.abspath(__file__))
     sty_path = _os.path.join(_base, 'estilo_examen_moderno_v2.sty')
@@ -624,28 +626,9 @@ def _generar_sty(cfg) -> bytes:
         sty_path = _os.path.join(_base, 'plantillas', 'estilo_examen_moderno_v2.sty')
     try:
         with open(sty_path, 'r', encoding='utf-8') as _f:
-            sty = _f.read()
+            return _f.read().encode('utf-8')
     except FileNotFoundError:
         return b""
-
-    overrides = []
-    scheme = cfg.get('color_scheme', 'azul')
-    if scheme in _STY_COLORS and scheme != 'azul':
-        overrides.append('% === Esquema de color seleccionado ===')
-        overrides.append(_STY_COLORS[scheme])
-    font = cfg.get('tipografia', 'cm')
-    if font in _STY_FONTS and _STY_FONTS[font]:
-        overrides.append('% === Tipografía seleccionada ===')
-        overrides.append(_STY_FONTS[font])
-    if cfg.get('modo_compacto', False):
-        overrides.append(r'\def\modocompacto{1}')
-
-    if overrides:
-        # Inyectar DESPUÉS de \logo{} (los \ifdefined\modocompacto vienen después)
-        inject_block = r'\logo{}' + '\n' + '\n'.join(overrides) + '\n'
-        sty = sty.replace(r'\logo{}', inject_block, 1)
-
-    return sty.encode('utf-8')
 
 
 def _gen_caja_alumno_latex(campos: list) -> str:
@@ -1497,6 +1480,57 @@ def _gen_hoja_respuestas(n_pregs, estilo='omr'):
     return '\n'.join(lines) + '\n'
 
 
+def _gen_notacal_dev(fund_data: list, pts_fund: str) -> str:
+    """Genera LaTeX de caja de calificación para sección de desarrollo."""
+    lines = []
+    for i, c in enumerate(fund_data):
+        pts = str(c.get('pts', '')).strip()
+        pts_str = f' ({pts} pts)' if pts else ''
+        lines.append(f'Pregunta {i+1}{pts_str}: \\hrulefill \\\\[5mm]')
+    total_str = f' / {pts_fund} pts' if pts_fund and str(pts_fund).strip() else ''
+    lines.append(f'\\textbf{{TOTAL DESARROLLO:}} \\hrulefill{total_str}')
+    content = '\n'.join(lines)
+    return f'\\notacalificacion[CALIFICACI\u00d3N --- DESARROLLO]{{\n{content}\n}}\n'
+
+
+def _gen_notacal_test(n_preguntas: int, pts_test: str, penalizacion: str) -> str:
+    """Genera LaTeX de caja de calificación para sección test."""
+    pts_str = f' / {pts_test} pts' if pts_test and str(pts_test).strip() else ''
+    pen_str = (
+        f' (pen: {penalizacion})'
+        if penalizacion and str(penalizacion).strip() not in ('', 'Sin penalizaci\u00f3n') else ''
+    )
+    content = (
+        '\\noindent\n'
+        '\\begin{minipage}[t]{0.5\\linewidth}\n'
+        '  \\textbf{Respuestas correctas:} \\hrulefill \\\\[4mm]\n'
+        '  \\textbf{Respuestas incorrectas:} \\hrulefill \\\\[4mm]\n'
+        '  \\textbf{En blanco:} \\hrulefill\n'
+        '\\end{minipage}\\hfill\n'
+        '\\begin{minipage}[t]{0.42\\linewidth}\n'
+        '  \\raggedleft\n'
+        f'  {{\\textbf{{PUNTUACI\u00d3N TEST:}}\\\\[3mm] \\hrulefill{pts_str}{pen_str}}}\n'
+        '\\end{minipage}'
+    )
+    return f'\\notacalificacion[CALIFICACI\u00d3N --- TEST]{{\n{content}\n}}\n'
+
+
+def _gen_notacal_final() -> str:
+    """Genera LaTeX de caja de nota final."""
+    content = (
+        '\\noindent\n'
+        '\\begin{minipage}[t]{0.45\\linewidth}\n'
+        '  Desarrollo: \\hrulefill \\\\[5mm]\n'
+        '  Test:\\phantom{rrollo} \\hrulefill\n'
+        '\\end{minipage}\\hfill\n'
+        '\\begin{minipage}[t]{0.45\\linewidth}\n'
+        '  \\raggedleft\n'
+        '  {\\large\\textbf{CALIFICACI\u00d3N FINAL:}\\\\[3mm] \\hrulefill / 10}\n'
+        '\\end{minipage}'
+    )
+    return '\\notacalificacion[NOTA FINAL]{\n' + content + '\n}\n'
+
+
 def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     """Genera los .tex en memoria. Retorna {letra_version: str_tex}."""
     # Si hay plantilla personalizada, usarla directamente
@@ -1538,10 +1572,35 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     if adapt_id:
         tipo_raw = f"{tipo_raw} — {adapt_id}" if tipo_raw else adapt_id
 
-    _DEFAULT_TEX = r"""\documentclass[a4paper,[[FONTSIZE]]pt]{[[DOCTYPE]]}
-\usepackage{estilo_examen_moderno_v2}
-[[DOS_POR_HOJA_CMD]]
-[[LINESPREAD_CMD]]
+    # ── Opciones del paquete .sty (color, fuente, layout) ───────────────────
+    _pkg_opts = [cfg.get('color_scheme', 'azul')]
+    _font_key = cfg.get('tipografia', 'libertine')
+    if _font_key in ('cm', 'palatino', 'times', 'libertine', 'helvet', 'garamond'):
+        _pkg_opts.append(_font_key)
+    if cfg.get('modo_compacto', False):
+        _pkg_opts.append('compacto')
+    _dos = cfg.get('dos_por_hoja', False)
+    if _dos:
+        _pkg_opts.append('dos_por_hoja')
+    _pkg_opts_str = ','.join(_pkg_opts)
+
+    # ── Plantilla por defecto (se elige según dos_por_hoja) ─────────────────
+    # IMPORTANTE: pgfpages debe cargarse ANTES del .sty para compatibilidad TikZ.
+    _PREAMBLE_NORMAL = (
+        f'\\documentclass[a4paper,[[FONTSIZE]]pt]{{[[DOCTYPE]]}}\n'
+        f'\\usepackage[{_pkg_opts_str}]{{estilo_examen_moderno_v2}}\n'
+    )
+    _PREAMBLE_DOS = (
+        f'\\documentclass[a5paper,[[FONTSIZE]]pt]{{[[DOCTYPE]]}}\n'
+        f'\\usepackage{{pgfpages}}\n'
+        f'\\pgfpagesuselayout{{2 on 1}}[a4paper,landscape,border shrink=3mm]\n'
+        f'\\usepackage[{_pkg_opts_str}]{{estilo_examen_moderno_v2}}\n'
+    )
+    _PREAMBLE = _PREAMBLE_DOS if _dos else _PREAMBLE_NORMAL
+
+    _DEFAULT_TEX = (
+        _PREAMBLE +
+        r"""[[LINESPREAD_CMD]]
 [[WATERMARK_CMD]]
 [[FANCYHDR_CUSTOM]]
 \tipoexamen{[[TIPO_EXAMEN]]}
@@ -1560,6 +1619,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
 [[BLOQUE_TEST]]
 [[HOJA_RESPUESTAS]]
 \end{document}"""
+    )
 
     if not plantilla_tex:
         plantilla_tex = _DEFAULT_TEX
@@ -1570,18 +1630,6 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         tex = tex.replace('[[FONTSIZE]]',    str(font_size))
         tex = tex.replace('[[DOCTYPE]]',     doc_class)
         tex = tex.replace('[[LINESPREAD_CMD]]', linespread_cmd)
-
-        # ── 2 páginas por hoja (pgfpages) ────────────────────────────────────
-        if cfg.get('dos_por_hoja'):
-            dos_por_hoja_cmd = (
-                '\\geometry{a5paper,left=14mm,right=14mm,top=20mm,bottom=16mm,'
-                'headheight=14mm,headsep=5mm}\n'
-                '\\usepackage{pgfpages}\n'
-                '\\pgfpagesuselayout{2 on 1}[a4paper,landscape,border shrink=3mm]\n'
-            )
-        else:
-            dos_por_hoja_cmd = ''
-        tex = tex.replace('[[DOS_POR_HOJA_CMD]]', dos_por_hoja_cmd)
 
         # ── Marca de agua (solo si está activa y, por defecto, en soluciones) ──
         watermark_on = cfg.get('watermark_sol', False) and modo_solucion
@@ -1631,6 +1679,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         _circled_cmd = {
             'cuadrado': r'\protect\circled',
             'circulo':  r'\protect\circledCirculo',
+            'vacio':    r'\protect\circledVacio',
             'numero':   r'\protect\circledNumero',
             'nada':     r'\arabic*.',
         }.get(estilo_num, r'\protect\circled')
@@ -1683,6 +1732,8 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                     bloque_fund += f'\\espaciorespuesta[{h_base}]\n'
                 bloque_fund += '\\end{minipage}\n\n'
             bloque_fund += '\\end{enumerate}\n'
+            if not modo_solucion and cfg.get('notacal_dev', False):
+                bloque_fund += _gen_notacal_dev(fund_data, pts_fund)
         tex = tex.replace('[[BLOQUE_FUND]]', bloque_fund)
 
         # ── PARTE II: Test ───────────────────────────────────────────────────
@@ -1737,7 +1788,16 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 bloque_test += '\\end{enumerate}\n'
                 bloque_test += '\\end{minipage}\n\n'
             bloque_test += '\\end{enumerate}\n'
+            if not modo_solucion and cfg.get('notacal_test', False):
+                bloque_test += _gen_notacal_test(
+                    len(m.get('preguntas', [])), pts_test, penalizacion
+                )
         tex = tex.replace('[[BLOQUE_TEST]]', bloque_test)
+
+        # ── Nota final (antes de \end{document}) ────────────────────────────
+        if not modo_solucion and cfg.get('notacal_final', False):
+            tex = tex.replace('\\end{document}',
+                              _gen_notacal_final() + '\\end{document}')
 
         # ── Hoja de respuestas ───────────────────────────────────────────────
         if cfg.get('hoja_respuestas', False) and not modo_solucion:

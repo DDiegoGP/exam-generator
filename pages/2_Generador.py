@@ -1174,6 +1174,10 @@ def _ejecutar_export():
         # Solucionario
         "incluir_solucionario": cfg.get("incluir_solucionario", False),
         "titulo_solucionario":  cfg.get("titulo_solucionario", "Solucionario"),
+        # Caja de calificación
+        "notacal_dev":   cfg.get("notacal_dev",   False),
+        "notacal_test":  cfg.get("notacal_test",  False),
+        "notacal_final": cfg.get("notacal_final", False),
     }
     tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
     tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
@@ -1790,7 +1794,7 @@ with tab_exp:
             modo_compacto = sv4.checkbox("Modo compacto LaTeX",
                                          value=cfg.get("modo_compacto", False), key="exp_compacto",
                                          help="Encabezado pequeño, más preguntas en página 1")
-            _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "numero": "Número 1.", "nada": "Sin estilo"}
+            _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "vacio": "Círculo ○", "numero": "Número 1.", "nada": "Sin estilo"}
             _enum_cur   = cfg.get("estilo_num", "cuadrado")
             _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
             estilo_num  = st.selectbox("Numeración de preguntas (LaTeX)", list(_enum_opts.keys()),
@@ -1860,6 +1864,37 @@ with tab_exp:
                                         value=cfg.get("tit_rubrica", "Guía de Corrección"),
                                         key="exp_tit_rubrica", disabled=not incl_rubrica)
 
+        # ── 4c-bis. Caja de calificación ──────────────────────────────────────
+        _has_test_q = bool(sel_actual) or bool(st.session_state.get("auto_recipe"))
+        _has_dev_q  = bool(st.session_state.get("dev_questions", []))
+        with st.expander("🎓 Caja de calificación", expanded=False):
+            st.caption(
+                "Añade una caja para anotar la nota al final de cada sección. "
+                "Solo aparece en la versión alumno, no en la de soluciones."
+            )
+            nc1, nc2, nc3 = st.columns(3)
+            notacal_dev  = nc1.checkbox(
+                "Caja desarrollo",
+                value=cfg.get("notacal_dev", False), key="exp_notacal_dev",
+                disabled=not _has_dev_q,
+                help="Se añade al final de la sección de desarrollo"
+            )
+            notacal_test = nc2.checkbox(
+                "Caja test",
+                value=cfg.get("notacal_test", False), key="exp_notacal_test",
+                disabled=not _has_test_q,
+                help="Se añade al final de la sección test"
+            )
+            notacal_final = nc3.checkbox(
+                "Nota final",
+                value=cfg.get("notacal_final", False), key="exp_notacal_final",
+                disabled=not (_has_dev_q or _has_test_q),
+                help="Caja de nota final con suma de las partes"
+            )
+            if not _has_dev_q:
+                nc1.caption("⚠️ Sin preguntas de desarrollo")
+            if not _has_test_q:
+                nc2.caption("⚠️ Sin preguntas test")
         # ── 4c. Puntos y penalización ─────────────────────────────────────────
         with st.expander("📊 Puntos y penalización", expanded=False):
             st.caption("Si dejas un campo vacío, ese dato no aparece en el examen.")
@@ -2023,6 +2058,10 @@ with tab_exp:
             "fmt_rubrica_word": fmt_rubrica_word,
             "fmt_rubrica_tex":  fmt_rubrica_tex,
             "tit_rubrica":      tit_rubrica,
+            # Caja de calificación
+            "notacal_dev":   notacal_dev,
+            "notacal_test":  notacal_test,
+            "notacal_final": notacal_final,
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────

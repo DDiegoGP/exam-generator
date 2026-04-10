@@ -1,0 +1,495 @@
+% estilo_examen_moderno_v2.sty  — v2.1
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{estilo_examen_moderno_v2}[2026/04/10 v2.1 Estilo moderno para examenes]
+
+% ============================================================================
+% OPCIONES DEL PAQUETE
+%   Color:   [azul] (defecto) | [ucm] | [byn]
+%   Fuente:  [libertine] (defecto) | [palatino] | [times] | [helvet] | [garamond] | [cm]
+%   Layout:  [compacto] | [dos_por_hoja]
+%
+% Ejemplo:   \usepackage[ucm,palatino,compacto]{estilo_examen_moderno_v2}
+%
+% IMPORTANTE para dos_por_hoja: cargar pgfpages ANTES de este paquete:
+%   \documentclass[a5paper,11pt]{article}
+%   \usepackage{pgfpages}
+%   \pgfpagesuselayout{2 on 1}[a4paper,landscape,border shrink=3mm]
+%   \usepackage[dos_por_hoja,...]{estilo_examen_moderno_v2}
+%
+% Esto garantiza compatibilidad entre pgfpages y TikZ (ambos usan \shipout).
+% ============================================================================
+
+\newif\if@compacto  \@compactofalse
+\newif\if@doshojas  \@doshojasfalse
+
+\DeclareOption{azul}{\def\@esquemacolor{azul}}
+\DeclareOption{ucm}{\def\@esquemacolor{ucm}}
+\DeclareOption{byn}{\def\@esquemacolor{byn}}
+\DeclareOption{libertine}{\def\@fuente{libertine}}
+\DeclareOption{palatino}{\def\@fuente{palatino}}
+\DeclareOption{times}{\def\@fuente{times}}
+\DeclareOption{helvet}{\def\@fuente{helvet}}
+\DeclareOption{garamond}{\def\@fuente{garamond}}
+\DeclareOption{cm}{\def\@fuente{cm}}
+\DeclareOption{compacto}{\@compactotrue}
+\DeclareOption{dos_por_hoja}{\@doshojastrue}
+
+\ExecuteOptions{azul,libertine}
+\ProcessOptions\relax
+
+% Backward compat: \ifdefined\modocompacto sigue funcionando
+\if@compacto\def\modocompacto{1}\fi
+
+% ============================================================================
+% PAQUETES BÁSICOS
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins}
+\usepackage{tikz}
+\usepackage{xparse}
+
+% ============================================================================
+% FUENTE
+% ============================================================================
+\def\@fuente@libertine{libertine}
+\def\@fuente@palatino{palatino}
+\def\@fuente@times{times}
+\def\@fuente@helvet{helvet}
+\def\@fuente@garamond{garamond}
+
+\ifx\@fuente\@fuente@libertine
+    \usepackage{libertine}
+    \usepackage[libertine]{newtxmath}
+\else\ifx\@fuente\@fuente@palatino
+    \usepackage{mathpazo}
+\else\ifx\@fuente\@fuente@times
+    \usepackage{mathptmx}
+\else\ifx\@fuente\@fuente@helvet
+    \usepackage{helvet}
+    \renewcommand{\familydefault}{\sfdefault}
+\else\ifx\@fuente\@fuente@garamond
+    \usepackage{garamondx}
+\fi\fi\fi\fi\fi
+% [cm]: Computer Modern — defecto de LaTeX, sin acción
+
+% ============================================================================
+% GEOMETRÍA
+% ============================================================================
+\if@doshojas
+    % a5paper definido en \documentclass — solo márgenes para A5
+    \geometry{
+        left=14mm, right=14mm,
+        top=22mm,  bottom=18mm,
+        headheight=15mm, headsep=5mm
+    }
+\else
+    \geometry{
+        a4paper,
+        left=20mm, right=20mm,
+        top=30mm,  bottom=25mm,
+        headheight=20mm, headsep=8mm
+    }
+\fi
+
+% ============================================================================
+% ESQUEMAS DE COLOR
+% ============================================================================
+\def\@color@ucm{ucm}
+\def\@color@byn{byn}
+
+\ifx\@esquemacolor\@color@ucm
+    \definecolor{primario}{RGB}{165, 28, 48}
+    \definecolor{secundario}{RGB}{120, 20, 35}
+    \definecolor{acento}{RGB}{184, 134, 11}
+    \definecolor{fondo}{RGB}{245, 240, 235}
+    \definecolor{texto}{RGB}{40, 40, 40}
+\else\ifx\@esquemacolor\@color@byn
+    \definecolor{primario}{RGB}{60, 60, 60}
+    \definecolor{secundario}{RGB}{40, 40, 40}
+    \definecolor{acento}{RGB}{100, 100, 100}
+    \definecolor{fondo}{RGB}{245, 245, 245}
+    \definecolor{texto}{RGB}{0, 0, 0}
+\else % azul (defecto)
+    \definecolor{primario}{RGB}{41, 128, 185}
+    \definecolor{secundario}{RGB}{52, 73, 94}
+    \definecolor{acento}{RGB}{231, 76, 60}
+    \definecolor{fondo}{RGB}{236, 240, 241}
+    \definecolor{texto}{RGB}{44, 62, 80}
+\fi\fi
+
+% ============================================================================
+% COMANDOS DE METADATOS
+% ============================================================================
+\newcommand{\tipoexamen}[1]{\def\thetipoexamen{#1}}
+\newcommand{\institucion}[1]{\def\theinstitucion{#1}}
+\newcommand{\asignatura}[1]{\def\theasignatura{#1}}
+\newcommand{\fecha}[1]{\def\thefecha{#1}}
+\newcommand{\duracion}[1]{\def\theduracion{#1}}
+\newcommand{\version}[1]{\def\theversion{#1}}
+\newcommand{\logo}[1]{\def\thelogo{#1}}
+
+% Valores por defecto
+\tipoexamen{EXAMEN}
+\institucion{}
+\asignatura{}
+\fecha{\today}
+\duracion{}
+\version{A}
+\logo{}
+
+% ============================================================================
+% CABECERA Y PIE DE PÁGINA
+% ============================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{secundario}{\textbf{\theasignatura}}}
+\fancyhead[R]{\small\textcolor{secundario}{Versión \theversion}}
+\fancyfoot[C]{\small\textcolor{secundario}{Página \textbf{\thepage}}}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{primario}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\footrulewidth}{0pt}
+
+% Texto extra en pie (opcional)
+\newcommand{\piepagina}[1]{%
+    \fancyfoot[C]{\small\textcolor{secundario}{#1 \quad --- \quad Página \textbf{\thepage}}}%
+}
+
+% ============================================================================
+% ENCABEZADO PROFESIONAL
+% ============================================================================
+\newcommand{\encabezadoprofesional}{%
+    \if@compacto
+        % MODO COMPACTO: cabecera pequeña sin logo
+        \noindent
+        {\Large\bfseries\color{primario}\thetipoexamen} \hfill {\large Versión \theversion}\\
+        {\large\bfseries\theasignatura}\\
+        {\small\theinstitucion{} | \thefecha{} | \theduracion}
+        \vspace{3mm}
+        \hrule
+        \vspace{2mm}
+    \else
+        % MODO NORMAL: caja completa con logo
+        \begin{tcolorbox}[
+            colback=white,
+            colframe=primario,
+            arc=2mm,
+            boxrule=2pt,
+            left=5mm, right=5mm, top=4mm, bottom=4mm
+        ]
+            \color{primario}
+            \begin{minipage}[c]{0.7\textwidth}
+                \raggedright
+                {\fontsize{18}{22}\selectfont\bfseries\thetipoexamen}\\[2mm]
+                {\Large\bfseries\theasignatura}\\[1mm]
+                {\large\theinstitucion}
+            \end{minipage}%
+            \begin{minipage}[c]{0.3\textwidth}
+                \raggedleft
+                \ifx\thelogo\empty
+                \else
+                    \includegraphics[height=25mm]{\thelogo}
+                \fi
+            \end{minipage}
+        \end{tcolorbox}
+
+        \vspace{3mm}
+
+        % Fila con Fecha / Duración / Versión
+        \begin{tcolorbox}[
+            colback=fondo,
+            colframe=fondo,
+            arc=2mm,
+            boxrule=0pt,
+            left=3mm, right=3mm, top=2mm, bottom=2mm
+        ]
+            \noindent
+            \begin{minipage}[c]{0.48\linewidth}
+                \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
+            \end{minipage}%
+            \begin{minipage}[c]{0.25\linewidth}
+                \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
+            \end{minipage}%
+            \begin{minipage}[c]{0.22\linewidth}
+                \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
+            \end{minipage}
+        \end{tcolorbox}
+
+        \vspace{3mm}
+    \fi
+}
+
+% ============================================================================
+% CAJA DEL ALUMNO
+% ============================================================================
+\newcommand{\cajaalumno}{%
+    \if@compacto
+        % MODO COMPACTO: caja reducida
+        \vspace{2mm}
+        \noindent\fbox{
+            \begin{minipage}{\textwidth}
+                \vspace{2mm}
+                \small
+                \textbf{Nombre y Apellidos:} \hrulefill \\[4mm]
+                \textbf{DNI:} \rule{4cm}{0.4pt} \hfill \textbf{Firma:} \rule{5cm}{0.4pt}
+                \vspace{2mm}
+            \end{minipage}
+        }
+        \vspace{3mm}
+        \thispagestyle{empty}
+    \else
+        % MODO NORMAL: caja completa
+        \vspace{3mm}
+        \begin{tcolorbox}[
+            colback=white,
+            colframe=secundario,
+            arc=2mm,
+            boxrule=1pt,
+            left=5mm, right=5mm, top=3mm, bottom=3mm
+        ]
+            \textcolor{secundario}{\textbf{$\bullet$}} \textbf{Nombre y Apellidos:} \hrulefill \\[8mm]
+            \begin{minipage}[t]{0.45\textwidth}
+                \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{DNI:} \hrulefill
+            \end{minipage}%
+            \hspace{0.05\textwidth}%
+            \begin{minipage}[t]{0.45\textwidth}
+                \textcolor{secundario}{\textbf{$\checkmark$}} \textbf{Firma:}
+                \vspace{8mm}
+            \end{minipage}
+        \end{tcolorbox}
+        \vspace{5mm}
+    \fi
+}
+
+% ============================================================================
+% INSTRUCCIONES GENERALES
+% ============================================================================
+\newcommand{\instrucciones}[1]{%
+    \vspace{2mm}
+    \noindent
+    \begin{tcolorbox}[
+        colback=white,
+        colframe=secundario,
+        arc=1mm,
+        boxrule=0.5pt,
+        left=4mm, right=4mm, top=2mm, bottom=2mm
+    ]
+        \textcolor{secundario}{\textbf{$\triangleright$ Instrucciones:}} #1
+    \end{tcolorbox}
+    \vspace{2mm}
+}
+
+% ============================================================================
+% FORMATO DE SECCIONES
+% ============================================================================
+\titleformat{\section}
+    {\Large\bfseries\color{primario}}
+    {}
+    {0em}
+    {}
+    [\vspace{0.3em}{\color{primario}\titlerule[1pt]}\vspace{0.5em}]
+
+\titleformat{\subsection}
+    {\large\bfseries\color{secundario}}
+    {}
+    {0em}
+    {}
+
+% ============================================================================
+% NUMERACIÓN DE PREGUNTAS (TikZ — escalable con pgfpages, sin blur)
+%
+%   \circled{N}        — cuadrado relleno claro (por defecto)
+%   \circledCirculo{N} — círculo relleno (fondo color, número blanco)
+%   \circledVacio{N}   — círculo vacío (solo borde)
+%   \circledNumero{N}  — número en color, sin caja
+%
+% TikZ: pgfpages debe cargarse ANTES de este paquete para compatibilidad.
+% ============================================================================
+\newcommand*\circled[1]{%
+    \tikz[baseline=(char.base)]{%
+        \node[draw=primario, fill=primario!10,
+              rectangle, rounded corners=1.5pt,
+              inner sep=3pt, line width=0.8pt] (char)
+              {\textbf{\textcolor{primario}{\small#1}}};%
+    }%
+}
+
+\newcommand*\circledCirculo[1]{%
+    \tikz[baseline=(char.base)]{%
+        \node[draw=primario, fill=primario,
+              circle, inner sep=3pt, line width=0.8pt] (char)
+              {\textbf{\textcolor{white}{\small#1}}};%
+    }%
+}
+
+\newcommand*\circledVacio[1]{%
+    \tikz[baseline=(char.base)]{%
+        \node[draw=primario, fill=white,
+              circle, inner sep=3pt, line width=0.8pt] (char)
+              {\textbf{\textcolor{primario}{\small#1}}};%
+    }%
+}
+
+\newcommand*\circledNumero[1]{%
+    \textbf{\textcolor{primario}{#1.}}%
+}
+
+% ============================================================================
+% LISTAS Y PREGUNTAS
+% ============================================================================
+\if@compacto
+    \setlist[enumerate,1]{
+        label=\protect\circled{\arabic*},
+        leftmargin=*, itemsep=0.8em, topsep=0.5em,
+        before={\color{texto}}, after={}
+    }
+\else
+    \setlist[enumerate,1]{
+        label=\protect\circled{\arabic*},
+        leftmargin=*, itemsep=1.5em, topsep=1em,
+        before={\color{texto}}, after={}
+    }
+\fi
+
+% Segunda lista (opciones A/B/C/D)
+\setlist[enumerate,2]{
+    label=\textcolor{secundario}{\textbf{\alph*)}},
+    leftmargin=2em, itemsep=0.5em, topsep=0.3em
+}
+
+% ============================================================================
+% ESPACIO PARA RESPUESTAS DE DESARROLLO
+%
+%   \espaciorespuesta             → caja libre 6 cm
+%   \espaciorespuesta[4cm]        → caja libre 4 cm
+%   \espaciorespuesta[6cm]{lineas}→ caja con líneas horizontales 6 cm
+%
+% Segundo argumento opcional (G{libre}): «libre» o «lineas»
+% ============================================================================
+\NewDocumentCommand{\espaciorespuesta}{ O{6cm} G{libre} }{%
+    \par\vspace{2mm}%
+    \noindent%
+    \def\@espr@mode{#2}%
+    \def\@espr@libre{libre}%
+    \ifx\@espr@mode\@espr@libre
+        % --- Caja libre ---
+        \fbox{%
+            \begin{minipage}[t][#1][t]{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}%
+                \hspace{0pt}%
+            \end{minipage}%
+        }%
+    \else
+        % --- Caja con líneas horizontales (TikZ) ---
+        \noindent\begin{tikzpicture}
+            \draw[color=gray!60, line width=0.5pt]
+                (0, 0) rectangle (\linewidth, #1);
+            \pgfmathtruncatemacro{\esprnl}{(#1 - 0.4cm) / 0.65cm}
+            \ifnum\esprnl>0
+                \foreach \i in {1,...,\esprnl}{%
+                    \draw[color=gray!35, line width=0.3pt]
+                        (0.3cm, \i*0.65cm) -- (\linewidth-0.3cm, \i*0.65cm);%
+                }%
+            \fi
+        \end{tikzpicture}%
+    \fi
+    \par\vspace{2mm}%
+}
+
+% ============================================================================
+% SEPARADOR DE SECCIÓN
+%   \seccionexamen{Título}{info opcional}   — el 2º arg puede ir vacío
+% ============================================================================
+\newcommand{\seccionexamen}[2]{%
+    \vspace{4mm}%
+    \noindent%
+    {\Large\bfseries\color{primario}#1%
+    \ifx&#2&%
+    \else%
+        \hfill{\normalsize\color{secundario}[#2]}%
+    \fi}%
+    \par\nobreak%
+    {\color{primario}\rule{\linewidth}{1.5pt}}%
+    \vspace{2mm}%
+}
+
+% ============================================================================
+% INFO DE PREGUNTA (versión soluciones)
+%   \infopregunta{bloque}{tema}{dificultad}
+% ============================================================================
+\newcommand{\infopregunta}[3]{%
+    \par\vspace{0.5mm}%
+    {\scriptsize\textcolor{gray!70}{%
+        \textit{Bloque: #1 \textperiodcentered{} Tema: #2 \textperiodcentered{} Dif.: #3}%
+    }}%
+    \par\vspace{0.5mm}%
+}
+
+% ============================================================================
+% CAJA DE CALIFICACIÓN
+%   \notacalificacion[Título]{contenido}
+%
+% Ejemplos:
+%   \notacalificacion[CALIFICACIÓN --- DESARROLLO]{%
+%     Pregunta 1 (2 pts): \hrulefill \\[5mm]
+%     Pregunta 2 (3 pts): \hrulefill \\[5mm]
+%     \textbf{TOTAL:} \hrulefill / 5 pts%
+%   }
+%
+%   \notacalificacion[NOTA FINAL]{%
+%     Test: \hrulefill \quad + \quad Desarrollo: \hrulefill \\[6mm]
+%     {\large\textbf{CALIFICACIÓN FINAL:}} \hrulefill / 10%
+%   }
+% ============================================================================
+\newcommand{\notacalificacion}[2][CALIFICACIÓN]{%
+    \vspace{6mm}%
+    \begin{tcolorbox}[
+        enhanced,
+        colback=white,
+        colframe=primario,
+        arc=2mm,
+        boxrule=1.5pt,
+        left=5mm, right=5mm, top=8mm, bottom=5mm,
+        attach boxed title to top left={yshift=-3mm, xshift=4mm},
+        boxed title style={
+            colback=primario,
+            colframe=primario,
+            arc=1.5mm,
+            boxrule=0pt,
+            left=5pt, right=5pt, top=2pt, bottom=2pt
+        },
+        title={\small\bfseries\textcolor{white}{#1}}
+    ]
+        #2
+    \end{tcolorbox}%
+    \vspace{4mm}%
+}
+
+% ============================================================================
+% SOPORTE UNICODE (física y ciencias)
+% ============================================================================
+\usepackage{newunicodechar}
+\newunicodechar{Δ}{\ensuremath{\Delta}}
+\newunicodechar{π}{\ensuremath{\pi}}
+\newunicodechar{λ}{\ensuremath{\lambda}}
+\newunicodechar{±}{\ensuremath{\pm}}
+\newunicodechar{α}{\ensuremath{\alpha}}
+\newunicodechar{β}{\ensuremath{\beta}}
+\newunicodechar{γ}{\ensuremath{\gamma}}
+\newunicodechar{Ω}{\ensuremath{\Omega}}
+\newunicodechar{μ}{\ensuremath{\mu}}
+\newunicodechar{°}{\ensuremath{^\circ}}
+\newunicodechar{−}{\ensuremath{-}}   % U+2212 MINUS SIGN (≠ guión ASCII)
+
+% Color de texto por defecto
+\color{texto}
+
+\endinput
