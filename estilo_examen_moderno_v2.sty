@@ -187,24 +187,30 @@
             left=5mm, right=5mm, top=4mm, bottom=4mm
         ]
             \color{primario}
-            \begin{minipage}[c]{0.7\textwidth}
+            \ifx\thelogo\empty
+                % Sin logo: texto ocupa todo el ancho, tamaño adaptable
                 \raggedright
-                {\fontsize{18}{22}\selectfont\bfseries\thetipoexamen}\\[2mm]
-                {\Large\bfseries\theasignatura}\\[1mm]
-                {\large\theinstitucion}
-            \end{minipage}%
-            \begin{minipage}[c]{0.3\textwidth}
-                \raggedleft
-                \ifx\thelogo\empty
-                \else
-                    \includegraphics[height=25mm]{\thelogo}
-                \fi
-            \end{minipage}
+                {\fontsize{16}{20}\selectfont\bfseries\thetipoexamen}\\[2mm]
+                {\large\bfseries\theasignatura}\\[1mm]
+                {\normalsize\theinstitucion}
+            \else
+                \begin{minipage}[c]{0.70\textwidth}
+                    \raggedright
+                    {\fontsize{16}{20}\selectfont\bfseries\thetipoexamen}\\[2mm]
+                    {\large\bfseries\theasignatura}\\[1mm]
+                    {\normalsize\theinstitucion}
+                \end{minipage}%
+                \begin{minipage}[c]{0.28\textwidth}
+                    \raggedleft
+                    \includegraphics[height=22mm]{\thelogo}
+                \end{minipage}
+            \fi
         \end{tcolorbox}
 
         \vspace{3mm}
 
         % Fila con Fecha / Duración / Versión
+        % En dos_por_hoja (A5) usamos una sola línea con separadores para evitar wrapping
         \begin{tcolorbox}[
             colback=fondo,
             colframe=fondo,
@@ -212,16 +218,25 @@
             boxrule=0pt,
             left=3mm, right=3mm, top=2mm, bottom=2mm
         ]
-            \noindent
-            \begin{minipage}[c]{0.48\linewidth}
+            \if@doshojas
+                \noindent\small
                 \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
-            \end{minipage}%
-            \begin{minipage}[c]{0.25\linewidth}
-                \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
-            \end{minipage}%
-            \begin{minipage}[c]{0.22\linewidth}
-                \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
-            \end{minipage}
+                \hfill
+                \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Dur.:} \theduracion
+                \hfill
+                \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Ver.:} \theversion
+            \else
+                \noindent
+                \begin{minipage}[c]{0.45\linewidth}
+                    \textcolor{secundario}{\textbf{$\blacktriangleright$}} \textbf{Fecha:} \thefecha
+                \end{minipage}%
+                \begin{minipage}[c]{0.30\linewidth}
+                    \textcolor{secundario}{\textbf{$\circledcirc$}} \textbf{Duración:} \theduracion
+                \end{minipage}%
+                \begin{minipage}[c]{0.22\linewidth}
+                    \textcolor{secundario}{\textbf{$\blacksquare$}} \textbf{Versión:} \theversion
+                \end{minipage}
+            \fi
         \end{tcolorbox}
 
         \vspace{3mm}
