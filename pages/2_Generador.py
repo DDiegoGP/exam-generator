@@ -1654,6 +1654,9 @@ def _render_pdf_viewer(pdf_bytes: bytes, height: int = 700):
     _b64_str = _b64.b64encode(pdf_bytes).decode()
     _uid = abs(hash(pdf_bytes[:64]))  # ID único para el elemento
     stcomponents.html(f"""
+<iframe id="pdfviewer_{_uid}" src="about:blank" width="100%" height="{height}px"
+  style="border:1px solid #ccc;border-radius:6px;display:block">
+</iframe>
 <script>
 (function() {{
   var b64 = "{_b64_str}";
@@ -1662,13 +1665,9 @@ def _render_pdf_viewer(pdf_bytes: bytes, height: int = 700):
   for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   var blob = new Blob([arr], {{type: "application/pdf"}});
   var url  = URL.createObjectURL(blob);
-  var el   = document.getElementById("pdfviewer_{_uid}");
-  if (el) el.src = url;
+  document.getElementById("pdfviewer_{_uid}").src = url;
 }})();
 </script>
-<iframe id="pdfviewer_{_uid}" src="" width="100%" height="{height}px"
-  style="border:1px solid #ccc;border-radius:6px;display:block">
-</iframe>
 """, height=height + 20, scrolling=False)
 
 
