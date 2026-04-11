@@ -135,28 +135,31 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         ed_notas = st.text_area("Notas", value=str(row.get("notas", "") or ""),
                                  height=70, key="dlg_notas")
 
-        # Datos / constantes físicas
-        _datos_cur = st.session_state.pop("_dlg_datos_result", None)
-        if _datos_cur is None:
-            _datos_cur = str(row.get("datos", "") or "")
-        st.session_state["_dlg_datos_tmp"] = _datos_cur
-        st.markdown("**Constantes/Datos**")
-        _datos_df_preview = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
-        if _datos_cur:
-            _ids_preview = [i.strip() for i in _datos_cur.split(',') if i.strip()]
-            if not _datos_df_preview.empty:
-                _names = []
-                for _did in _ids_preview:
-                    _r = _datos_df_preview[_datos_df_preview['ID'].astype(str) == _did]
-                    _names.append(_r.iloc[0]['Nombre'] if not _r.empty else _did)
-                st.caption('; '.join(_names))
+        # Datos / constantes físicas — inline checkboxes (no nested dialogs)
+        _datos_df_dlg = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
+        _datos_cur_init = str(row.get("datos", "") or "")
+        with st.expander("📊 Constantes / Datos", expanded=bool(_datos_cur_init)):
+            if _datos_df_dlg.empty or not _datos_df_dlg['ID'].astype(str).str.strip().any():
+                st.caption("No hay constantes. Añádelas en Gestor → 🔢 Constantes.")
+                _dlg_sel_ids = []
             else:
-                st.caption(_datos_cur)
-        else:
-            st.caption("_Sin constantes seleccionadas_")
-        if st.button("📊 Seleccionar constantes", key="dlg_btn_datos",
-                     use_container_width=True):
-            st.session_state["_dlg_open_datos"] = True
+                _dlg_cur = [x.strip() for x in _datos_cur_init.split(',') if x.strip()]
+                _dlg_sel_ids = []
+                _dlg_cats = sorted(_datos_df_dlg['Categoría'].fillna('Sin categoría').unique())
+                for _dc in _dlg_cats:
+                    _dcdf = _datos_df_dlg[_datos_df_dlg['Categoría'].fillna('Sin categoría') == _dc]
+                    st.markdown(f"**{_dc}**")
+                    for _, _dr in _dcdf.iterrows():
+                        _did = str(_dr['ID']).strip()
+                        _nom = str(_dr.get('Nombre', '') or '').strip()
+                        _sym = str(_dr.get('Símbolo', '') or '').strip()
+                        _val = str(_dr.get('Valor', '') or '').strip()
+                        _uni = str(_dr.get('Unidades', '') or '').strip()
+                        _lbl = f"{_nom} ({_sym} = {_val} {_uni})".strip()
+                        if st.checkbox(_lbl, value=(_did in _dlg_cur),
+                                       key=f"dlgdat_{pid}_{_did}"):
+                            _dlg_sel_ids.append(_did)
+        ed_datos_ids = ','.join(_dlg_sel_ids)
 
     with dc2:
         ed_enun = st.text_area("Enunciado", value=str(row.get("enunciado", "")),
@@ -166,13 +169,6 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         for li, ll in enumerate(["A", "B", "C", "D"]):
             v = ops_orig[li] if li < len(ops_orig) else ""
             ed_ops.append(st.text_input(f"Opción {ll}", value=v, key=f"dlg_op{ll}"))
-
-    # Abrir dialog de constantes si se pulsó el botón dentro del dialog
-    if st.session_state.pop("_dlg_open_datos", False):
-        _dialog_seleccionar_datos(
-            st.session_state.get("_dlg_datos_tmp", ""),
-            "_dlg_datos_result"
-        )
 
     st.markdown("---")
     sc1, sc2, sc3 = st.columns([2, 2, 1])
@@ -187,7 +183,7 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             "dificultad": ed_dif,
             "usada":      ed_usada,
             "notas":      ed_notas.strip(),
-            "datos_ids":  st.session_state.get("_dlg_datos_tmp", ""),
+            "datos_ids":  ed_datos_ids,
         }
         ok, msg = lib.actualizar_pregunta_excel_local(
             st.session_state.excel_path,
@@ -1731,54 +1727,155 @@ with tab_sol:
 with tab_const:
     st.subheader("Constantes físicas / Datos")
     st.caption(
-        "Define aquí los valores que pueden aparecer como *Datos:* en las preguntas. "
-        "Usa el ID (sin espacios) para referenciar cada constante desde el editor de pregunta."
+        "Define los valores que aparecerán como *Datos:* debajo de los enunciados. "
+        "Una vez añadidas, selecciónalas desde el editor de cada pregunta."
     )
 
     if not st.session_state.db_connected:
         st.info("Conecta una base de datos para gestionar las constantes.")
     else:
-        _dfs_const = st.session_state.excel_dfs
-        _datos_df  = lib.get_datos_df(_dfs_const)
+        import re as _re_const
 
-        # ── Editor ────────────────────────────────────────────────────────────
-        st.markdown("### Editar tabla de constantes")
-        _edited_datos = st.data_editor(
-            _datos_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="datos_editor",
-            column_config={
-                "ID":        st.column_config.TextColumn("ID", help="Clave única sin espacios, p.ej. c_luz", width="small"),
-                "Nombre":    st.column_config.TextColumn("Nombre completo", width="medium"),
-                "Símbolo":   st.column_config.TextColumn("Símbolo LaTeX", help="p.ej. c, m_e, \\hbar", width="small"),
-                "Valor":     st.column_config.TextColumn("Valor LaTeX", help="p.ej. 3{,}00 \\times 10^8", width="medium"),
-                "Unidades":  st.column_config.TextColumn("Unidades LaTeX", help="p.ej. \\text{m/s}, \\text{kg}", width="small"),
-                "Categoría": st.column_config.TextColumn("Categoría", help="Para agrupar en el selector", width="medium"),
-            },
-            hide_index=True,
-        )
+        def _auto_id(nombre: str) -> str:
+            s = nombre.lower().strip()
+            for _src, _dst in [('á','a'),('é','e'),('í','i'),('ó','o'),('ú','u'),('ñ','n')]:
+                s = s.replace(_src, _dst)
+            return _re_const.sub(r'[^a-z0-9]+', '_', s).strip('_')
 
-        if st.button("💾 Guardar constantes", type="primary", key="btn_save_const"):
-            # Limpiar filas completamente vacías
-            _clean = _edited_datos.dropna(subset=['ID']).copy()
-            _clean = _clean[_clean['ID'].astype(str).str.strip() != '']
-            for col in lib.DATOS_COLS:
-                if col not in _clean.columns:
-                    _clean[col] = ''
-            _clean = _clean[lib.DATOS_COLS]
-            _dfs_const = lib.save_datos_df(_dfs_const, _clean)
-            st.session_state.excel_dfs = _dfs_const
-            lib.guardar_excel_local(st.session_state.excel_path, _dfs_const)
-            st.session_state["excel_bytes"] = lib.generar_excel_bytes(_dfs_const)
-            st.success(f"✅ {len(_clean)} constante(s) guardadas.")
-            st.rerun()
+        def _save_datos_state(df_new):
+            _dfs2 = lib.save_datos_df(st.session_state.excel_dfs, df_new)
+            st.session_state.excel_dfs    = _dfs2
+            lib.guardar_excel_local(st.session_state.excel_path, _dfs2)
+            st.session_state["excel_bytes"] = lib.generar_excel_bytes(_dfs2)
 
-        # ── Vista previa LaTeX ─────────────────────────────────────────────────
-        if not _datos_df.empty and _datos_df['ID'].astype(str).str.strip().any():
-            with st.expander("👁️ Vista previa LaTeX", expanded=False):
-                st.caption("Así aparecería si se seleccionan todas:")
-                _all_ids = ','.join(_datos_df['ID'].astype(str).tolist())
-                _latex_prev = lib.format_datos_latex(_all_ids, _datos_df)
-                st.code(_latex_prev, language="latex")
+        _datos_df = lib.get_datos_df(st.session_state.excel_dfs)
+
+        # ── Procesar acciones pendientes (delete / edit-save) antes de renderizar ──
+        _del_id  = st.session_state.pop("_const_del_id", None)
+        _upd_row = st.session_state.pop("_const_upd_row", None)
+
+        if _del_id:
+            _datos_df = _datos_df[_datos_df['ID'].astype(str) != _del_id].reset_index(drop=True)
+            _save_datos_state(_datos_df)
+            st.success(f"Constante '{_del_id}' eliminada.")
+        if _upd_row:
+            _did_upd = _upd_row['ID']
+            _mask = _datos_df['ID'].astype(str) == _did_upd
+            for _col, _val in _upd_row.items():
+                _datos_df.loc[_mask, _col] = _val
+            _save_datos_state(_datos_df)
+            st.session_state.pop("_const_edit_id", None)
+
+        # ── Formulario: añadir nueva constante ───────────────────────────────
+        def _on_nc_nombre_change():
+            st.session_state["nc_id"] = _auto_id(st.session_state.get("nc_nombre", ""))
+
+        _cats_exist = (sorted(_datos_df['Categoría'].dropna().unique().tolist())
+                       if not _datos_df.empty else [])
+
+        with st.expander("➕ Nueva constante", expanded=False):
+            _nca, _ncb = st.columns([3, 2])
+            with _nca:
+                st.text_input("Nombre", key="nc_nombre", on_change=_on_nc_nombre_change,
+                              placeholder="Velocidad de la luz en el vacío")
+                st.text_input("ID (auto-generado, editable)", key="nc_id",
+                              placeholder="c_luz")
+                _nc_cat_opts = _cats_exist + (["✏️ Escribir nueva…"] if _cats_exist else [])
+                if _nc_cat_opts:
+                    _nc_cat_sel = st.selectbox("Categoría", _nc_cat_opts, key="nc_cat_sel")
+                    _nc_cat_final = (st.text_input("Nueva categoría", key="nc_cat_new",
+                                                   placeholder="p.ej. Constantes fundamentales")
+                                    if _nc_cat_sel == "✏️ Escribir nueva…"
+                                    else _nc_cat_sel)
+                else:
+                    _nc_cat_final = st.text_input("Categoría", key="nc_cat_new",
+                                                  placeholder="p.ej. Constantes fundamentales")
+            with _ncb:
+                st.text_input("Símbolo LaTeX", key="nc_sym",
+                              placeholder="c", help="p.ej. `c`, `m_e`, `\\hbar`")
+                st.text_input("Valor LaTeX", key="nc_val",
+                              placeholder="3{,}00 \\times 10^8",
+                              help="Se incluirá dentro de $…$, p.ej. `3{,}00 \\times 10^8`")
+                st.text_input("Unidades LaTeX", key="nc_uni",
+                              placeholder="\\text{m/s}")
+
+            if st.button("💾 Añadir constante", type="primary", key="btn_add_const",
+                         use_container_width=True):
+                _nc_id  = st.session_state.get("nc_id",  "").strip()
+                _nc_nom = st.session_state.get("nc_nombre","").strip()
+                _nc_sym = st.session_state.get("nc_sym", "").strip()
+                _nc_val = st.session_state.get("nc_val", "").strip()
+                _nc_uni = st.session_state.get("nc_uni", "").strip()
+                _nc_cat = _nc_cat_final.strip() if '_nc_cat_final' in dir() else ""
+                if not _nc_id:
+                    st.error("El ID no puede estar vacío.")
+                elif not _nc_val:
+                    st.error("El valor no puede estar vacío.")
+                elif not _datos_df.empty and _nc_id in _datos_df['ID'].astype(str).tolist():
+                    st.error(f"Ya existe una constante con ID `{_nc_id}`.")
+                else:
+                    _new_row = {'ID': _nc_id, 'Nombre': _nc_nom, 'Símbolo': _nc_sym,
+                                'Valor': _nc_val, 'Unidades': _nc_uni, 'Categoría': _nc_cat}
+                    import pandas as _pd_tmp
+                    _datos_df = _pd_tmp.concat([_datos_df, _pd_tmp.DataFrame([_new_row])],
+                                               ignore_index=True)
+                    _save_datos_state(_datos_df)
+                    for _k in ["nc_nombre","nc_id","nc_sym","nc_val","nc_uni","nc_cat_new"]:
+                        st.session_state.pop(_k, None)
+                    st.success(f"✅ Constante `{_nc_id}` añadida.")
+                    st.rerun()
+
+        # ── Lista de constantes por categoría ─────────────────────────────────
+        if _datos_df.empty or not _datos_df['ID'].astype(str).str.strip().any():
+            st.info("Aún no hay constantes. Usa el formulario de arriba para añadir la primera.")
+        else:
+            _edit_id = st.session_state.get("_const_edit_id")
+            _cats_all = sorted(_datos_df['Categoría'].fillna('Sin categoría').unique().tolist())
+
+            for _cat in _cats_all:
+                _cdf = _datos_df[_datos_df['Categoría'].fillna('Sin categoría') == _cat].copy()
+                with st.expander(f"**{_cat}** — {len(_cdf)} constante(s)", expanded=True):
+                    for _, _cr in _cdf.iterrows():
+                        _did = str(_cr['ID']).strip()
+                        if _edit_id == _did:
+                            # ── Modo edición inline ───────────────────────────
+                            with st.form(key=f"form_edit_{_did}", border=True):
+                                _fe1, _fe2 = st.columns(2)
+                                _en = _fe1.text_input("Nombre", value=str(_cr.get('Nombre','') or ''))
+                                _es = _fe2.text_input("Símbolo", value=str(_cr.get('Símbolo','') or ''))
+                                _ev = _fe1.text_input("Valor", value=str(_cr.get('Valor','') or ''))
+                                _eu = _fe2.text_input("Unidades", value=str(_cr.get('Unidades','') or ''))
+                                _cats_ed = sorted(_datos_df['Categoría'].dropna().unique().tolist())
+                                _ec_idx  = _cats_ed.index(_cat) if _cat in _cats_ed else 0
+                                _ec = st.selectbox("Categoría", _cats_ed, index=_ec_idx)
+                                _fsb1, _fsb2 = st.columns(2)
+                                if _fsb1.form_submit_button("💾 Guardar", type="primary",
+                                                            use_container_width=True):
+                                    st.session_state["_const_upd_row"] = {
+                                        'ID': _did, 'Nombre': _en, 'Símbolo': _es,
+                                        'Valor': _ev, 'Unidades': _eu, 'Categoría': _ec
+                                    }
+                                    st.rerun()
+                                if _fsb2.form_submit_button("✖ Cancelar",
+                                                            use_container_width=True):
+                                    st.session_state.pop("_const_edit_id", None)
+                                    st.rerun()
+                        else:
+                            # ── Modo visualización ────────────────────────────
+                            _rc1, _rc2, _rc3 = st.columns([5, 1, 1])
+                            _nom = str(_cr.get('Nombre','') or _did)
+                            _sym = str(_cr.get('Símbolo','') or '')
+                            _val = str(_cr.get('Valor','') or '')
+                            _uni = str(_cr.get('Unidades','') or '')
+                            _eq  = f" = {_val} {_uni}".rstrip() if _val else ""
+                            _rc1.markdown(f"**{_nom}** — `{_did}`")
+                            _rc1.caption(f"{_sym}{_eq}" if _sym or _val else "")
+                            if _rc2.button("✏️", key=f"edbtn_{_did}", use_container_width=True,
+                                           help="Editar"):
+                                st.session_state["_const_edit_id"] = _did
+                                st.rerun()
+                            if _rc3.button("🗑️", key=f"delbtn_{_did}", use_container_width=True,
+                                           help="Eliminar"):
+                                st.session_state["_const_del_id"] = _did
+                                st.rerun()
 
