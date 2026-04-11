@@ -1046,7 +1046,19 @@ def generar_master_examen(pool, num_modelos, cfg):
     letras_version = ['A','B','C','D','E','F']
     for m in range(1, num_modelos+1):
         ex = [p.copy() for p in pool]
-        if cfg.get('barajar_preguntas', True): random.shuffle(ex)
+        if cfg.get('barajar_por_bloques', False):
+            # Mantiene el orden de bloques del pool, baraja dentro de cada bloque
+            _seen, _groups = [], {}
+            for p in ex:
+                _b = p.get('bloque', '')
+                if _b not in _groups:
+                    _groups[_b] = []; _seen.append(_b)
+                _groups[_b].append(p)
+            ex = []
+            for _b in _seen:
+                _g = _groups[_b]; random.shuffle(_g); ex.extend(_g)
+        elif cfg.get('barajar_preguntas', False):
+            random.shuffle(ex)
         for idx, p in enumerate(ex):
             ops = p.get('opciones_visibles', p.get('opciones_list'))[:]
             correcta_orig_letra = p.get('letra_correcta', 'A')

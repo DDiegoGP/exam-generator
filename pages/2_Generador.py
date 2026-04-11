@@ -1140,13 +1140,23 @@ def _ejecutar_export():
     exp_word     = cfg.get("exp_word", True)
     exp_tex      = cfg.get("exp_tex",  True)
 
-    # Usar lo que se generó en Preview (cache_examen).
-    # Si no hay cache (solo preguntas manuales, sin Preview previo), construir desde sel_actual.
-    cache = st.session_state.get("cache_examen") or []
+    # Construir el pool con datos FRESCOS de df_preguntas (para que datos/notas editados
+    # después del Preview aparezcan), preservando el ORDEN de la cache si existe.
+    df_dict = st.session_state.df_preguntas.set_index("ID_Pregunta").to_dict("index")
+    cache   = st.session_state.get("cache_examen") or []
     if cache:
-        pool = list(cache)
+        # Preservar orden de la cache pero releer campos de df_preguntas
+        pool = []
+        for cached_item in cache:
+            pid = cached_item.get("ID_Pregunta", "")
+            if pid in df_dict:
+                item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
+                # Mantener campos calculados por generar_master_examen (opciones_visibles, etc.)
+                for _k in ("opciones_visibles",):
+                    if _k in cached_item:
+                        item[_k] = cached_item[_k]
+                pool.append(item)
     else:
-        df_dict = st.session_state.df_preguntas.set_index("ID_Pregunta").to_dict("index")
         pool = []
         for pid in sel_actual:
             if pid in df_dict:
@@ -1162,7 +1172,8 @@ def _ejecutar_export():
         "instr_gen":         cfg.get("ins",  ""),
         "info_fund":         cfg.get("h1",   ""),
         "info_test":         cfg.get("h2",   ""),
-        "barajar_preguntas":  cfg.get("ord", "bloques") != "manual",
+        "barajar_preguntas":  cfg.get("ord", "Por bloques") == "Global aleatorio",
+        "barajar_por_bloques": cfg.get("ord", "Por bloques") == "Por bloques",
         "barajar_respuestas": cfg.get("bar", True),
         "frases_anclaje_extra": cfg.get("anc_txt","") if cfg.get("anc_chk", True) else "",
         "sol_negrita": cfg.get("sol_bold",  False),
