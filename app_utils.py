@@ -274,6 +274,7 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
         idx_dif  = next((i for i, h in enumerate(head) if "dificultad" in h), -1)
         idx_nota = next((i for i, h in enumerate(head) if "nota" in h and "soluci" not in h), -1)
         idx_sol  = next((i for i, h in enumerate(head) if "soluci" in h), -1)
+        idx_datos = next((i for i, h in enumerate(head) if h == "datos" or h == "datos_ids"), -1)
 
         # Opciones: 4 columnas justo después del enunciado
         idx_opA  = idx_enun + 1 if idx_enun != -1 else -1
@@ -339,6 +340,12 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
                 s = str(r[idx_sol]).strip()
                 sol_val = "" if s in ("nan", "NaT", "None") else s
 
+            # Datos (IDs de constantes físicas, separados por coma)
+            datos_val = ""
+            if idx_datos != -1 and idx_datos < len(r):
+                d = str(r[idx_datos]).strip()
+                datos_val = "" if d in ("nan", "NaT", "None") else d
+
             rows.append({
                 "ID_Pregunta":   id_val,
                 "bloque":        b_name,
@@ -350,11 +357,12 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
                 "usada":         u_val,
                 "notas":         nota_val,
                 "solucion":      sol_val,
+                "datos":         datos_val,
             })
 
     if not rows:
         return pd.DataFrame(columns=["ID_Pregunta","bloque","Tema","enunciado",
-                                      "opciones_list","letra_correcta","dificultad","usada","notas","solucion"])
+                                      "opciones_list","letra_correcta","dificultad","usada","notas","solucion","datos"])
     return pd.DataFrame(rows)
 
 # ── Conexión ─────────────────────────────────────────────────────────────────

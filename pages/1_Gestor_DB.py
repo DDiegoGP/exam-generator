@@ -38,6 +38,56 @@ handle_oauth_callback()
 st.markdown(APP_CSS, unsafe_allow_html=True)
 render_sidebar()
 
+# ── Dialog: selector de constantes físicas ────────────────────────────────────
+@st.dialog("📊 Seleccionar constantes / datos", width="large")
+def _dialog_seleccionar_datos(current_ids: str, result_key: str):
+    """Permite elegir constantes de la BD para asociarlas a una pregunta.
+    El resultado se guarda en st.session_state[result_key] como string CSV de IDs."""
+    dfs = st.session_state.get("excel_dfs", {})
+    datos_df = lib.get_datos_df(dfs)
+
+    if datos_df.empty or datos_df.dropna(subset=['ID']).empty:
+        st.warning("No hay constantes en la base de datos. Ve a la pestaña **🔢 Constantes** para añadirlas.")
+        if st.button("Cerrar"):
+            st.rerun()
+        return
+
+    current_list = [i.strip() for i in str(current_ids).split(',') if i.strip()]
+    selected_ids = list(current_list)
+
+    st.caption("Marca las constantes que aparecerán como *Datos:* debajo del enunciado.")
+
+    datos_df = datos_df[datos_df['ID'].astype(str).str.strip() != ''].copy()
+    categorias = sorted(datos_df['Categoría'].fillna('Sin categoría').unique().tolist())
+
+    for cat in categorias:
+        cat_df = datos_df[datos_df['Categoría'].fillna('Sin categoría') == cat]
+        if cat_df.empty:
+            continue
+        st.markdown(f"**{cat}**")
+        for _, r in cat_df.iterrows():
+            did   = str(r['ID']).strip()
+            nom   = str(r.get('Nombre',  '') or '').strip()
+            sym   = str(r.get('Símbolo', '') or '').strip()
+            val   = str(r.get('Valor',   '') or '').strip()
+            uni   = str(r.get('Unidades','') or '').strip()
+            label = f"**{nom}** — {sym} = {val} {uni}".strip(" —")
+            checked = st.checkbox(label, value=(did in selected_ids),
+                                  key=f"_dsel_{result_key}_{did}")
+            if checked and did not in selected_ids:
+                selected_ids.append(did)
+            elif not checked and did in selected_ids:
+                selected_ids.remove(did)
+
+    st.markdown("---")
+    col_ok, col_cl = st.columns([3, 1])
+    if col_ok.button("✅ Aplicar selección", type="primary", use_container_width=True):
+        st.session_state[result_key] = ','.join(selected_ids)
+        st.rerun()
+    if col_cl.button("✖ Cancelar", use_container_width=True):
+        st.rerun()
+
+
 # ── Dialog: editor de pregunta individual ─────────────────────────────────────
 @st.dialog("✏️ Editar pregunta", width="large")
 def _dialog_editar_pregunta(pid: str, row: dict):
@@ -85,6 +135,29 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         ed_notas = st.text_area("Notas", value=str(row.get("notas", "") or ""),
                                  height=70, key="dlg_notas")
 
+        # Datos / constantes físicas
+        _datos_cur = st.session_state.pop("_dlg_datos_result", None)
+        if _datos_cur is None:
+            _datos_cur = str(row.get("datos", "") or "")
+        st.session_state["_dlg_datos_tmp"] = _datos_cur
+        st.markdown("**Constantes/Datos**")
+        _datos_df_preview = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
+        if _datos_cur:
+            _ids_preview = [i.strip() for i in _datos_cur.split(',') if i.strip()]
+            if not _datos_df_preview.empty:
+                _names = []
+                for _did in _ids_preview:
+                    _r = _datos_df_preview[_datos_df_preview['ID'].astype(str) == _did]
+                    _names.append(_r.iloc[0]['Nombre'] if not _r.empty else _did)
+                st.caption('; '.join(_names))
+            else:
+                st.caption(_datos_cur)
+        else:
+            st.caption("_Sin constantes seleccionadas_")
+        if st.button("📊 Seleccionar constantes", key="dlg_btn_datos",
+                     use_container_width=True):
+            st.session_state["_dlg_open_datos"] = True
+
     with dc2:
         ed_enun = st.text_area("Enunciado", value=str(row.get("enunciado", "")),
                                 height=120, key="dlg_enun")
@@ -93,6 +166,13 @@ def _dialog_editar_pregunta(pid: str, row: dict):
         for li, ll in enumerate(["A", "B", "C", "D"]):
             v = ops_orig[li] if li < len(ops_orig) else ""
             ed_ops.append(st.text_input(f"Opción {ll}", value=v, key=f"dlg_op{ll}"))
+
+    # Abrir dialog de constantes si se pulsó el botón dentro del dialog
+    if st.session_state.pop("_dlg_open_datos", False):
+        _dialog_seleccionar_datos(
+            st.session_state.get("_dlg_datos_tmp", ""),
+            "_dlg_datos_result"
+        )
 
     st.markdown("---")
     sc1, sc2, sc3 = st.columns([2, 2, 1])
@@ -107,6 +187,7 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             "dificultad": ed_dif,
             "usada":      ed_usada,
             "notas":      ed_notas.strip(),
+            "datos_ids":  st.session_state.get("_dlg_datos_tmp", ""),
         }
         ok, msg = lib.actualizar_pregunta_excel_local(
             st.session_state.excel_path,
@@ -430,8 +511,8 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # PESTAÑA PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
-tab_man, tab_sol, tab_add, tab_imp, tab_stat = st.tabs(
-    ["✏️ Gestionar", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas"]
+tab_man, tab_sol, tab_add, tab_imp, tab_stat, tab_const = st.tabs(
+    ["✏️ Gestionar", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas", "🔢 Constantes"]
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1642,4 +1723,62 @@ with tab_sol:
                 st.rerun()
             else:
                 st.error(f"❌ {msg_s}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 6 · CONSTANTES FÍSICAS
+# ─────────────────────────────────────────────────────────────────────────────
+with tab_const:
+    st.subheader("Constantes físicas / Datos")
+    st.caption(
+        "Define aquí los valores que pueden aparecer como *Datos:* en las preguntas. "
+        "Usa el ID (sin espacios) para referenciar cada constante desde el editor de pregunta."
+    )
+
+    if not st.session_state.db_connected:
+        st.info("Conecta una base de datos para gestionar las constantes.")
+    else:
+        _dfs_const = st.session_state.excel_dfs
+        _datos_df  = lib.get_datos_df(_dfs_const)
+
+        # ── Editor ────────────────────────────────────────────────────────────
+        st.markdown("### Editar tabla de constantes")
+        _edited_datos = st.data_editor(
+            _datos_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="datos_editor",
+            column_config={
+                "ID":        st.column_config.TextColumn("ID", help="Clave única sin espacios, p.ej. c_luz", width="small"),
+                "Nombre":    st.column_config.TextColumn("Nombre completo", width="medium"),
+                "Símbolo":   st.column_config.TextColumn("Símbolo LaTeX", help="p.ej. c, m_e, \\hbar", width="small"),
+                "Valor":     st.column_config.TextColumn("Valor LaTeX", help="p.ej. 3{,}00 \\times 10^8", width="medium"),
+                "Unidades":  st.column_config.TextColumn("Unidades LaTeX", help="p.ej. \\text{m/s}, \\text{kg}", width="small"),
+                "Categoría": st.column_config.TextColumn("Categoría", help="Para agrupar en el selector", width="medium"),
+            },
+            hide_index=True,
+        )
+
+        if st.button("💾 Guardar constantes", type="primary", key="btn_save_const"):
+            # Limpiar filas completamente vacías
+            _clean = _edited_datos.dropna(subset=['ID']).copy()
+            _clean = _clean[_clean['ID'].astype(str).str.strip() != '']
+            for col in lib.DATOS_COLS:
+                if col not in _clean.columns:
+                    _clean[col] = ''
+            _clean = _clean[lib.DATOS_COLS]
+            _dfs_const = lib.save_datos_df(_dfs_const, _clean)
+            st.session_state.excel_dfs = _dfs_const
+            lib.guardar_excel_local(st.session_state.excel_path, _dfs_const)
+            st.session_state["excel_bytes"] = lib.generar_excel_bytes(_dfs_const)
+            st.success(f"✅ {len(_clean)} constante(s) guardadas.")
+            st.rerun()
+
+        # ── Vista previa LaTeX ─────────────────────────────────────────────────
+        if not _datos_df.empty and _datos_df['ID'].astype(str).str.strip().any():
+            with st.expander("👁️ Vista previa LaTeX", expanded=False):
+                st.caption("Así aparecería si se seleccionan todas:")
+                _all_ids = ','.join(_datos_df['ID'].astype(str).tolist())
+                _latex_prev = lib.format_datos_latex(_all_ids, _datos_df)
+                st.code(_latex_prev, language="latex")
 

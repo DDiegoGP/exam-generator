@@ -6,7 +6,9 @@ from docx import Document
 CFG_BLOQUES_SHEET  = "Cfg_Bloques"
 CFG_TEMAS_SHEET    = "Cfg_Temas"
 CFG_GENERAL_SHEET  = "Cfg_General"
-CFG_SHEETS         = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET}
+DATOS_SHEET        = "Datos"
+CFG_SHEETS         = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET, DATOS_SHEET}
+DATOS_COLS         = ["ID", "Nombre", "Símbolo", "Valor", "Unidades", "Categoría"]
 from docx.shared import Inches, RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import openpyxl
@@ -85,6 +87,8 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
             df['notas'] = ''; dict_of_dfs[bloque] = df
         if not any('soluci' in str(c).lower() for c in df.columns):
             df['Solución'] = ''; dict_of_dfs[bloque] = df
+        if not any(str(c).lower() == 'datos' for c in df.columns):
+            df['Datos'] = ''; dict_of_dfs[bloque] = df
         mask = df['ID_Pregunta'].astype(str) == str(pid)
         if not mask.any():
             return False, "ID no encontrado"
@@ -108,6 +112,8 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
                     df.at[idx, col] = datos['solucion']
             elif 'nota' in cl:
                 df.at[idx, col] = datos.get('notas', '')
+            elif cl == 'datos':
+                df.at[idx, col] = datos.get('datos_ids', '')
 
         # Actualizar opciones (columnas después de Enunciado)
         enun_col_idx = None
@@ -958,6 +964,82 @@ def save_cfg_general(dfs: dict, kv: dict) -> dict:
     return dfs
 
 
+# ── Constantes / Datos físicos ────────────────────────────────────────────────
+def get_datos_df(dfs: dict) -> pd.DataFrame:
+    """Retorna el DataFrame de constantes físicas. Vacío (con columnas) si la hoja no existe."""
+    if DATOS_SHEET in dfs:
+        df = dfs[DATOS_SHEET].copy()
+        for col in DATOS_COLS:
+            if col not in df.columns:
+                df[col] = ''
+        return df
+    return pd.DataFrame(columns=DATOS_COLS)
+
+
+def save_datos_df(dfs: dict, df: pd.DataFrame) -> dict:
+    """Guarda el DataFrame de constantes en el dict de hojas."""
+    dfs[DATOS_SHEET] = df.copy()
+    return dfs
+
+
+def format_datos_latex(ids_str: str, datos_df: pd.DataFrame) -> str:
+    """Formatea las constantes seleccionadas como bloque LaTeX inline.
+    ids_str: IDs separados por comas. Retorna string LaTeX o '' si vacío."""
+    if not ids_str or datos_df is None or datos_df.empty:
+        return ''
+    ids = [i.strip() for i in str(ids_str).split(',') if i.strip()]
+    if not ids:
+        return ''
+    parts = []
+    for did in ids:
+        row = datos_df[datos_df['ID'].astype(str) == did]
+        if row.empty:
+            continue
+        r = row.iloc[0]
+        sym = str(r.get('Símbolo', '') or '').strip()
+        val = str(r.get('Valor',   '') or '').strip()
+        uni = str(r.get('Unidades','') or '').strip()
+        if not val:
+            continue
+        uni_str = f'\\;\\mathrm{{{uni}}}' if uni else ''
+        if sym:
+            parts.append(f'${sym} = {val}{uni_str}$')
+        else:
+            parts.append(f'${val}{uni_str}$')
+    if not parts:
+        return ''
+    return r'\par{\small\textit{Datos: }' + '; '.join(parts) + '}'
+
+
+def format_datos_word(ids_str: str, datos_df: pd.DataFrame) -> str:
+    """Formatea las constantes seleccionadas como texto plano para Word."""
+    if not ids_str or datos_df is None or datos_df.empty:
+        return ''
+    ids = [i.strip() for i in str(ids_str).split(',') if i.strip()]
+    if not ids:
+        return ''
+    parts = []
+    for did in ids:
+        row = datos_df[datos_df['ID'].astype(str) == did]
+        if row.empty:
+            continue
+        r = row.iloc[0]
+        sym = str(r.get('Símbolo', '') or '').strip()
+        val = str(r.get('Valor',   '') or '').strip()
+        uni = str(r.get('Unidades','') or '').strip()
+        if not val:
+            continue
+        label = sym if sym else str(r.get('Nombre','') or '').strip()
+        chunk = f'{val} {uni}'.strip() if uni else val
+        if label:
+            parts.append(f'{label} = {chunk}')
+        else:
+            parts.append(chunk)
+    if not parts:
+        return ''
+    return 'Datos: ' + '; '.join(parts)
+
+
 # --- EXPORTAR ---
 def generar_master_examen(pool, num_modelos, cfg):
     master = []
@@ -1082,11 +1164,16 @@ def generar_latex(master, ruta, nombre, cfg, modo_solucion=False):
             logo_tex = ""
         tex = tex.replace('[[LOGO]]', logo_tex)
 
+        _datos_df_g = cfg.get('datos_df', pd.DataFrame())
+
         bloque_fund = ""
         if cfg.get('fundamentales_data'):
             bloque_fund = r"\begin{enumerate}" + "\n"
             for c in cfg['fundamentales_data']:
                 bloque_fund += r"\item " + _markdown_to_latex(c['txt']) + r" (" + str(c['pts']) + " pts)\n"
+                _d = format_datos_latex(c.get('datos_ids', ''), _datos_df_g)
+                if _d:
+                    bloque_fund += _d + "\n"
                 esp = c.get('espacio','Automático'); h = "5cm"
                 if "10" in esp: h="8cm"
                 elif "Media" in esp: h="12cm"
@@ -1099,6 +1186,9 @@ def generar_latex(master, ruta, nombre, cfg, modo_solucion=False):
         bloque_test = ""
         for p in m['preguntas']:
             bloque_test += r"\question " + _escape_latex(p['enunciado']) + "\n"
+            _d = format_datos_latex(p.get('datos', ''), _datos_df_g)
+            if _d:
+                bloque_test += _d + "\n"
             ops = p['opciones_finales']; letra_corr = p['letra_final']; idx_corr = {'A':0,'B':1,'C':2,'D':3}.get(letra_corr, 0)
             bloque_test += r"\begin{choices}" + "\n"
             for i, l in enumerate(['a','b','c','d']):
@@ -1775,6 +1865,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         )
 
         # ── PARTE I: Desarrollo ──────────────────────────────────────────────
+        _datos_df_g = cfg.get('datos_df', pd.DataFrame())
         bloque_fund = ""
         fund_data = cfg.get('fundamentales_data', [])
         has_test  = bool(m.get('preguntas'))
@@ -1810,6 +1901,9 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 if img_name and img_pos == 'encima':
                     bloque_fund += _img_cmd
                 bloque_fund += pts_prefix + _markdown_to_latex(c['txt']) + '\n'
+                _d = format_datos_latex(c.get('datos_ids', ''), _datos_df_g)
+                if _d:
+                    bloque_fund += _d + '\n'
                 if img_name and img_pos in ('debajo', 'lado'):
                     bloque_fund += _img_cmd
                 if modo_solucion:
@@ -1845,6 +1939,9 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 idx_c     = {'A': 0, 'B': 1, 'C': 2, 'D': 3}.get(letra_c, 0)
                 bloque_test += '\\item \\begin{minipage}[t]{\\linewidth}\n'
                 bloque_test += _markdown_to_latex(p['enunciado']) + '\n'
+                _d = format_datos_latex(p.get('datos', ''), _datos_df_g)
+                if _d:
+                    bloque_test += _d + '\n'
                 if _show_info:
                     _b = _escape_latex(str(p.get('bloque', ''))) if sol_bloque else '---'
                     _t = _escape_latex(str(p.get('Tema',   ''))) if sol_tema   else '---'

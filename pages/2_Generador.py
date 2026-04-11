@@ -701,7 +701,8 @@ with tab_dev:
     if st.button("➕ Añadir pregunta de desarrollo", key="btn_add_dev"):
         dev_qs.append({"txt": "", "pts": 1.0, "espacio": "Automático",
                        "criterios": [], "solucion_modelo": "",
-                       "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo"})
+                       "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo",
+                       "datos_ids": ""})
         st.session_state.dev_questions = dev_qs
         st.rerun()
 
@@ -765,10 +766,13 @@ with tab_dev:
             new_img_bytes  = q.get("imagen_bytes")
             new_img_name   = q.get("imagen_name", "")
             new_img_pos    = q.get("imagen_pos", "debajo")
+            new_datos_ids  = q.get("datos_ids", "")
 
-            # ── Rúbrica + Imagen + Solución modelo ───────────────────────────
-            with st.expander("📋 Rúbrica / Imagen / Solución modelo", expanded=False):
-                _rub_tab, _img_tab, _sol_tab = st.tabs(["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo"])
+            # ── Rúbrica + Imagen + Solución modelo + Datos ───────────────────
+            with st.expander("📋 Rúbrica / Imagen / Solución / Datos", expanded=False):
+                _rub_tab, _img_tab, _sol_tab, _dat_tab = st.tabs(
+                    ["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo", "🔢 Datos"]
+                )
 
                 with _rub_tab:
                     st.caption("Define los criterios de evaluación con su puntuación parcial.")
@@ -837,6 +841,41 @@ with tab_dev:
                             f'<div style="padding:8px;font-family:serif;font-size:11pt">{new_sol_modelo}</div>'
                         ), height=120, scrolling=False)
 
+                with _dat_tab:
+                    st.caption(
+                        "Selecciona las constantes que aparecerán como *Datos:* debajo del enunciado. "
+                        "Para añadir nuevas constantes ve al **Gestor → 🔢 Constantes**."
+                    )
+                    _datos_df_gen = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
+                    if _datos_df_gen.empty or not _datos_df_gen['ID'].astype(str).str.strip().any():
+                        st.info("No hay constantes en la BD. Añádelas en Gestor → 🔢 Constantes.")
+                    else:
+                        _cur_ids = [x.strip() for x in new_datos_ids.split(',') if x.strip()]
+                        _cats_gen = sorted(_datos_df_gen['Categoría'].fillna('Sin categoría').unique().tolist())
+                        _sel_ids = list(_cur_ids)
+                        for _cat in _cats_gen:
+                            _cdf = _datos_df_gen[_datos_df_gen['Categoría'].fillna('Sin categoría') == _cat]
+                            if _cdf.empty:
+                                continue
+                            st.markdown(f"**{_cat}**")
+                            for _, _dr in _cdf.iterrows():
+                                _did = str(_dr['ID']).strip()
+                                _nom = str(_dr.get('Nombre','') or '').strip()
+                                _sym = str(_dr.get('Símbolo','') or '').strip()
+                                _val = str(_dr.get('Valor','') or '').strip()
+                                _uni = str(_dr.get('Unidades','') or '').strip()
+                                _lbl = f"{_nom} — {_sym} = {_val} {_uni}".strip(" —")
+                                _chk = st.checkbox(_lbl, value=(_did in _sel_ids),
+                                                   key=f"gen_dat_{i}_{_did}")
+                                if _chk and _did not in _sel_ids:
+                                    _sel_ids.append(_did)
+                                elif not _chk and _did in _sel_ids:
+                                    _sel_ids.remove(_did)
+                        new_datos_ids = ','.join(_sel_ids)
+                        if new_datos_ids:
+                            _prev = lib.format_datos_word(new_datos_ids, _datos_df_gen)
+                            st.caption(f"→ *{_prev}*")
+
             dev_qs[i] = {
                 "txt": new_txt, "pts": new_pts, "espacio": new_esp,
                 "criterios": criterios,
@@ -844,6 +883,7 @@ with tab_dev:
                 "imagen_bytes": new_img_bytes,
                 "imagen_name":  new_img_name,
                 "imagen_pos":   new_img_pos,
+                "datos_ids":    new_datos_ids,
             }
 
     if to_delete:
@@ -1136,9 +1176,12 @@ def _ejecutar_export():
                 "imagen_bytes": q.get("imagen_bytes"),
                 "imagen_name":  q.get("imagen_name", f"dev_img_{di+1}.png"),
                 "imagen_pos":   q.get("imagen_pos", "debajo"),
+                "datos_ids":    q.get("datos_ids", ""),
             }
             for di, q in enumerate(st.session_state.get("dev_questions", []))
         ],
+        # Constantes / Datos físicos
+        "datos_df": lib.get_datos_df(st.session_state.get("excel_dfs", {})),
         # Estilo visual
         "color_scheme":  cfg.get("color_scheme", "azul"),
         "tipografia":    cfg.get("tipografia",   "cm"),
