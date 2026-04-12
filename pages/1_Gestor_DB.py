@@ -1747,6 +1747,7 @@ with tab_const:
             st.session_state.excel_dfs    = _dfs2
             lib.guardar_excel_local(st.session_state.excel_path, _dfs2)
             st.session_state["excel_bytes"] = lib.generar_excel_bytes(_dfs2)
+            sync_bloques_gsheets([lib.DATOS_SHEET])  # sincronizar con Google Sheets si está conectado
 
         _datos_df = lib.get_datos_df(st.session_state.excel_dfs)
 
