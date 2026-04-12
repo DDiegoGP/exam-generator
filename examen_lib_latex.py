@@ -752,6 +752,27 @@ _UNICODE_TO_LATEX = {
     '\u212b': r'\ensuremath{\text{\AA}}', # Å (angstrom)
     '\u00e5': r'\aa{}',                  # å
     '\u2103': r'\ensuremath{^\circ\text{C}}', # ℃
+    # Física / matemáticas adicionales
+    '\u221d': r'\ensuremath{\propto}',   # ∝ proporcional a
+    '\u2243': r'\ensuremath{\simeq}',    # ≃
+    '\u223c': r'\ensuremath{\sim}',      # ∼
+    '\u2229': r'\ensuremath{\cap}',      # ∩
+    '\u222a': r'\ensuremath{\cup}',      # ∪
+    '\u2208': r'\ensuremath{\in}',       # ∈
+    '\u2205': r'\ensuremath{\emptyset}', # ∅
+    '\u03ba': r'\ensuremath{\kappa}',    # κ
+    '\u03be': r'\ensuremath{\xi}',       # ξ
+    '\u03c7': r'\ensuremath{\chi}',      # χ
+    '\u03c8': r'\ensuremath{\psi}',      # ψ
+    '\u039b': r'\ensuremath{\Lambda}',   # Λ
+    '\u03a0': r'\ensuremath{\Pi}',       # Π
+    '\u03a8': r'\ensuremath{\Psi}',      # Ψ
+    '\u2126': r'\ensuremath{\Omega}',    # Ω (ohm sign)
+    '\u03bc\u0041': r'\ensuremath{\mu A}', # μA — handled char by char
+    '\u2310': r'\ensuremath{\neg}',      # ¬
+    '\u00bd': r'\ensuremath{\tfrac{1}{2}}', # ½
+    '\u00bc': r'\ensuremath{\tfrac{1}{4}}', # ¼
+    '\u00be': r'\ensuremath{\tfrac{3}{4}}', # ¾
 }
 
 
@@ -1001,7 +1022,10 @@ def format_datos_latex(ids_str: str, datos_df: pd.DataFrame) -> str:
         uni = str(r.get('Unidades','') or '').strip()
         if not val:
             continue
-        uni_str = f'\\;\\mathrm{{{uni}}}' if uni else ''
+        if uni:
+            uni_str = f'\\;{uni}' if '\\' in uni else f'\\;\\mathrm{{{uni}}}'
+        else:
+            uni_str = ''
         if sym:
             parts.append(f'${sym} = {val}{uni_str}$')
         else:
