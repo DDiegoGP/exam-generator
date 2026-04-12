@@ -1702,24 +1702,58 @@ def _dialog_preview_examen():
 
 
 def _render_pdf_viewer(pdf_bytes: bytes, height: int = 700):
-    """Muestra un PDF en un iframe usando blob URL (funciona en Chrome/Firefox).
-    Chrome bloquea data: URIs en iframes, pero permite createObjectURL."""
+    """Renderiza PDF con PDF.js (canvas). Funciona en iframes sandboxed de Streamlit;
+    no depende del visor nativo del navegador ni de blob: URLs en iframes anidados."""
     import base64 as _b64
     _b64_str = _b64.b64encode(pdf_bytes).decode()
-    _uid = abs(hash(pdf_bytes[:64]))  # ID único para el elemento
     stcomponents.html(f"""
-<iframe id="pdfviewer_{_uid}" src="about:blank" width="100%" height="{height}px"
-  style="border:1px solid #ccc;border-radius:6px;display:block">
-</iframe>
+<div id="pdf-container"
+     style="background:#666;padding:8px;overflow-y:auto;height:{height}px;box-sizing:border-box">
+  <p id="pdf-loading" style="color:#fff;text-align:center;margin-top:40px;font-family:sans-serif">
+    Cargando PDF…
+  </p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function() {{
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
   var b64 = "{_b64_str}";
   var bin = atob(b64);
   var arr = new Uint8Array(bin.length);
   for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  var blob = new Blob([arr], {{type: "application/pdf"}});
-  var url  = URL.createObjectURL(blob);
-  document.getElementById("pdfviewer_{_uid}").src = url;
+
+  var container = document.getElementById('pdf-container');
+  var loading   = document.getElementById('pdf-loading');
+
+  pdfjsLib.getDocument({{data: arr}}).promise.then(function(pdf) {{
+    loading.remove();
+    var total = pdf.numPages;
+    function renderPage(num) {{
+      pdf.getPage(num).then(function(page) {{
+        var contW = container.clientWidth - 16;   // 8px padding cada lado
+        var vp0   = page.getViewport({{scale: 1}});
+        var scale  = contW / vp0.width;
+        var vp     = page.getViewport({{scale: scale}});
+        var canvas = document.createElement('canvas');
+        canvas.width  = vp.width;
+        canvas.height = vp.height;
+        canvas.style.display    = 'block';
+        canvas.style.margin     = '0 auto 8px';
+        canvas.style.background = '#fff';
+        canvas.style.boxShadow  = '0 1px 4px rgba(0,0,0,.5)';
+        container.appendChild(canvas);
+        page.render({{canvasContext: canvas.getContext('2d'), viewport: vp}}).promise.then(function() {{
+          if (num < total) renderPage(num + 1);
+        }});
+      }});
+    }}
+    renderPage(1);
+  }}).catch(function(err) {{
+    loading.textContent = 'Error cargando PDF: ' + err.message;
+    loading.style.color = '#f88';
+  }});
 }})();
 </script>
 """, height=height + 20, scrolling=False)
