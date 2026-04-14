@@ -31,6 +31,7 @@ from app_utils import (
     append_historial, save_preset, delete_preset,
     nombre_bloque, nombre_tema,
     OUTPUT_DIR, _nsort,
+    _dialog_editar_pregunta, marcar_preguntas_usadas,
 )
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -415,11 +416,11 @@ with tab_sel:
                         unsafe_allow_html=True,
                     )
 
-                # Botones añadir / quitar + Solución
+                # Botones añadir / quitar + Solución + Editar
                 is_sel = preview_pid in sel_ids_actual
-                pa1, pa2, pa3 = st.columns(3)
+                pa1, pa2, pa3, pa4 = st.columns(4)
                 if is_sel:
-                    if pa1.button("➖ Quitar del examen", key="btn_prev_rem",
+                    if pa1.button("➖ Quitar", key="btn_prev_rem",
                                    use_container_width=True):
                         cur = get_sel_ids()
                         if preview_pid in cur:
@@ -427,7 +428,7 @@ with tab_sel:
                         set_sel_ids(cur)
                         st.rerun()
                 else:
-                    if pa1.button("➕ Añadir al examen", key="btn_prev_add",
+                    if pa1.button("➕ Añadir", key="btn_prev_add",
                                    use_container_width=True, type="primary"):
                         cur = get_sel_ids()
                         if preview_pid not in cur:
@@ -437,18 +438,23 @@ with tab_sel:
 
                 # Botón Solución
                 sol_txt_prev = str(row_d_prev.get("solucion", "") or "").strip()
-                if pa2.button("📖 Solución", key="btn_prev_sol",
+                if pa2.button("📖 Sol.", key="btn_prev_sol",
                                use_container_width=True, disabled=not sol_txt_prev):
                     st.session_state["_gen_sol_pid"] = preview_pid
                     st.session_state["_gen_sol_row"] = row_d_prev
 
                 # Botón MathJax
                 _mjax_key_sel = f"mjax_sel_{preview_pid}"
-                if pa3.button("∑ Renderizar LaTeX", key=f"mjax_btn_sel_{preview_pid}",
+                if pa3.button("∑ LaTeX", key=f"mjax_btn_sel_{preview_pid}",
                                use_container_width=True):
                     st.session_state[_mjax_key_sel] = True
+
+                # Botón Editar
+                if pa4.button("✏️ Editar", key=f"btn_edit_prev_{preview_pid}",
+                               use_container_width=True):
+                    _dialog_editar_pregunta(preview_pid, row_d_prev)
                 if st.session_state.get(_mjax_key_sel, False):
-                    mj1, mj2 = st.columns([1, 3])
+                    mj1, mj2 = st.columns([1, 4])
                     if mj1.button("✖ Cerrar LaTeX", key=f"mjax_close_sel_{preview_pid}",
                                    use_container_width=True):
                         st.session_state[_mjax_key_sel] = False
@@ -915,7 +921,7 @@ with tab_prev:
     ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = st.columns([2, 2, 2, 1, 1])
     show_sol  = ctrl1.checkbox("Mostrar soluciones ✓", value=True, key="prev_show_sol")
     ord_prev  = ctrl2.selectbox("Orden",
-                    ["Por bloques", "Global aleatorio", "Manual (selección)", "Sin barajar (ID)"],
+                    ["Por bloques", "Por temas", "Global aleatorio", "Manual (selección)", "Sin barajar (ID)"],
                     key="prev_ord")
     seed_prev = ctrl3.number_input("Semilla (0=aleatoria)", min_value=0, value=0, key="prev_seed")
     _locked   = st.session_state.get("recovery_mode", False)
@@ -993,6 +999,12 @@ with tab_prev:
             elif ord_key == "Manual (selección)":
                 pos = {pid: i for i, pid in enumerate(exam_ids)}
                 pool.sort(key=lambda x: pos.get(x["ID_Pregunta"], 9999))
+            elif ord_key == "Por temas":
+                pool.sort(key=lambda x: (nsort(x.get("bloque", "")), nsort(str(x.get("Tema", "")))))
+                new_pool = []
+                for _, grp in groupby(pool, key=lambda x: (x.get("bloque", ""), str(x.get("Tema", "")))):
+                    g = list(grp); rng.shuffle(g); new_pool.extend(g)
+                pool = new_pool
             else:  # Por bloques
                 pool.sort(key=lambda x: nsort(x.get("bloque", "")))
                 new_pool = []
@@ -1172,9 +1184,10 @@ def _ejecutar_export():
         "instr_gen":         cfg.get("ins",  ""),
         "info_fund":         cfg.get("h1",   ""),
         "info_test":         cfg.get("h2",   ""),
-        "barajar_preguntas":  cfg.get("ord", "Por bloques") == "Global aleatorio",
-        "barajar_por_bloques": cfg.get("ord", "Por bloques") == "Por bloques",
-        "barajar_respuestas": cfg.get("bar", True),
+        "barajar_preguntas":   cfg.get("ord", "bloques") == "global",
+        "barajar_por_bloques": cfg.get("ord", "bloques") == "bloques",
+        "barajar_por_temas":   cfg.get("ord", "bloques") == "temas",
+        "barajar_respuestas":  cfg.get("bar", True),
         "frases_anclaje_extra": cfg.get("anc_txt","") if cfg.get("anc_chk", True) else "",
         "sol_negrita": cfg.get("sol_bold",  False),
         "sol_color":   cfg.get("sol_color", "red"),
@@ -1194,11 +1207,15 @@ def _ejecutar_export():
         # Constantes / Datos físicos
         "datos_df": lib.get_datos_df(st.session_state.get("excel_dfs", {})),
         # Estilo visual
-        "color_scheme":  cfg.get("color_scheme", "azul"),
-        "tipografia":    cfg.get("tipografia",   "cm"),
-        "font_size":     cfg.get("font_size",    12),
-        "linespread":    1.0,
-        "modo_compacto": cfg.get("modo_compacto", False),
+        "color_scheme":     cfg.get("color_scheme", "azul"),
+        "tipografia":       cfg.get("tipografia",   "cm"),
+        "font_size":        cfg.get("font_size",    12),
+        "linespread":       1.0,
+        "espaciado":        cfg.get("espaciado", "normal"),
+        "modo_compacto":    cfg.get("espaciado", "normal") == "compacto",  # compat
+        "margenes":         cfg.get("margenes", "normal"),
+        "cabecera_compacta": cfg.get("cabecera_compacta", False),
+        "sin_recuadro":     cfg.get("sin_recuadro", False),
         # Puntos y penalización
         "pts_fund":      cfg.get("pts_fund", ""),
         "pts_test":      cfg.get("pts_test", ""),
@@ -1891,18 +1908,14 @@ with tab_exp:
             oc1, oc2, oc3 = st.columns(3)
             num_modelos = oc1.selectbox("Nº Modelos", [1, 2, 3, 4],
                                         index=max(0, cfg.get("vers", 1) - 1), key="exp_vers")
-            _orden_opts = [("Aleatorio por Bloques","bloques"),("Aleatorio Global","global"),
+            _orden_opts = [("Aleatorio por Bloques","bloques"),("Aleatorio por Temas","temas"),
+                           ("Aleatorio Global","global"),
                            ("Manual (selección)","manual"),("Sin barajar (ID)","secuencial")]
             _orden_idx  = next((i for i, (_, v) in enumerate(_orden_opts) if v == cfg.get("ord","bloques")), 0)
             orden_val   = oc2.selectbox("Orden preguntas", _orden_opts, index=_orden_idx,
                                         format_func=lambda x: x[0], key="exp_ord")
             orden       = orden_val[1]
             barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
-            oc4         = st.columns(1)[0]
-            _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
-            _cols_opt   = oc4.radio("Disposición opciones test", ["1 columna", "2 columnas"],
-                                    index=_cols_idx, horizontal=True, key="exp_opcols")
-            opciones_cols = 1 if _cols_opt == "1 columna" else 2
         campos_alumno = _campos_sel
 
         # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
@@ -1963,9 +1976,11 @@ with tab_exp:
                                           key="exp_color_scheme")
             _font_opts    = {"cm": "Computer Modern (LaTeX)", "palatino": "Palatino / Georgia",
                              "times": "Times New Roman", "libertine": "Linux Libertine",
-                             "helvet": "Helvetica / Arial", "garamond": "Garamond"}
+                             "helvet": "Helvetica / Arial"}
             _font_cur     = cfg.get("tipografia", "cm")
-            _font_idx     = list(_font_opts.keys()).index(_font_cur) if _font_cur in _font_opts else 0
+            if _font_cur not in _font_opts:
+                _font_cur = "cm"
+            _font_idx     = list(_font_opts.keys()).index(_font_cur)
             tipografia    = sv2.selectbox("Tipografía", list(_font_opts.keys()),
                                           index=_font_idx, format_func=lambda x: _font_opts[x],
                                           key="exp_tipografia")
@@ -1976,9 +1991,40 @@ with tab_exp:
             font_size_val = sv3.selectbox("Tamaño de letra", _size_opts,
                                           index=_size_idx, format_func=lambda x: f"{x} pt",
                                           key="exp_font_size")
-            modo_compacto = sv4.checkbox("Modo compacto LaTeX",
-                                         value=cfg.get("modo_compacto", False), key="exp_compacto",
-                                         help="Encabezado pequeño, más preguntas en página 1")
+            # Espaciado entre preguntas (sustituye al antiguo modo_compacto bool)
+            _esp_opts  = {"normal": "Normal", "compacto": "Compacto", "muy_compacto": "Muy compacto"}
+            _esp_raw   = cfg.get("espaciado", "compacto" if cfg.get("modo_compacto", False) else "normal")
+            if _esp_raw not in _esp_opts:
+                _esp_raw = "normal"
+            espaciado  = sv4.selectbox("Espaciado preguntas", list(_esp_opts.keys()),
+                                       index=list(_esp_opts.keys()).index(_esp_raw),
+                                       format_func=lambda x: _esp_opts[x],
+                                       key="exp_espaciado",
+                                       help="Normal: 1.5em · Compacto: 0.8em · Muy compacto: 0.4em entre preguntas")
+            sv5, sv6  = st.columns(2)
+            _marg_opts = {"normal": "Normal (20 mm)", "reducido": "Reducido (15 mm)", "minimo": "Mínimo (12 mm)"}
+            _marg_cur  = cfg.get("margenes", "normal")
+            if _marg_cur not in _marg_opts:
+                _marg_cur = "normal"
+            margenes   = sv5.selectbox("Márgenes", list(_marg_opts.keys()),
+                                       index=list(_marg_opts.keys()).index(_marg_cur),
+                                       format_func=lambda x: _marg_opts[x],
+                                       key="exp_margenes")
+            _cab_opts  = {"normal": "Normal (completa)", "compacta": "Compacta (una línea)"}
+            _cab_cur   = "compacta" if cfg.get("cabecera_compacta", False) else "normal"
+            _cab_sel   = sv6.selectbox("Cabecera", list(_cab_opts.keys()),
+                                       index=list(_cab_opts.keys()).index(_cab_cur),
+                                       format_func=lambda x: _cab_opts[x],
+                                       key="exp_cabecera")
+            cabecera_compacta = (_cab_sel == "compacta")
+            sv7, sv8  = st.columns(2)
+            sin_recuadro = sv7.checkbox("Ocultar recuadro del alumno",
+                                        value=cfg.get("sin_recuadro", False), key="exp_sin_recuadro",
+                                        help="No genera la caja Nombre/DNI/Firma")
+            _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
+            _cols_opt   = sv8.radio("Disposición opciones test", ["1 columna", "2 columnas"],
+                                    index=_cols_idx, horizontal=True, key="exp_opcols")
+            opciones_cols = 1 if _cols_opt == "1 columna" else 2
             _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "vacio": "Círculo ○", "numero": "Número 1.", "nada": "Sin estilo"}
             _enum_cur   = cfg.get("estilo_num", "cuadrado")
             _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
@@ -2211,7 +2257,9 @@ with tab_exp:
             "anc_chk": anclaje_auto, "anc_txt": anclaje_extra,
             # Estilo visual
             "color_scheme": color_scheme, "tipografia": tipografia,
-            "font_size": font_size_val, "modo_compacto": modo_compacto,
+            "font_size": font_size_val,
+            "espaciado": espaciado, "margenes": margenes,
+            "cabecera_compacta": cabecera_compacta, "sin_recuadro": sin_recuadro,
             "estilo_num": estilo_num,
             "fancyhdr_on": fancyhdr_on, "footer_text": footer_text,
             "dos_por_hoja": dos_por_hoja,
@@ -2268,7 +2316,8 @@ with tab_exp:
         _tpl_w = st.session_state.get("_tpl_word_name", "por defecto")
         _tpl_t = st.session_state.get("_tpl_tex_name",  "por defecto")
 
-        _orden_labels = {"bloques": "Aleatorio por bloques", "global": "Aleatorio global",
+        _orden_labels = {"bloques": "Aleatorio por bloques", "temas": "Aleatorio por temas",
+                         "global": "Aleatorio global",
                          "manual": "Manual (selección)", "secuencial": "Sin barajar (ID)"}
         _orden_label = _orden_labels.get(orden, orden)
         _barajar_str = "Sí" if barajar else "No"
@@ -2379,10 +2428,33 @@ with tab_exp:
             _cc2.download_button("📊 Metadatos", data=ef["csv_meta"],   file_name=f"{_nef}_METADATA.csv",
                                  mime="text/csv", use_container_width=True, key="dl_csv_meta")
 
+            # ── Marcar preguntas como utilizadas ─────────────────────────────
+            st.markdown("---")
+            _cache_pids = [p.get("ID_Pregunta", "") for p in (st.session_state.get("cache_examen") or []) if p.get("ID_Pregunta")]
+            _ya_marcado = st.session_state.get("_exam_marcado", False)
+            if _ya_marcado:
+                st.success(f"✅ {st.session_state.get('_exam_marcado_n', 0)} preguntas marcadas como utilizadas el {datetime.date.today()}")
+                if st.button("↩ Deshacer marcado", key="btn_unmark", use_container_width=True):
+                    st.session_state.pop("_exam_marcado", None)
+                    st.session_state.pop("_exam_marcado_n", None)
+                    st.rerun()
+            else:
+                _mu1, _mu2 = st.columns([3, 2])
+                _mu1.caption(f"📋 {len(_cache_pids)} preguntas en el examen actual")
+                if _mu2.button("✅ Marcar como utilizadas", key="btn_marcar_usadas",
+                               use_container_width=True, disabled=not _cache_pids,
+                               help="Guarda la fecha de hoy como 'Fecha de uso' en la BD para todas las preguntas del examen"):
+                    _n = marcar_preguntas_usadas(_cache_pids, datetime.date.today().strftime("%Y-%m-%d"))
+                    st.session_state["_exam_marcado"] = True
+                    st.session_state["_exam_marcado_n"] = _n
+                    st.rerun()
+
             if st.button("🔄 Nueva exportación", use_container_width=True, key="btn_clear_export"):
                 st.session_state.pop("export_files", None)
                 st.session_state.pop("_prev_mjax", None)
                 st.session_state.pop("_compiled_pdf", None)
+                st.session_state.pop("_exam_marcado", None)
+                st.session_state.pop("_exam_marcado_n", None)
                 st.rerun()
 
         # ── Compilación PDF online ────────────────────────────────────────────

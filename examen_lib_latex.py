@@ -1070,7 +1070,18 @@ def generar_master_examen(pool, num_modelos, cfg):
     letras_version = ['A','B','C','D','E','F']
     for m in range(1, num_modelos+1):
         ex = [p.copy() for p in pool]
-        if cfg.get('barajar_por_bloques', False):
+        if cfg.get('barajar_por_temas', False):
+            # Respeta orden de bloques y temas; baraja dentro de cada (bloque, tema)
+            _seen, _groups = [], {}
+            for p in ex:
+                _key = (p.get('bloque', ''), str(p.get('Tema', '')))
+                if _key not in _groups:
+                    _groups[_key] = []; _seen.append(_key)
+                _groups[_key].append(p)
+            ex = []
+            for _key in _seen:
+                _g = _groups[_key]; random.shuffle(_g); ex.extend(_g)
+        elif cfg.get('barajar_por_bloques', False):
             # Mantiene el orden de bloques del pool, baraja dentro de cada bloque
             _seen, _groups = [], {}
             for p in ex:
@@ -1789,8 +1800,23 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     _font_key = cfg.get('tipografia', 'libertine')
     if _font_key in ('cm', 'palatino', 'times', 'libertine', 'helvet', 'garamond'):
         _pkg_opts.append(_font_key)
-    if cfg.get('modo_compacto', False):
+    # Espaciado: nuevo selector; fallback a modo_compacto bool para compat
+    _espaciado = cfg.get('espaciado', '')
+    if not _espaciado:
+        _espaciado = 'compacto' if cfg.get('modo_compacto', False) else 'normal'
+    if _espaciado == 'muy_compacto':
+        _pkg_opts.append('muy_compacto')
+    elif _espaciado == 'compacto':
         _pkg_opts.append('compacto')
+    # Cabecera compacta (independiente del espaciado)
+    if cfg.get('cabecera_compacta', False):
+        _pkg_opts.append('cabecera_compacta')
+    # Márgenes
+    _margenes = cfg.get('margenes', 'normal')
+    if _margenes == 'minimo':
+        _pkg_opts.append('margenes_minimo')
+    elif _margenes == 'reducido':
+        _pkg_opts.append('margenes_reducido')
     _dos = cfg.get('dos_por_hoja', False)
     if _dos:
         _pkg_opts.append('dos_por_hoja')
@@ -1878,8 +1904,9 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
         logo_path = cfg.get('logo_path', '')
         tex = tex.replace('[[LOGO_CMD]]', f'\\logo{{{logo_path}}}' if logo_path else '')
 
-        # Caja alumno
-        tex = tex.replace('[[CAJA_ALUMNO]]', _gen_caja_alumno_latex(campos_alumno))
+        # Caja alumno (omitir si sin_recuadro)
+        _caja = '' if cfg.get('sin_recuadro', False) else _gen_caja_alumno_latex(campos_alumno)
+        tex = tex.replace('[[CAJA_ALUMNO]]', _caja)
 
         # Instrucciones
         instr = cfg.get('instr_gen', '').strip()

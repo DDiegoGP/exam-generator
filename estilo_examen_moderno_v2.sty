@@ -19,8 +19,13 @@
 % Esto garantiza compatibilidad entre pgfpages y TikZ (ambos usan \shipout).
 % ============================================================================
 
-\newif\if@compacto  \@compactofalse
-\newif\if@doshojas  \@doshojasfalse
+\newif\if@compacto        \@compactofalse
+\newif\if@muycompacto     \@muycompactofalse
+\newif\if@doshojas        \@doshojasfalse
+\newif\if@cabeceracompacta \@cabeceracompactafalse
+\newif\if@sinrecuadro     \@sinrecuadrofalse
+\newif\if@margreducido    \@margreducidofalse
+\newif\if@margminimo      \@margminimofalse
 
 \DeclareOption{azul}{\def\@esquemacolor{azul}}
 \DeclareOption{ucm}{\def\@esquemacolor{ucm}}
@@ -32,6 +37,11 @@
 \DeclareOption{garamond}{\def\@fuente{garamond}}
 \DeclareOption{cm}{\def\@fuente{cm}}
 \DeclareOption{compacto}{\@compactotrue}
+\DeclareOption{muy_compacto}{\@muycompactotrue\@compactotrue}
+\DeclareOption{cabecera_compacta}{\@cabeceracompactatrue}
+\DeclareOption{sin_recuadro}{\@sinrecuadrotrue}
+\DeclareOption{margenes_reducido}{\@margreducidotrue}
+\DeclareOption{margenes_minimo}{\@margminimotrue}
 \DeclareOption{dos_por_hoja}{\@doshojastrue}
 
 \ExecuteOptions{azul,libertine}
@@ -92,6 +102,20 @@
         top=22mm,  bottom=18mm,
         headheight=15mm, headsep=5mm
     }
+\else\if@margminimo
+    \geometry{
+        a4paper,
+        left=12mm, right=12mm,
+        top=16mm,  bottom=14mm,
+        headheight=14mm, headsep=4mm
+    }
+\else\if@margreducido
+    \geometry{
+        a4paper,
+        left=15mm, right=15mm,
+        top=22mm,  bottom=18mm,
+        headheight=16mm, headsep=5mm
+    }
 \else
     \geometry{
         a4paper,
@@ -99,7 +123,7 @@
         top=30mm,  bottom=25mm,
         headheight=20mm, headsep=8mm
     }
-\fi
+\fi\fi\fi
 
 % ============================================================================
 % ESQUEMAS DE COLOR
@@ -168,8 +192,8 @@
 % ENCABEZADO PROFESIONAL
 % ============================================================================
 \newcommand{\encabezadoprofesional}{%
-    \if@compacto
-        % MODO COMPACTO: cabecera pequeña sin logo
+    \if@cabeceracompacta
+        % CABECERA COMPACTA: una línea, sin tcolorbox
         \noindent
         {\Large\bfseries\color{primario}\thetipoexamen} \hfill {\large Versión \theversion}\\
         {\large\bfseries\theasignatura}\\
@@ -361,7 +385,13 @@
 % ============================================================================
 % LISTAS Y PREGUNTAS
 % ============================================================================
-\if@compacto
+\if@muycompacto
+    \setlist[enumerate,1]{
+        label=\protect\circled{\arabic*},
+        leftmargin=*, itemsep=0.4em, topsep=0.2em,
+        before={\color{texto}}, after={}
+    }
+\else\if@compacto
     \setlist[enumerate,1]{
         label=\protect\circled{\arabic*},
         leftmargin=*, itemsep=0.8em, topsep=0.5em,
@@ -373,7 +403,7 @@
         leftmargin=*, itemsep=1.5em, topsep=1em,
         before={\color{texto}}, after={}
     }
-\fi
+\fi\fi
 
 % Segunda lista (opciones A/B/C/D)
 \setlist[enumerate,2]{

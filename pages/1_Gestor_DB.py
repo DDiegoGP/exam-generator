@@ -29,6 +29,7 @@ from app_utils import (
     nombre_bloque, nombre_tema,
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
     sync_hoja_gsheets, sync_bloques_gsheets,
+    _dialog_editar_pregunta,
 )
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -87,119 +88,6 @@ def _dialog_seleccionar_datos(current_ids: str, result_key: str):
     if col_cl.button("✖ Cancelar", use_container_width=True):
         st.rerun()
 
-
-# ── Dialog: editor de pregunta individual ─────────────────────────────────────
-@st.dialog("✏️ Editar pregunta", width="large")
-def _dialog_editar_pregunta(pid: str, row: dict):
-    """Modal de edición de una pregunta. Llama a st.rerun() para cerrar."""
-    bloques_list = st.session_state.bloques or []
-
-    st.markdown(f"**ID:** `{pid}`")
-    st.markdown("---")
-
-    dc1, dc2 = st.columns([1, 2])
-
-    with dc1:
-        blq_idx = bloques_list.index(row["bloque"]) if row["bloque"] in bloques_list else 0
-        ed_blq  = st.selectbox("Bloque", bloques_list, index=blq_idx, key="dlg_bloque")
-        temas_d = temas_de_bloque(ed_blq) or [str(i) for i in range(1, 51)]
-        # Intentar encontrar el tema actual
-        tem_cur = str(row.get("Tema", "1"))
-        tem_idx = temas_d.index(tem_cur) if tem_cur in temas_d else 0
-        ed_tema = st.selectbox("Tema", temas_d, index=tem_idx, key="dlg_tema",
-                               format_func=nombre_tema)
-
-        dif_opts = ["Facil", "Media", "Dificil"]
-        dif_cur  = str(row.get("dificultad", "Media")).capitalize()
-        dif_idx  = dif_opts.index(dif_cur) if dif_cur in dif_opts else 1
-        ed_dif   = st.selectbox("Dificultad", dif_opts, index=dif_idx, key="dlg_dif")
-
-        corr_opts = ["A", "B", "C", "D"]
-        corr_cur  = str(row.get("letra_correcta", "A")).upper()
-        corr_idx  = corr_opts.index(corr_cur) if corr_cur in corr_opts else 0
-        ed_corr   = st.selectbox("Respuesta correcta", corr_opts, index=corr_idx, key="dlg_corr")
-
-        # Fecha de uso — checkbox + date_input
-        import datetime as _dt
-        _usada_raw = str(row.get("usada", "") or "").strip()
-        _usada_val = None
-        if _usada_raw and _usada_raw not in ('nan', 'NaT', 'None'):
-            try: _usada_val = _dt.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
-            except Exception: pass
-        ed_tiene_fecha = st.checkbox("Pregunta ya usada", value=(_usada_val is not None), key="dlg_tiene_usada")
-        if ed_tiene_fecha:
-            ed_usada_date = st.date_input("Fecha de uso", value=_usada_val or _dt.date.today(), key="dlg_usada")
-            ed_usada = ed_usada_date.strftime("%Y-%m-%d")
-        else:
-            ed_usada = ""
-        ed_notas = st.text_area("Notas", value=str(row.get("notas", "") or ""),
-                                 height=70, key="dlg_notas")
-
-        # Datos / constantes físicas — inline checkboxes (no nested dialogs)
-        _datos_df_dlg = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
-        _datos_cur_init = str(row.get("datos", "") or "")
-        with st.expander("📊 Constantes / Datos", expanded=bool(_datos_cur_init)):
-            if _datos_df_dlg.empty or not _datos_df_dlg['ID'].astype(str).str.strip().any():
-                st.caption("No hay constantes. Añádelas en Gestor → 🔢 Constantes.")
-                _dlg_sel_ids = []
-            else:
-                _dlg_cur = [x.strip() for x in _datos_cur_init.split(',') if x.strip()]
-                _dlg_sel_ids = []
-                _dlg_cats = sorted(_datos_df_dlg['Categoría'].fillna('Sin categoría').unique())
-                for _dc in _dlg_cats:
-                    _dcdf = _datos_df_dlg[_datos_df_dlg['Categoría'].fillna('Sin categoría') == _dc]
-                    st.markdown(f"**{_dc}**")
-                    for _, _dr in _dcdf.iterrows():
-                        _did = str(_dr['ID']).strip()
-                        _nom = str(_dr.get('Nombre', '') or '').strip()
-                        _sym = str(_dr.get('Símbolo', '') or '').strip()
-                        _val = str(_dr.get('Valor', '') or '').strip()
-                        _uni = str(_dr.get('Unidades', '') or '').strip()
-                        _lbl = f"{_nom} ({_sym} = {_val} {_uni})".strip()
-                        if st.checkbox(_lbl, value=(_did in _dlg_cur),
-                                       key=f"dlgdat_{pid}_{_did}"):
-                            _dlg_sel_ids.append(_did)
-        ed_datos_ids = ','.join(_dlg_sel_ids)
-
-    with dc2:
-        ed_enun = st.text_area("Enunciado", value=str(row.get("enunciado", "")),
-                                height=120, key="dlg_enun")
-        ops_orig = row.get("opciones_list", []) or ["", "", "", ""]
-        ed_ops = []
-        for li, ll in enumerate(["A", "B", "C", "D"]):
-            v = ops_orig[li] if li < len(ops_orig) else ""
-            ed_ops.append(st.text_input(f"Opción {ll}", value=v, key=f"dlg_op{ll}"))
-
-    st.markdown("---")
-    sc1, sc2, sc3 = st.columns([2, 2, 1])
-
-    if sc1.button("💾 Guardar cambios", type="primary", use_container_width=True, key="dlg_save"):
-        datos = {
-            "bloque":     ed_blq,
-            "tema":       ed_tema,
-            "enunciado":  ed_enun.strip(),
-            "opciones":   ed_ops,
-            "correcta":   ed_corr,
-            "dificultad": ed_dif,
-            "usada":      ed_usada,
-            "notas":      ed_notas.strip(),
-            "datos_ids":  ed_datos_ids,
-        }
-        ok, msg = lib.actualizar_pregunta_excel_local(
-            st.session_state.excel_path,
-            st.session_state.excel_dfs,
-            pid, datos
-        )
-        if ok:
-            _bloques_sync = list({datos["bloque"], row.get("bloque", datos["bloque"])})
-            sync_bloques_gsheets(_bloques_sync)
-            reload_db()
-            st.rerun()
-        else:
-            st.error(f"❌ {msg}")
-
-    if sc3.button("✖ Cancelar", use_container_width=True, key="dlg_cancel"):
-        st.rerun()
 
 
 @st.dialog("✏️ Editar pregunta importada", width="large")
