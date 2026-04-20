@@ -1649,11 +1649,17 @@ def exportar_csv_bytes(master, nombre) -> dict:
                 'Puntos': '1,00', 'Vínculo': '0', 'Penalización': '0,33',
                 'Ponderación': '0,00', 'Máx.P.Abiertas': '0,00'
             })
+            _ops_final = p.get('opciones_finales', p.get('opciones_list', ['', '', '', '']))
             rows_meta.append({
                 'Modelo': m['modelo'], 'Version': version, 'Num_Examen': p['num'],
                 'ID_BaseDatos': p['ID_Pregunta'], 'Bloque': p.get('bloque', ''),
                 'Tema': p.get('Tema', ''), 'Dificultad': p.get('dificultad', ''),
-                'Enunciado_Inicio': str(p['enunciado'])[:50]
+                'Enunciado': str(p['enunciado']),
+                'Opcion_A': _ops_final[0] if len(_ops_final) > 0 else '',
+                'Opcion_B': _ops_final[1] if len(_ops_final) > 1 else '',
+                'Opcion_C': _ops_final[2] if len(_ops_final) > 2 else '',
+                'Opcion_D': _ops_final[3] if len(_ops_final) > 3 else '',
+                'Respuesta_Correcta': p.get('letra_final', ''),
             })
     buf_c, buf_m = _io.BytesIO(), _io.BytesIO()
     pd.DataFrame(rows_claves).to_csv(buf_c, index=False, encoding='utf-8-sig', sep=';')
