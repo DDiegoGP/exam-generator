@@ -1133,10 +1133,16 @@ def exportar_archivos_csv(master, ruta, nombre):
     rows_meta = []
     for m in master:
         for p in m['preguntas']:
+            _ops_final = p.get('opciones_finales', p.get('opciones_list', ['', '', '', '']))
             rows_meta.append({
                 'Modelo': m['modelo'], 'Version': m['letra_version'], 'Num_Examen': p['num'],
-                'ID_BaseDatos': p['ID_Pregunta'], 'Bloque': p.get('bloque',''), 'Tema': p.get('Tema',''),
-                'Dificultad': p.get('dificultad',''), 'Enunciado_Inicio': str(p['enunciado'])[:50]
+                'ID_BaseDatos': p['ID_Pregunta'], 'Bloque': p.get('bloque', ''), 'Tema': p.get('Tema', ''),
+                'Dificultad': p.get('dificultad', ''), 'Enunciado': str(p['enunciado']),
+                'Opcion_A': _ops_final[0] if len(_ops_final) > 0 else '',
+                'Opcion_B': _ops_final[1] if len(_ops_final) > 1 else '',
+                'Opcion_C': _ops_final[2] if len(_ops_final) > 2 else '',
+                'Opcion_D': _ops_final[3] if len(_ops_final) > 3 else '',
+                'Respuesta_Correcta': p.get('letra_final', ''),
             })
     pd.DataFrame(rows_meta).to_csv(os.path.join(ruta, f"{nombre}_METADATA.csv"), index=False, encoding='utf-8-sig', sep=';')
 
