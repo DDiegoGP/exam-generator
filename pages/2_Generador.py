@@ -309,6 +309,12 @@ with tab_sel:
             key="sel_f_uso"
         )
         f_search = fc5.text_input("Buscar", placeholder="Texto...", key="sel_search")
+        _coms_disp = sorted({c for c in df_total.get("comentario", pd.Series(dtype=str)).dropna() if c})
+        if _coms_disp:
+            fc6, _ = st.columns([2, 3])
+            f_com = fc6.selectbox("Etiqueta", ["Todas"] + _coms_disp, key="sel_f_com")
+        else:
+            f_com = "Todas"
 
     # Aplicar filtros
     df_filt = df_total.copy()
@@ -335,6 +341,8 @@ with tab_sel:
             if isinstance(ops, list) else False
         )
         df_filt = df_filt[mask | ops_mask]
+    if f_com != "Todas" and "comentario" in df_filt.columns:
+        df_filt = df_filt[df_filt["comentario"] == f_com]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # LAYOUT 3 COLUMNAS: disponibles | preview | fijas

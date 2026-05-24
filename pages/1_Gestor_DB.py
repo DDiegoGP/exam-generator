@@ -135,6 +135,8 @@ def _dialog_editar_staging():
             ed_usada = ed_usada_date.strftime("%Y-%m-%d")
         else:
             ed_usada = ""
+        ed_com = st.text_input("Etiqueta", value=str(q.get("comentario", "") or ""),
+                               key="stg_dlg_com", placeholder="ej: CLASE, EXAMEN_2023...")
 
     with dc2:
         ed_enun  = st.text_area("Enunciado", value=str(q.get("enunciado", "")),
@@ -158,7 +160,7 @@ def _dialog_editar_staging():
             "enunciado": ed_enun.strip(), "opciones_list": ed_ops,
             "letra_correcta": ed_corr, "bloque": ed_blq,
             "tema": ed_tema, "dificultad": ed_dif,
-            "usada": ed_usada, "_warnings": [],
+            "usada": ed_usada, "comentario": ed_com.strip(), "_warnings": [],
         }
         st.session_state.import_staging = staging
         st.session_state["_staging_edit_idx"] = None
@@ -310,7 +312,7 @@ bloques = bloques_disponibles()
 
 # Columnas estándar para crear un bloque nuevo desde cero
 _STD_COLS = ["ID_Pregunta", "Tema", "Enunciado", "OpcionA", "OpcionB",
-             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas", "Solución"]
+             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas", "Comentario", "Solución"]
 _NUEVO_BLQ = "__nuevo__"
 
 
@@ -372,6 +374,9 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
             claimed.add(idx)
         elif "nota" in cl:
             new_row[col] = p_data.get("notas", "")
+            claimed.add(idx)
+        elif "comentar" in cl:
+            new_row[col] = p_data.get("comentario", "")
             claimed.add(idx)
 
     # Opciones: relleno posicional SOLO en columnas no reclamadas, justo después de Enunciado
@@ -491,6 +496,12 @@ with tab_imp:
     ext_map = {"Word (.docx)": "docx", "PDF (.pdf)": "pdf", "Aiken (.txt)": "txt"}
     accept  = ext_map.get(fmt_imp, "txt")
     up_file = st.file_uploader("Subir archivo", type=[accept], key="imp_uploader")
+    com_imp = st.text_input(
+        "Etiqueta de importación",
+        placeholder="ej: CLASE, EXAMEN_2023, RECUPERACION...",
+        key="imp_comentario",
+        help="Etiqueta que se asignará a todas las preguntas importadas. Después podrás filtrar por ella."
+    )
 
     if st.button("👁️ Previsualizar", key="btn_preview_imp") and up_file is not None:
         try:
@@ -505,6 +516,8 @@ with tab_imp:
             else:
                 text = up_file.read().decode("utf-8", errors="replace")
                 preguntas = lib.parse_aiken(text, bloque_imp, tema_imp, dif_imp)
+            for p in preguntas:
+                p["comentario"] = com_imp.strip()
             st.session_state.import_staging = preguntas
             st.session_state["_staging_edit_idx"] = None
             # Inicializar todas las selecciones a True
@@ -594,6 +607,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     "tema":           str(staging[i].get("tema", tema_imp)),
                     "dificultad":     staging[i].get("dificultad", dif_imp),
                     "usada":          staging[i].get("usada", ""),
+                    "comentario":     staging[i].get("comentario", ""),
                 }
                 is_dup, _ = lib.check_for_similar_enunciado(p_data["enunciado"], df_total)
                 if is_dup: skipped += 1; continue
@@ -606,7 +620,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     "ID_Pregunta": nid, "bloque": blk, "Tema": p_data["tema"],
                     "enunciado": p_data["enunciado"], "opciones_list": p_data["opciones_list"],
                     "letra_correcta": p_data["letra_correcta"], "dificultad": p_data["dificultad"],
-                    "usada": "", "notas": "",
+                    "usada": "", "notas": "", "comentario": p_data.get("comentario", ""),
                 }])], ignore_index=True)
                 imported += 1
 
