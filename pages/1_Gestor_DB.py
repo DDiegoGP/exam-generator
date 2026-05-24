@@ -613,6 +613,10 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                 if is_dup: skipped += 1; continue
                 blk    = p_data["bloque"]
                 blk_df = _asegurar_bloque(excel_dfs, blk)
+                if "Comentario" not in blk_df.columns:
+                    ins = blk_df.columns.get_loc("Notas") + 1 if "Notas" in blk_df.columns else len(blk_df.columns)
+                    blk_df.insert(ins, "Comentario", "")
+                    excel_dfs[blk] = blk_df
                 nid, _ = lib.generar_siguiente_id(df_total, blk, p_data["tema"])
                 new_row = _fill_row(blk_df, p_data, nid)
                 excel_dfs[blk] = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
