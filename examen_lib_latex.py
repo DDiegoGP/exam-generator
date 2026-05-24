@@ -89,6 +89,8 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
             df['Solución'] = ''; dict_of_dfs[bloque] = df
         if not any(str(c).lower() == 'datos' for c in df.columns):
             df['Datos'] = ''; dict_of_dfs[bloque] = df
+        if not any('comentar' in str(c).lower() for c in df.columns):
+            df['Comentario'] = ''; dict_of_dfs[bloque] = df
         mask = df['ID_Pregunta'].astype(str) == str(pid)
         if not mask.any():
             return False, "ID no encontrado"
@@ -112,6 +114,8 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
                     df.at[idx, col] = datos['solucion']
             elif 'nota' in cl:
                 df.at[idx, col] = datos.get('notas', '')
+            elif 'comentar' in cl:
+                df.at[idx, col] = datos.get('comentario', '')
             elif cl == 'datos':
                 df.at[idx, col] = datos.get('datos_ids', '')
 

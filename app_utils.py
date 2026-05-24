@@ -1009,6 +1009,8 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             ed_usada = ""
         ed_notas = st.text_area("Notas", value=str(row.get("notas", "") or ""),
                                  height=70, key="dlg_notas")
+        ed_com = st.text_input("Etiqueta", value=str(row.get("comentario", "") or ""),
+                               key="dlg_com", placeholder="ej: CLASE, EXAMEN_2023...")
 
         _datos_df_dlg = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
         _datos_cur_init = str(row.get("datos", "") or "")
@@ -1057,6 +1059,7 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             "dificultad": ed_dif,
             "usada":      ed_usada,
             "notas":      ed_notas.strip(),
+            "comentario": ed_com.strip(),
             "datos_ids":  ed_datos_ids,
         }
         ok, msg = lib.actualizar_pregunta_excel_local(
