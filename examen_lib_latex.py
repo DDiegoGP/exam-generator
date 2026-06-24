@@ -2459,7 +2459,8 @@ def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
                     levels_str = r' / '.join(levels)
                     lines.append(r'\item ' + desc
                                  + rf' \hfill \textbf{{{cpts:.2g} pts}}'
-                                 + rf' \quad {\small\textcolor{{gray}}{{({levels_str})}}}')
+                                 + r' \quad {\small\textcolor{gray}{(' + levels_str + r')}}'
+                                 )
                 else:
                     lines.append(r'\item ' + desc + rf' \hfill \textbf{{{cpts:.2g} pts}}')
             lines.append(r'\end{itemize}')
