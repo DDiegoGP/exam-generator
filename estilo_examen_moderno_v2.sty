@@ -195,8 +195,8 @@
     \if@cabeceracompacta
         % CABECERA COMPACTA: una línea, sin tcolorbox
         \noindent
-        {\Large\bfseries\color{primario}\thetipoexamen} \hfill {\large Versión \theversion}\\
-        {\large\bfseries\theasignatura}\\
+        {\Large\bfseries\color{primario}\thetipoexamen\strut} \hfill {\large Versión \theversion}\\
+        {\large\bfseries\theasignatura\strut}\\
         {\small\theinstitucion{} | \thefecha{} | \theduracion}
         \vspace{3mm}
         \hrule
@@ -214,14 +214,14 @@
             \ifx\thelogo\empty
                 % Sin logo: texto ocupa todo el ancho, tamaño adaptable
                 \raggedright
-                {\fontsize{16}{20}\selectfont\bfseries\thetipoexamen}\\[2mm]
-                {\large\bfseries\theasignatura}\\[1mm]
+                {\fontsize{16}{20}\selectfont\bfseries\thetipoexamen\strut}\\[2mm]
+                {\large\bfseries\theasignatura\strut}\\[1mm]
                 {\normalsize\theinstitucion}
             \else
                 \begin{minipage}[c]{0.70\textwidth}
                     \raggedright
-                    {\fontsize{16}{20}\selectfont\bfseries\thetipoexamen}\\[2mm]
-                    {\large\bfseries\theasignatura}\\[1mm]
+                    {\fontsize{16}{20}\selectfont\bfseries\thetipoexamen\strut}\\[2mm]
+                    {\large\bfseries\theasignatura\strut}\\[1mm]
                     {\normalsize\theinstitucion}
                 \end{minipage}%
                 \begin{minipage}[c]{0.28\textwidth}
