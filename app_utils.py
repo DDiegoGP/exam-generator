@@ -839,7 +839,7 @@ def render_sidebar():
         st.caption("ExamGen UCM · Unidad de Física Médica")
         st.markdown(
             "<div style='font-size:0.72em;color:#aaa;text-align:center;line-height:1.5'>"
-            "Desarrollado por <b>Diego Gutiérrez Pérez</b><br>"
+            "Desarrollado por <b>Diego García Pinto</b><br>"
             "UCM · Física Médica"
             "</div>",
             unsafe_allow_html=True,
