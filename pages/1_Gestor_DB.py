@@ -25,8 +25,8 @@ import examen_lib_latex as lib
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     connect_db, reload_db,
-    bloques_disponibles, temas_de_bloque, temas_en_db,
-    nombre_bloque, nombre_tema,
+    bloques_disponibles, temas_de_bloque, temas_en_db, objetivos_de_tema,
+    nombre_bloque, nombre_tema, nombre_objetivo,
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
     sync_hoja_gsheets, sync_bloques_gsheets,
     _dialog_editar_pregunta,
@@ -137,6 +137,12 @@ def _dialog_editar_staging():
             ed_usada = ""
         ed_com = st.text_input("Etiqueta", value=str(q.get("comentario", "") or ""),
                                key="stg_dlg_com", placeholder="ej: CLASE, EXAMEN_2023...")
+        _obj_stg_opts = [""] + objetivos_de_tema(q.get("bloque", ed_blq), str(ed_tema))
+        _obj_stg_cur  = str(q.get("objetivo", "") or "")
+        _obj_stg_idx  = _obj_stg_opts.index(_obj_stg_cur) if _obj_stg_cur in _obj_stg_opts else 0
+        ed_obj_stg = st.selectbox("Objetivo", _obj_stg_opts, index=_obj_stg_idx,
+                                  key="stg_dlg_obj",
+                                  format_func=lambda x: "— Sin objetivo —" if x == "" else nombre_objetivo(x))
 
     with dc2:
         ed_enun  = st.text_area("Enunciado", value=str(q.get("enunciado", "")),
@@ -160,7 +166,7 @@ def _dialog_editar_staging():
             "enunciado": ed_enun.strip(), "opciones_list": ed_ops,
             "letra_correcta": ed_corr, "bloque": ed_blq,
             "tema": ed_tema, "dificultad": ed_dif,
-            "usada": ed_usada, "comentario": ed_com.strip(), "_warnings": [],
+            "usada": ed_usada, "comentario": ed_com.strip(), "objetivo": ed_obj_stg, "_warnings": [],
         }
         st.session_state.import_staging = staging
         st.session_state["_staging_edit_idx"] = None
@@ -312,7 +318,7 @@ bloques = bloques_disponibles()
 
 # Columnas estándar para crear un bloque nuevo desde cero
 _STD_COLS = ["ID_Pregunta", "Tema", "Enunciado", "OpcionA", "OpcionB",
-             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas", "Comentario", "Solución"]
+             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas", "Comentario", "Objetivo", "Solución"]
 _NUEVO_BLQ = "__nuevo__"
 
 
@@ -378,6 +384,9 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
         elif "comentar" in cl:
             new_row[col] = p_data.get("comentario", "")
             claimed.add(idx)
+        elif cl == "objetivo":
+            new_row[col] = p_data.get("objetivo", "")
+            claimed.add(idx)
 
     # Opciones: relleno posicional SOLO en columnas no reclamadas, justo después de Enunciado
     enun_idx = next((i for i, c in enumerate(blk_df.columns)
@@ -400,8 +409,8 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 # PESTAÑA PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
-tab_man, tab_sol, tab_add, tab_imp, tab_stat, tab_const = st.tabs(
-    ["✏️ Gestionar", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas", "🔢 Constantes"]
+tab_man, tab_sol, tab_add, tab_imp, tab_stat, tab_const, tab_obj = st.tabs(
+    ["✏️ Gestionar", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas", "🔢 Constantes", "🎯 Objetivos"]
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -608,6 +617,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     "dificultad":     staging[i].get("dificultad", dif_imp),
                     "usada":          staging[i].get("usada", ""),
                     "comentario":     staging[i].get("comentario", ""),
+                    "objetivo":       staging[i].get("objetivo", ""),
                 }
                 is_dup, _ = lib.check_for_similar_enunciado(p_data["enunciado"], df_total)
                 if is_dup: skipped += 1; continue
@@ -617,6 +627,12 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     ins = blk_df.columns.get_loc("Notas") + 1 if "Notas" in blk_df.columns else len(blk_df.columns)
                     blk_df.insert(ins, "Comentario", "")
                     excel_dfs[blk] = blk_df
+                if "Objetivo" not in blk_df.columns:
+                    ins2 = (blk_df.columns.get_loc("Comentario") + 1
+                            if "Comentario" in blk_df.columns
+                            else len(blk_df.columns))
+                    blk_df.insert(ins2, "Objetivo", "")
+                    excel_dfs[blk] = blk_df
                 nid, _ = lib.generar_siguiente_id(df_total, blk, p_data["tema"])
                 new_row = _fill_row(blk_df, p_data, nid)
                 excel_dfs[blk] = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
@@ -625,6 +641,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     "enunciado": p_data["enunciado"], "opciones_list": p_data["opciones_list"],
                     "letra_correcta": p_data["letra_correcta"], "dificultad": p_data["dificultad"],
                     "usada": "", "notas": "", "comentario": p_data.get("comentario", ""),
+                    "objetivo": p_data.get("objetivo", ""),
                 }])], ignore_index=True)
                 imported += 1
 
@@ -1786,3 +1803,161 @@ with tab_const:
                                 st.session_state["_const_del_id"] = _did
                                 st.rerun()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB · OBJETIVOS DOCENTES
+# ─────────────────────────────────────────────────────────────────────────────
+with tab_obj:
+    st.subheader("Objetivos docentes / Competencias")
+    st.caption(
+        "Define los objetivos docentes o competencias asociados a cada pregunta. "
+        "Una vez añadidos, podrás asignarlos desde el editor de preguntas y filtrar por ellos en el Generador."
+    )
+
+    if not st.session_state.db_connected:
+        st.info("Conecta una base de datos para gestionar los objetivos.")
+    else:
+        import re as _re_obj
+
+        CFG_OBJ_SHEET = lib.CFG_OBJETIVOS_SHEET  # "Cfg_Objetivos"
+
+        def _get_obj_df():
+            dfs = st.session_state.excel_dfs
+            if CFG_OBJ_SHEET not in dfs:
+                import pandas as _pd_obj
+                return _pd_obj.DataFrame(columns=["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"])
+            df = dfs[CFG_OBJ_SHEET].copy()
+            for _c in ["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]:
+                if _c not in df.columns:
+                    df[_c] = ""
+            return df[["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]]
+
+        def _save_obj_df(df_new):
+            import pandas as _pd_obj
+            dfs2 = dict(st.session_state.excel_dfs)
+            dfs2[CFG_OBJ_SHEET] = df_new
+            st.session_state.excel_dfs = dfs2
+            lib.guardar_excel_local(st.session_state.excel_path, dfs2)
+            st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs2)
+            st.session_state["cfg_objetivos"] = lib.get_cfg_objetivos(dfs2)
+            sync_bloques_gsheets([CFG_OBJ_SHEET])
+
+        def _auto_obj_id(nombre: str) -> str:
+            s = nombre.lower().strip()
+            for _src, _dst in [('á','a'),('é','e'),('í','i'),('ó','o'),('ú','u'),('ñ','n')]:
+                s = s.replace(_src, _dst)
+            return _re_obj.sub(r'[^a-z0-9]+', '_', s).strip('_').upper()
+
+        _obj_df = _get_obj_df()
+
+        # ── Procesar acciones pendientes ──────────────────────────────────────
+        _obj_del_cod  = st.session_state.pop("_obj_del_cod", None)
+        _obj_upd_row  = st.session_state.pop("_obj_upd_row", None)
+
+        if _obj_del_cod:
+            _obj_df = _obj_df[_obj_df['Codigo'].astype(str) != _obj_del_cod].reset_index(drop=True)
+            _save_obj_df(_obj_df)
+            st.success(f"Objetivo '{_obj_del_cod}' eliminado.")
+        if _obj_upd_row:
+            _ocod = _obj_upd_row['Codigo']
+            _omask = _obj_df['Codigo'].astype(str) == _ocod
+            for _oc, _ov in _obj_upd_row.items():
+                _obj_df.loc[_omask, _oc] = _ov
+            _save_obj_df(_obj_df)
+            st.session_state.pop("_obj_edit_cod", None)
+
+        # ── Formulario: añadir nuevo objetivo ────────────────────────────────
+        _bloques_obj = bloques_disponibles()
+
+        def _on_obj_nombre_change():
+            st.session_state["nobj_cod"] = _auto_obj_id(st.session_state.get("nobj_nombre", ""))
+
+        with st.expander("➕ Nuevo objetivo", expanded=False):
+            _oa, _ob = st.columns([3, 2])
+            with _oa:
+                st.text_input("Nombre corto", key="nobj_nombre", on_change=_on_obj_nombre_change,
+                              placeholder="Radiación de cuerpo negro")
+                st.text_input("Código (auto-generado, editable)", key="nobj_cod",
+                              placeholder="RADIACION_CUERPO_NEGRO")
+                st.text_area("Descripción completa", key="nobj_desc", height=80,
+                             placeholder="El alumno comprende el espectro de emisión de un cuerpo negro...")
+            with _ob:
+                _nobj_blq = st.selectbox("Bloque (opcional)", [""] + _bloques_obj,
+                                         key="nobj_blq", format_func=lambda x: "— Cualquier bloque —" if x == "" else x)
+                _temas_nobj = (temas_de_bloque(_nobj_blq) if _nobj_blq else [])
+                _nobj_tema = st.selectbox("Tema (opcional)", [""] + [str(t) for t in _temas_nobj],
+                                          key="nobj_tema",
+                                          format_func=lambda x: "— Cualquier tema —" if x == "" else nombre_tema(x))
+
+            if st.button("💾 Añadir objetivo", type="primary", key="btn_add_obj", use_container_width=True):
+                _ncod  = st.session_state.get("nobj_cod",  "").strip()
+                _nnom  = st.session_state.get("nobj_nombre","").strip()
+                _ndesc = st.session_state.get("nobj_desc", "").strip()
+                _nblq  = _nobj_blq
+                _ntema = _nobj_tema
+                if not _ncod:
+                    st.error("El código no puede estar vacío.")
+                elif not _nnom:
+                    st.error("El nombre corto no puede estar vacío.")
+                elif not _obj_df.empty and _ncod in _obj_df['Codigo'].astype(str).tolist():
+                    st.error(f"Ya existe un objetivo con código `{_ncod}`.")
+                else:
+                    import pandas as _pd_obj2
+                    _new_obj = {'Codigo': _ncod, 'Nombre_corto': _nnom, 'Descripcion': _ndesc,
+                                'Bloque': _nblq, 'Tema': _ntema}
+                    _obj_df = _pd_obj2.concat([_obj_df, _pd_obj2.DataFrame([_new_obj])],
+                                              ignore_index=True)
+                    _save_obj_df(_obj_df)
+                    for _k in ["nobj_nombre","nobj_cod","nobj_desc","nobj_blq","nobj_tema"]:
+                        st.session_state.pop(_k, None)
+                    st.success(f"✅ Objetivo `{_ncod}` añadido.")
+                    st.rerun()
+
+        # ── Lista de objetivos ────────────────────────────────────────────────
+        if _obj_df.empty or not _obj_df['Codigo'].astype(str).str.strip().any():
+            st.info("Aún no hay objetivos. Usa el formulario de arriba para añadir el primero.")
+        else:
+            _obj_edit_cod = st.session_state.get("_obj_edit_cod")
+
+            for _, _or in _obj_df.iterrows():
+                _ocod = str(_or['Codigo']).strip()
+                if not _ocod:
+                    continue
+                _onom  = str(_or.get('Nombre_corto', '') or '')
+                _odesc = str(_or.get('Descripcion', '') or '')
+                _oblq  = str(_or.get('Bloque', '') or '')
+                _otema = str(_or.get('Tema', '') or '')
+                _scope = f"[{_oblq} / T{_otema}]" if _oblq else ("todos los bloques" if not _otema else f"T{_otema}")
+
+                if _obj_edit_cod == _ocod:
+                    with st.form(key=f"form_obj_edit_{_ocod}", border=True):
+                        _oe1, _oe2 = st.columns(2)
+                        _enom = _oe1.text_input("Nombre corto", value=_onom)
+                        _edesc = st.text_area("Descripción", value=_odesc, height=80)
+                        _eblq = _oe2.selectbox("Bloque", [""] + _bloques_obj,
+                                               index=([""] + _bloques_obj).index(_oblq) if _oblq in _bloques_obj else 0,
+                                               format_func=lambda x: "— Cualquier bloque —" if x == "" else x)
+                        _temas_e = (temas_de_bloque(_eblq) if _eblq else [])
+                        _etema_opts = [""] + [str(t) for t in _temas_e]
+                        _etema = _oe2.selectbox("Tema", _etema_opts,
+                                                index=_etema_opts.index(_otema) if _otema in _etema_opts else 0,
+                                                format_func=lambda x: "— Cualquier tema —" if x == "" else nombre_tema(x))
+                        _osc1, _osc2, _osc3 = st.columns(3)
+                        if _osc1.form_submit_button("💾 Guardar", use_container_width=True, type="primary"):
+                            st.session_state["_obj_upd_row"] = {
+                                'Codigo': _ocod, 'Nombre_corto': _enom.strip(),
+                                'Descripcion': _edesc.strip(), 'Bloque': _eblq, 'Tema': _etema
+                            }
+                            st.rerun()
+                        if _osc2.form_submit_button("✖ Cancelar", use_container_width=True):
+                            st.session_state.pop("_obj_edit_cod", None)
+                            st.rerun()
+                else:
+                    _rc1, _rc2, _rc3, _rc4 = st.columns([3, 4, 1, 1])
+                    _rc1.markdown(f"**`{_ocod}`**  \n{_onom}")
+                    _rc2.markdown(f"{_odesc[:120] + '…' if len(_odesc) > 120 else _odesc}  \n*Alcance: {_scope}*")
+                    if _rc3.button("✏️", key=f"obj_edit_{_ocod}", use_container_width=True, help="Editar"):
+                        st.session_state["_obj_edit_cod"] = _ocod
+                        st.rerun()
+                    if _rc4.button("🗑️", key=f"obj_del_{_ocod}", use_container_width=True, help="Eliminar"):
+                        st.session_state["_obj_del_cod"] = _ocod
+                        st.rerun()

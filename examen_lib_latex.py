@@ -3,11 +3,12 @@ import random, re, os
 from docx import Document
 
 # ── Hojas de configuración (se excluyen del procesado de preguntas) ──────────
-CFG_BLOQUES_SHEET  = "Cfg_Bloques"
-CFG_TEMAS_SHEET    = "Cfg_Temas"
-CFG_GENERAL_SHEET  = "Cfg_General"
-DATOS_SHEET        = "Datos"
-CFG_SHEETS         = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET, DATOS_SHEET}
+CFG_BLOQUES_SHEET   = "Cfg_Bloques"
+CFG_TEMAS_SHEET     = "Cfg_Temas"
+CFG_GENERAL_SHEET   = "Cfg_General"
+CFG_OBJETIVOS_SHEET = "Cfg_Objetivos"
+DATOS_SHEET         = "Datos"
+CFG_SHEETS          = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET, DATOS_SHEET, CFG_OBJETIVOS_SHEET}
 DATOS_COLS         = ["ID", "Nombre", "Símbolo", "Valor", "Unidades", "Categoría"]
 from docx.shared import Inches, RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -91,6 +92,8 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
             df['Datos'] = ''; dict_of_dfs[bloque] = df
         if not any('comentar' in str(c).lower() for c in df.columns):
             df['Comentario'] = ''; dict_of_dfs[bloque] = df
+        if not any(str(c).lower() == 'objetivo' for c in df.columns):
+            df['Objetivo'] = ''; dict_of_dfs[bloque] = df
         mask = df['ID_Pregunta'].astype(str) == str(pid)
         if not mask.any():
             return False, "ID no encontrado"
@@ -116,6 +119,8 @@ def actualizar_pregunta_excel_local(filepath, dict_of_dfs, pid, datos):
                 df.at[idx, col] = datos.get('notas', '')
             elif 'comentar' in cl:
                 df.at[idx, col] = datos.get('comentario', '')
+            elif cl == 'objetivo':
+                df.at[idx, col] = datos.get('objetivo', '')
             elif cl == 'datos':
                 df.at[idx, col] = datos.get('datos_ids', '')
 
@@ -895,6 +900,28 @@ def get_cfg_general(dfs: dict) -> dict:
         return {}
     return {str(r["Clave"]): str(r.get("Valor", "")) for _, r in df.iterrows()
             if str(r.get("Clave", "")) not in ("nan", "None", "")}
+
+
+def get_cfg_objetivos(dfs: dict) -> dict:
+    """Retorna {codigo: {nombre_corto, descripcion, bloque, tema}} desde Cfg_Objetivos."""
+    df = dfs.get(CFG_OBJETIVOS_SHEET)
+    if df is None or df.empty:
+        return {}
+    result = {}
+    for _, row in df.iterrows():
+        cod = str(row.get("Código", "")).strip()
+        if not cod or cod in ("nan", "None"):
+            continue
+        t = str(row.get("Tema", "") or "").strip()
+        if t.endswith(".0"):
+            t = t[:-2]
+        result[cod] = {
+            "nombre_corto": str(row.get("Nombre_Corto", "") or "").strip(),
+            "descripcion":  str(row.get("Descripción",  "") or "").strip(),
+            "bloque":       str(row.get("Bloque", "")   or "").strip(),
+            "tema":         t,
+        }
+    return result
 
 
 def init_cfg_from_data(dfs: dict) -> dict:
@@ -2421,10 +2448,20 @@ def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
             lines.append(r'\begin{itemize}[leftmargin=*,itemsep=2pt]')
             total_crit = 0.0
             for c in criterios:
-                desc = _escape_latex(c.get('desc', ''))
-                cpts = c.get('pts', 0)
-                total_crit += float(cpts)
-                lines.append(r'\item ' + desc + rf' \hfill \textbf{{{cpts} pts}}')
+                desc  = _escape_latex(c.get('desc', ''))
+                cpts  = float(c.get('pts', 0))
+                cinc  = float(c.get('incremento', 0.25))
+                total_crit += cpts
+                if cinc > 0 and cpts > 0:
+                    import math as _math
+                    n_steps = round(cpts / cinc)
+                    levels = [f"{cinc * k:.2g}" for k in range(n_steps + 1)]
+                    levels_str = r' / '.join(levels)
+                    lines.append(r'\item ' + desc
+                                 + rf' \hfill \textbf{{{cpts:.2g} pts}}'
+                                 + rf' \quad {\small\textcolor{{gray}}{{({levels_str})}}}')
+                else:
+                    lines.append(r'\item ' + desc + rf' \hfill \textbf{{{cpts:.2g} pts}}')
             lines.append(r'\end{itemize}')
             lines.append(rf'\textit{{Total criterios: {total_crit:.2f} pts}}\par\smallskip')
 

@@ -154,6 +154,7 @@ def init_session_state():
         "cfg_bloques":   {},   # {bloque_name: descripcion}
         "cfg_temas":     {},   # {tema_str: {nombre, bloque}}
         "cfg_general":   {},   # {clave: valor}
+        "cfg_objetivos": {},   # {codigo: {nombre_corto, descripcion, bloque, tema}}
         # Generador
         "sel_ids":       [],
         "manual_order":  [],
@@ -230,9 +231,10 @@ def _nsort(s):
 def _load_cfg(dfs: dict):
     """Lee las hojas de configuración del dfs y actualiza session_state."""
     dfs = lib.init_cfg_from_data(dfs)
-    st.session_state.cfg_bloques = lib.get_cfg_bloques(dfs)
-    st.session_state.cfg_temas   = lib.get_cfg_temas(dfs)
-    st.session_state.cfg_general = lib.get_cfg_general(dfs)
+    st.session_state.cfg_bloques   = lib.get_cfg_bloques(dfs)
+    st.session_state.cfg_temas     = lib.get_cfg_temas(dfs)
+    st.session_state.cfg_general   = lib.get_cfg_general(dfs)
+    st.session_state.cfg_objetivos = lib.get_cfg_objetivos(dfs)
     return dfs
 
 
@@ -276,6 +278,7 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
         idx_sol  = next((i for i, h in enumerate(head) if "soluci" in h), -1)
         idx_datos = next((i for i, h in enumerate(head) if h == "datos" or h == "datos_ids"), -1)
         idx_com   = next((i for i, h in enumerate(head) if "comentar" in h), -1)
+        idx_obj   = next((i for i, h in enumerate(head) if h == "objetivo"), -1)
 
         # Opciones: 4 columnas justo después del enunciado
         idx_opA  = idx_enun + 1 if idx_enun != -1 else -1
@@ -353,6 +356,12 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
                 c = str(r[idx_com]).strip()
                 com_val = "" if c in ("nan", "NaT", "None") else c
 
+            # Objetivo docente
+            obj_val = ""
+            if idx_obj != -1 and idx_obj < len(r):
+                o = str(r[idx_obj]).strip()
+                obj_val = "" if o in ("nan", "NaT", "None") else o
+
             rows.append({
                 "ID_Pregunta":   id_val,
                 "bloque":        b_name,
@@ -366,11 +375,12 @@ def procesar_excel_dfs(dfs: dict) -> pd.DataFrame:
                 "solucion":      sol_val,
                 "datos":         datos_val,
                 "comentario":    com_val,
+                "objetivo":      obj_val,
             })
 
     if not rows:
         return pd.DataFrame(columns=["ID_Pregunta","bloque","Tema","enunciado",
-                                      "opciones_list","letra_correcta","dificultad","usada","notas","solucion","datos","comentario"])
+                                      "opciones_list","letra_correcta","dificultad","usada","notas","solucion","datos","comentario","objetivo"])
     return pd.DataFrame(rows)
 
 # ── Conexión ─────────────────────────────────────────────────────────────────
@@ -827,6 +837,13 @@ def render_sidebar():
 
         st.divider()
         st.caption("ExamGen UCM · Unidad de Física Médica")
+        st.markdown(
+            "<div style='font-size:0.72em;color:#aaa;text-align:center;line-height:1.5'>"
+            "Desarrollado por <b>Diego Gutiérrez Pérez</b><br>"
+            "UCM · Física Médica"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── Page header helper ────────────────────────────────────────────────────────
 def page_header(icon: str, title: str, subtitle: str = ""):
@@ -879,6 +896,26 @@ def temas_en_db(bloque: str) -> list[str]:
 
 def bloques_disponibles() -> list[str]:
     return st.session_state.bloques or []
+
+
+def objetivos_de_tema(bloque: str, tema: str) -> list[str]:
+    """Códigos de objetivos asociados a un bloque+tema concreto."""
+    cfg = st.session_state.get("cfg_objetivos", {})
+    tema = str(tema).strip()
+    return [
+        cod for cod, data in cfg.items()
+        if (not data["bloque"] or data["bloque"] == bloque)
+        and (not data["tema"]  or str(data["tema"]).strip() == tema)
+    ]
+
+
+def nombre_objetivo(cod: str) -> str:
+    """'OA1 — Ley de Beer' o 'OA1' si sin nombre_corto."""
+    cfg = st.session_state.get("cfg_objetivos", {})
+    if cod in cfg:
+        nombre = cfg[cod].get("nombre_corto", "")
+        return f"{cod} — {nombre}" if nombre else cod
+    return cod
 
 def es_uso_antiguo(v: str, months: int) -> bool:
     try:
@@ -1011,6 +1048,11 @@ def _dialog_editar_pregunta(pid: str, row: dict):
                                  height=70, key="dlg_notas")
         ed_com = st.text_input("Etiqueta", value=str(row.get("comentario", "") or ""),
                                key="dlg_com", placeholder="ej: CLASE, EXAMEN_2023...")
+        _obj_opts = [""] + objetivos_de_tema(row.get("bloque", ""), str(row.get("Tema", "")))
+        _obj_cur  = str(row.get("objetivo", "") or "")
+        _obj_idx  = _obj_opts.index(_obj_cur) if _obj_cur in _obj_opts else 0
+        ed_obj = st.selectbox("Objetivo docente", _obj_opts, index=_obj_idx, key="dlg_obj",
+                              format_func=lambda x: "— Sin objetivo —" if x == "" else nombre_objetivo(x))
 
         _datos_df_dlg = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
         _datos_cur_init = str(row.get("datos", "") or "")
@@ -1060,6 +1102,7 @@ def _dialog_editar_pregunta(pid: str, row: dict):
             "usada":      ed_usada,
             "notas":      ed_notas.strip(),
             "comentario": ed_com.strip(),
+            "objetivo":   ed_obj,
             "datos_ids":  ed_datos_ids,
         }
         ok, msg = lib.actualizar_pregunta_excel_local(

@@ -26,10 +26,10 @@ import streamlit.components.v1 as stcomponents
 import examen_lib_latex as lib
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
-    reload_db, bloques_disponibles, temas_de_bloque,
+    reload_db, bloques_disponibles, temas_de_bloque, objetivos_de_tema,
     es_uso_antiguo, render_question_card_html, mathjax_html,
     append_historial, save_preset, delete_preset,
-    nombre_bloque, nombre_tema,
+    nombre_bloque, nombre_tema, nombre_objetivo,
     OUTPUT_DIR, _nsort,
     _dialog_editar_pregunta, marcar_preguntas_usadas,
 )
@@ -170,7 +170,42 @@ def _dialog_autofill(n_obj: int):
                                   key=f"af_{key_t}_d",
                                   label_visibility="collapsed")
 
+        # ── Sección: por objetivo docente ────────────────────────────────────
+        cfg_objs = st.session_state.get("cfg_objetivos", {})
+        objs_blq = [cod for cod, data in cfg_objs.items()
+                    if not data.get("bloque") or data["bloque"] == sel_blq]
+        if objs_blq:
+            st.markdown("##### 🎯 Por objetivo docente (acumulativo):")
+            oh0, oh1, oh2, oh3 = st.columns([3, 1, 1, 1])
+            oh0.markdown("<small><b>Objetivo</b></small>", unsafe_allow_html=True)
+            oh1.markdown("<small style='color:#27ae60'><b>🟢 Fácil</b></small>", unsafe_allow_html=True)
+            oh2.markdown("<small style='color:#b7950b'><b>🟡 Media</b></small>", unsafe_allow_html=True)
+            oh3.markdown("<small style='color:#c0392b'><b>🔴 Difícil</b></small>", unsafe_allow_html=True)
+            for ocod in objs_blq:
+                df_o = df_avail[df_avail["objetivo"].astype(str) == ocod] if "objetivo" in df_avail.columns else df_avail.iloc[0:0]
+                n_fo = int((df_o["dificultad"].str.lower() == "facil").sum())
+                n_mo = int((df_o["dificultad"].str.lower() == "media").sum())
+                n_do = int((df_o["dificultad"].str.lower().isin(["dificil", "difícil"])).sum())
+                o_saved = blq_saved.get(f"__OBJ_{ocod}", {})
+                key_o = re.sub(r"[^a-zA-Z0-9]", "_", f"{sel_blq}_OBJ_{ocod}")
+                oc0, oc1, oc2, oc3 = st.columns([3, 1, 1, 1])
+                oc0.markdown(
+                    f"<small><b>{ocod}</b> &nbsp;"
+                    f"<span style='color:#888'>🟢{n_fo} 🟡{n_mo} 🔴{n_do}</span></small>",
+                    unsafe_allow_html=True
+                )
+                oc1.number_input("f", min_value=0, max_value=n_fo,
+                                  value=int(o_saved.get("facil", 0)),
+                                  key=f"af_{key_o}_f", label_visibility="collapsed")
+                oc2.number_input("m", min_value=0, max_value=n_mo,
+                                  value=int(o_saved.get("media", 0)),
+                                  key=f"af_{key_o}_m", label_visibility="collapsed")
+                oc3.number_input("d", min_value=0, max_value=n_do,
+                                  value=int(o_saved.get("dificil", 0)),
+                                  key=f"af_{key_o}_d", label_visibility="collapsed")
+
     # ── Total configurado (leyendo session_state + receta guardada) ───────────
+    cfg_objs_total = st.session_state.get("cfg_objetivos", {})
     total_cfg = 0
     for blq in blqs:
         k_blq   = re.sub(r"[^a-zA-Z0-9]", "_", blq)
@@ -189,6 +224,16 @@ def _dialog_autofill(n_obj: int):
                 st.session_state.get(f"af_{kt}_f", tp.get("facil",  0)) +
                 st.session_state.get(f"af_{kt}_m", tp.get("media",  0)) +
                 st.session_state.get(f"af_{kt}_d", tp.get("dificil", 0))
+            )
+        objs_blq_t = [cod for cod, data in cfg_objs_total.items()
+                      if not data.get("bloque") or data["bloque"] == blq]
+        for ocod in objs_blq_t:
+            key_o = re.sub(r"[^a-zA-Z0-9]", "_", f"{blq}_OBJ_{ocod}")
+            op = prev_b.get(f"__OBJ_{ocod}", {})
+            total_cfg += (
+                st.session_state.get(f"af_{key_o}_f", op.get("facil",  0)) +
+                st.session_state.get(f"af_{key_o}_m", op.get("media",  0)) +
+                st.session_state.get(f"af_{key_o}_d", op.get("dificil", 0))
             )
 
     total_final = n_manual + total_cfg
@@ -215,6 +260,7 @@ def _dialog_autofill(n_obj: int):
 
     if bc2.button("✅ Guardar receta", type="primary", key="af_dlg_ok"):
         new_recipe = {}
+        _cfg_objs_save = st.session_state.get("cfg_objetivos", {})
         for blq in blqs:
             k_blq  = re.sub(r"[^a-zA-Z0-9]", "_", blq)
             prev_b = recipe.get(blq, {})
@@ -236,6 +282,17 @@ def _dialog_autofill(n_obj: int):
                 td = st.session_state.get(f"af_{kt}_d", tp.get("dificil", 0))
                 if tf + tm + td > 0:
                     blq_r[str(tema)] = {"facil": tf, "media": tm, "dificil": td}
+
+            objs_blq_s = [cod for cod, data in _cfg_objs_save.items()
+                          if not data.get("bloque") or data["bloque"] == blq]
+            for ocod in objs_blq_s:
+                key_o = re.sub(r"[^a-zA-Z0-9]", "_", f"{blq}_OBJ_{ocod}")
+                op = prev_b.get(f"__OBJ_{ocod}", {})
+                of = st.session_state.get(f"af_{key_o}_f", op.get("facil",  0))
+                om = st.session_state.get(f"af_{key_o}_m", op.get("media",  0))
+                od = st.session_state.get(f"af_{key_o}_d", op.get("dificil", 0))
+                if of + om + od > 0:
+                    blq_r[f"__OBJ_{ocod}"] = {"facil": of, "media": om, "dificil": od}
 
             if blq_r:
                 new_recipe[blq] = blq_r
@@ -310,11 +367,16 @@ with tab_sel:
         )
         f_search = fc5.text_input("Buscar", placeholder="Texto...", key="sel_search")
         _coms_disp = sorted({c for c in df_total.get("comentario", pd.Series(dtype=str)).dropna() if c})
-        if _coms_disp:
-            fc6, _ = st.columns([2, 3])
-            f_com = fc6.selectbox("Etiqueta", ["Todas"] + _coms_disp, key="sel_f_com")
+        _objs_disp = sorted({str(o) for o in df_total.get("objetivo", pd.Series(dtype=str)).dropna() if str(o).strip()})
+        _has_extra = bool(_coms_disp) or bool(_objs_disp)
+        if _has_extra:
+            fc6, fc7, _ = st.columns([2, 2, 1])
+            f_com = fc6.selectbox("Etiqueta", ["Todas"] + _coms_disp, key="sel_f_com") if _coms_disp else "Todas"
+            f_obj = fc7.selectbox("Objetivo", ["Todos"] + _objs_disp, key="sel_f_obj",
+                                  format_func=lambda x: "Todos" if x == "Todos" else nombre_objetivo(x)) if _objs_disp else "Todos"
         else:
             f_com = "Todas"
+            f_obj = "Todos"
 
     # Aplicar filtros
     df_filt = df_total.copy()
@@ -343,6 +405,8 @@ with tab_sel:
         df_filt = df_filt[mask | ops_mask]
     if f_com != "Todas" and "comentario" in df_filt.columns:
         df_filt = df_filt[df_filt["comentario"] == f_com]
+    if f_obj != "Todos" and "objetivo" in df_filt.columns:
+        df_filt = df_filt[df_filt["objetivo"].astype(str) == f_obj]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # LAYOUT 3 COLUMNAS: disponibles | preview | fijas
@@ -738,6 +802,29 @@ with tab_dev:
             if cd.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
                 to_delete.append(i)
 
+            # ── Toolbar snippets LaTeX ────────────────────────────────────────
+            _snippets = [
+                ("**B**",     "\\textbf{texto}"),
+                ("_I_",       "\\textit{texto}"),
+                ("$…$",       "$valor$"),
+                ("$$…$$",     "$$\n\\frac{a}{b}\n$$"),
+                ("½",         "\\frac{a}{b}"),
+                ("x²",        "^{2}"),
+                ("xₙ",        "_{n}"),
+                ("√",         "\\sqrt{x}"),
+                ("∫",         "\\int_{}^{}"),
+                ("Σ",         "\\sum_{i=1}^{n}"),
+                ("→",         "\\rightarrow"),
+                ("α…",        "\\alpha"),
+            ]
+            _tb_cols = st.columns(len(_snippets))
+            for _tc, (_lbl, _snip) in zip(_tb_cols, _snippets):
+                if _tc.button(_lbl, key=f"snip_{i}_{_lbl}", help=_snip,
+                               use_container_width=True):
+                    _cur = st.session_state.get(f"dev_txt_{i}", "")
+                    st.session_state[f"dev_txt_{i}"] = _cur + _snip
+                    st.rerun()
+
             # ── Split: editor | preview ───────────────────────────────────────
             col_edit, col_prev = st.columns(2, gap="medium")
 
@@ -789,10 +876,14 @@ with tab_dev:
                 )
 
                 with _rub_tab:
-                    st.caption("Define los criterios de evaluación con su puntuación parcial.")
+                    st.caption("Define los criterios: descripción, puntos máximos e incremento de calificación.")
+                    _rh1, _rh2, _rh3, _rh4 = st.columns([5, 1.2, 1.2, 0.8])
+                    _rh1.markdown("<small style='color:#888'>Criterio</small>", unsafe_allow_html=True)
+                    _rh2.markdown("<small style='color:#888'>Pts máx</small>", unsafe_allow_html=True)
+                    _rh3.markdown("<small style='color:#888'>Incremento</small>", unsafe_allow_html=True)
                     to_del_crit = []
                     for ci, crit in enumerate(criterios):
-                        rc1, rc2, rc3 = st.columns([5, 1, 1])
+                        rc1, rc2, rc3, rc4 = st.columns([5, 1.2, 1.2, 0.8])
                         new_desc = rc1.text_input("Criterio", value=crit.get("desc", ""),
                                                    key=f"crit_desc_{i}_{ci}",
                                                    label_visibility="collapsed",
@@ -801,14 +892,26 @@ with tab_dev:
                                                      min_value=0.0, step=0.25,
                                                      key=f"crit_pts_{i}_{ci}",
                                                      label_visibility="collapsed")
-                        if rc3.button("🗑️", key=f"crit_del_{i}_{ci}", help="Eliminar criterio"):
+                        new_cinc = rc3.number_input("inc", value=float(crit.get("incremento", 0.25)),
+                                                     min_value=0.0, step=0.05,
+                                                     key=f"crit_inc_{i}_{ci}",
+                                                     label_visibility="collapsed")
+                        if rc4.button("🗑️", key=f"crit_del_{i}_{ci}", help="Eliminar criterio"):
                             to_del_crit.append(ci)
                         else:
-                            criterios[ci] = {"desc": new_desc, "pts": new_cpts}
+                            _levels = []
+                            if new_cinc > 0 and new_cpts > 0:
+                                import math as _m
+                                _n = round(new_cpts / new_cinc)
+                                _levels = [f"{new_cinc*k:.2g}" for k in range(_n + 1)]
+                            criterios[ci] = {"desc": new_desc, "pts": new_cpts,
+                                             "incremento": new_cinc}
+                            if _levels:
+                                rc1.caption(f"Valores posibles: {' / '.join(_levels)}")
                     for ci in sorted(to_del_crit, reverse=True):
                         criterios.pop(ci)
                     if st.button("➕ Añadir criterio", key=f"crit_add_{i}"):
-                        criterios.append({"desc": "", "pts": 0.5})
+                        criterios.append({"desc": "", "pts": 0.5, "incremento": 0.25})
                     _total_crit = sum(c.get("pts", 0) for c in criterios)
                     if criterios:
                         st.caption(f"Total criterios: **{_total_crit:.2f} pts** (pregunta: {new_pts} pts)")
@@ -969,6 +1072,23 @@ with tab_prev:
                                 (~df_total["ID_Pregunta"].isin(already_used))
                             ]["ID_Pregunta"].tolist()
                             label_str = "(cualquier tema)"
+                        elif tema_key.startswith("__OBJ_"):
+                            obj_cod = tema_key[len("__OBJ_"):]
+                            already_fixed = [
+                                p for p in sel_prev
+                                if df_lookup.get(p, {}).get("bloque", "") == bloque
+                                and str(df_lookup.get(p, {}).get("objetivo", "")) == obj_cod
+                                and df_lookup.get(p, {}).get("dificultad", "").lower() == dif_name.lower()
+                            ]
+                            _obj_mask = (
+                                (df_total["bloque"] == bloque) &
+                                (df_total["dificultad"].str.lower() == dif_name.lower()) &
+                                (~df_total["ID_Pregunta"].isin(already_used))
+                            )
+                            if "objetivo" in df_total.columns:
+                                _obj_mask &= (df_total["objetivo"].astype(str) == obj_cod)
+                            pool_ids = df_total[_obj_mask]["ID_Pregunta"].tolist()
+                            label_str = f"Obj {obj_cod}"
                         else:
                             already_fixed = [
                                 p for p in sel_prev
@@ -1202,13 +1322,15 @@ def _ejecutar_export():
         "sol_ast":     cfg.get("sol_ast",  True),
         "fundamentales_data": [
             {
-                "txt":          q["txt"],
-                "pts":          q["pts"],
-                "espacio":      q["espacio"],
-                "imagen_bytes": q.get("imagen_bytes"),
-                "imagen_name":  q.get("imagen_name", f"dev_img_{di+1}.png"),
-                "imagen_pos":   q.get("imagen_pos", "debajo"),
-                "datos_ids":    q.get("datos_ids", ""),
+                "txt":            q["txt"],
+                "pts":            q["pts"],
+                "espacio":        q["espacio"],
+                "criterios":      q.get("criterios", []),
+                "solucion_modelo": q.get("solucion_modelo", ""),
+                "imagen_bytes":   q.get("imagen_bytes"),
+                "imagen_name":    q.get("imagen_name", f"dev_img_{di+1}.png"),
+                "imagen_pos":     q.get("imagen_pos", "debajo"),
+                "datos_ids":      q.get("datos_ids", ""),
             }
             for di, q in enumerate(st.session_state.get("dev_questions", []))
         ],
@@ -1263,44 +1385,70 @@ def _ejecutar_export():
     if tpl_tex_bytes:
         cfg_export["plantilla_tex_bytes"] = tpl_tex_bytes
 
-    master = lib.generar_master_examen(pool, n_mod, cfg_export)
+    # ── Modo partes ────────────────────────────────────────────────────────────
+    partes_modo = cfg.get("partes_modo", "completo")
+    _fund_data  = cfg_export.get("fundamentales_data", [])
+
+    if partes_modo == "solo_test":
+        cfg_export["fundamentales_data"] = []
+        _runs = [("", pool, cfg_export)]
+    elif partes_modo == "solo_dev":
+        _runs = [("", [], cfg_export)]
+    elif partes_modo == "separados":
+        _cfg_test = dict(cfg_export); _cfg_test["fundamentales_data"] = []
+        _cfg_dev  = dict(cfg_export)
+        _runs = [("_TEST", pool, _cfg_test), ("_DEV", [], _cfg_dev)]
+    else:
+        _runs = [("", pool, cfg_export)]
 
     ef = {"nombre": nombre_arch, "_zip_all": {}}
 
-    # CSV (siempre)
-    csv_data = lib.exportar_csv_bytes(master, nombre_arch)
-    ef["csv_claves"] = csv_data["claves"]
-    ef["csv_meta"]   = csv_data["metadata"]
-    ef["_zip_all"][f"{nombre_arch}_CLAVES.csv"]   = csv_data["claves"]
-    ef["_zip_all"][f"{nombre_arch}_METADATA.csv"] = csv_data["metadata"]
+    for _sfx, _pool, _cfg in _runs:
+        _arch = nombre_arch + _sfx
+        _master = lib.generar_master_examen(_pool, n_mod, _cfg)
 
-    # Word
-    if exp_word:
-        ef["word_exam"] = lib.rellenar_plantilla_word_bytes(master, nombre_arch, cfg_export, tpl_bytes=tpl_word_bytes, modo_solucion=False)
-        ef["word_sol"]  = lib.rellenar_plantilla_word_bytes(master, nombre_arch, cfg_export, tpl_bytes=tpl_word_bytes, modo_solucion=True)
-        for letra, data in ef["word_exam"].items():
-            ef["_zip_all"][f"{nombre_arch}_MOD{letra}.docx"] = data
-        for letra, data in ef["word_sol"].items():
-            ef["_zip_all"][f"{nombre_arch}_MOD{letra}_SOL.docx"] = data
+        if not _sfx:  # solo primer run para CSV (no aplica en separados o aplica al test)
+            csv_data = lib.exportar_csv_bytes(_master, _arch)
+            ef["csv_claves"] = csv_data["claves"]
+            ef["csv_meta"]   = csv_data["metadata"]
+            ef["_zip_all"][f"{_arch}_CLAVES.csv"]   = csv_data["claves"]
+            ef["_zip_all"][f"{_arch}_METADATA.csv"] = csv_data["metadata"]
+        elif partes_modo == "separados" and _sfx == "_TEST":
+            csv_data = lib.exportar_csv_bytes(_master, _arch)
+            ef["csv_claves"] = csv_data["claves"]
+            ef["csv_meta"]   = csv_data["metadata"]
+            ef["_zip_all"][f"{_arch}_CLAVES.csv"]   = csv_data["claves"]
+            ef["_zip_all"][f"{_arch}_METADATA.csv"] = csv_data["metadata"]
 
-    # LaTeX (+ bundle .sty)
-    if exp_tex:
-        ef["latex_exam"] = lib.generar_latex_strings(master, nombre_arch, cfg_export, modo_solucion=False)
-        ef["latex_sol"]  = lib.generar_latex_strings(master, nombre_arch, cfg_export, modo_solucion=True)
-        for letra, data in ef["latex_exam"].items():
-            ef["_zip_all"][f"{nombre_arch}_MOD{letra}.tex"] = data
-        for letra, data in ef["latex_sol"].items():
-            ef["_zip_all"][f"{nombre_arch}_MOD{letra}_SOL.tex"] = data
-        # Bundlear .sty personalizado
-        sty_bytes = lib._generar_sty(cfg_export)
-        if sty_bytes:
-            ef["_zip_all"]["estilo_examen_moderno_v2.sty"] = sty_bytes
-        # Logo si existe
-        _logo_p = st.session_state.get("_logo_path", "")
-        if _logo_p and os.path.isfile(_logo_p):
-            import os as _os
-            with open(_logo_p, "rb") as _lf:
-                ef["_zip_all"][_os.path.basename(_logo_p)] = _lf.read()
+        if exp_word:
+            _wex = lib.rellenar_plantilla_word_bytes(_master, _arch, _cfg, tpl_bytes=tpl_word_bytes, modo_solucion=False)
+            _wsol = lib.rellenar_plantilla_word_bytes(_master, _arch, _cfg, tpl_bytes=tpl_word_bytes, modo_solucion=True)
+            for letra, data in _wex.items():
+                ef["_zip_all"][f"{_arch}_MOD{letra}.docx"] = data
+            for letra, data in _wsol.items():
+                ef["_zip_all"][f"{_arch}_MOD{letra}_SOL.docx"] = data
+
+        if exp_tex:
+            _tex_ex  = lib.generar_latex_strings(_master, _arch, _cfg, modo_solucion=False)
+            _tex_sol = lib.generar_latex_strings(_master, _arch, _cfg, modo_solucion=True)
+            for letra, data in _tex_ex.items():
+                ef["_zip_all"][f"{_arch}_MOD{letra}.tex"] = data
+            for letra, data in _tex_sol.items():
+                ef["_zip_all"][f"{_arch}_MOD{letra}_SOL.tex"] = data
+            sty_bytes = lib._generar_sty(_cfg)
+            if sty_bytes:
+                ef["_zip_all"]["estilo_examen_moderno_v2.sty"] = sty_bytes
+            _logo_p = st.session_state.get("_logo_path", "")
+            if _logo_p and os.path.isfile(_logo_p):
+                import os as _os
+                with open(_logo_p, "rb") as _lf:
+                    ef["_zip_all"][_os.path.basename(_logo_p)] = _lf.read()
+
+    # usar primer master para referencias internas
+    master = lib.generar_master_examen(
+        pool if partes_modo not in ("solo_dev",) else [],
+        n_mod, cfg_export
+    )
 
     # Imágenes de preguntas de desarrollo → bundlear en ZIP
     dev_qs_export = st.session_state.get("dev_questions", [])
@@ -1924,6 +2072,23 @@ with tab_exp:
                                         format_func=lambda x: x[0], key="exp_ord")
             orden       = orden_val[1]
             barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
+
+            st.markdown("**Modo de partes:**")
+            _partes_opts = [
+                ("completo",    "📄 Completo (desarrollo + test juntos)"),
+                ("solo_test",   "📋 Solo Test (MCQ)"),
+                ("solo_dev",    "✍️ Solo Desarrollo (problemas)"),
+                ("separados",   "📑 Separados (dos documentos independientes)"),
+            ]
+            _partes_idx = next((i for i, (v, _) in enumerate(_partes_opts)
+                                if v == cfg.get("partes_modo", "completo")), 0)
+            partes_modo = st.selectbox(
+                "Modo de partes", _partes_opts, index=_partes_idx,
+                format_func=lambda x: x[1], key="exp_partes_modo",
+                label_visibility="collapsed",
+            )[0]
+            if partes_modo == "separados":
+                st.caption("ℹ️ Se generarán dos documentos: uno con la parte de desarrollo y otro con el test.")
         campos_alumno = _campos_sel
 
         # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
@@ -2303,6 +2468,8 @@ with tab_exp:
             "notacal_dev":   notacal_dev,
             "notacal_test":  notacal_test,
             "notacal_final": notacal_final,
+            # Modo partes
+            "partes_modo": partes_modo,
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────
