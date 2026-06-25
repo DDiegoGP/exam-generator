@@ -24,7 +24,6 @@ sys.path.insert(0, PROJECT_DIR)
 
 import streamlit.components.v1 as stcomponents
 import examen_lib_latex as lib
-from dev_editor import ace_editor as _ace_editor
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     reload_db, bloques_disponibles, temas_de_bloque, objetivos_de_tema,
@@ -804,20 +803,65 @@ with tab_dev:
             if cd.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
                 to_delete.append(i)
 
-            # ── Editor ace (LaTeX / Markdown) + preview ──────────────────────
+            # ── Modo + toolbar + editor ──────────────────────────────────────
+            _SNIPS_LATEX = [
+                ("B",       "\\textbf{TEXTO}",           "Negrita"),
+                ("I",       "\\textit{TEXTO}",           "Cursiva"),
+                ("$…$",     "$valor$",                   "Fórmula inline"),
+                ("\\[…\\]", "\\[\n\\frac{a}{b}\n\\]",   "Fórmula bloque"),
+                ("½",       "\\frac{num}{den}",          "Fracción"),
+                ("√",       "\\sqrt{x}",                 "Raíz"),
+                ("x²",      "^{2}",                      "Superíndice"),
+                ("xₙ",      "_{n}",                      "Subíndice"),
+                ("∑",       "\\sum_{i=1}^{n}",           "Sumatorio"),
+                ("∫",       "\\int_{a}^{b}",             "Integral"),
+                ("α",       "\\alpha",                   "Letra griega"),
+                ("→",       "\\rightarrow",              "Flecha"),
+            ]
+            _SNIPS_MD = [
+                ("B",         "**TEXTO**",               "Negrita"),
+                ("I",         "*TEXTO*",                 "Cursiva"),
+                ("$…$",       "$valor$",                 "Fórmula inline"),
+                ("$$…$$",     "$$\n\\frac{a}{b}\n$$",   "Fórmula bloque"),
+                ("½",         "$\\frac{num}{den}$",      "Fracción"),
+                ("√",         "$\\sqrt{x}$",             "Raíz"),
+                ("x²",        "^{2}",                    "Superíndice (en $)"),
+                ("• lista",   "\n- elemento\n",          "Lista viñetas"),
+                ("1. lista",  "\n1. elemento\n",         "Lista numerada"),
+                ("---",       "\n---\n",                 "Separador"),
+                ("α",         "$\\alpha$",               "Letra griega"),
+                ("→",         "$\\rightarrow$",          "Flecha"),
+            ]
+
+            _modo_actual = q.get("modo", "latex")
+            _mc, _tc = st.columns([1, 4])
+            _modo_sel = _mc.radio(
+                "Modo", ["⚙ LaTeX", "✍ Markdown"], horizontal=True,
+                index=0 if _modo_actual == "latex" else 1,
+                key=f"dev_mode_{i}", label_visibility="collapsed"
+            )
+            q["modo"] = "latex" if "LaTeX" in _modo_sel else "markdown"
+            _snips = _SNIPS_LATEX if q["modo"] == "latex" else _SNIPS_MD
+            _tb_cols = _tc.columns(len(_snips))
+            for _tc2, (_lbl, _snip, _help) in zip(_tb_cols, _snips):
+                if _tc2.button(_lbl, key=f"snip_{i}_{_lbl}", help=_help,
+                               use_container_width=True):
+                    _cur = st.session_state.get(f"dev_txt_{i}", q["txt"])
+                    st.session_state[f"dev_txt_{i}"] = _cur + _snip
+                    st.rerun()
+
             col_edit, col_prev = st.columns(2, gap="medium")
 
             with col_edit:
-                _ed_result = _ace_editor(
-                    value=q["txt"],
-                    mode=q.get("modo", "latex"),
-                    height=190,
-                    key=f"dev_editor_{i}",
+                _ph = ("Escribe en LaTeX...\n$E = mc^2$\n\\textbf{negrita}\n\\frac{a}{b}"
+                       if q["modo"] == "latex" else
+                       "Escribe en Markdown...\n**negrita**  *cursiva*\n$E = mc^2$\n- elemento")
+                new_txt = st.text_area(
+                    "Enunciado", value=q["txt"], height=175,
+                    key=f"dev_txt_{i}", label_visibility="collapsed",
+                    placeholder=_ph,
                 )
-                if _ed_result and isinstance(_ed_result, dict):
-                    q["txt"]  = _ed_result.get("content", q["txt"])
-                    q["modo"] = _ed_result.get("mode", q.get("modo", "latex"))
-                new_txt = q["txt"]
+                q["txt"] = new_txt
 
             with col_prev:
                 if new_txt.strip():
