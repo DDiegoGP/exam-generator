@@ -42,8 +42,8 @@ st.markdown(APP_CSS, unsafe_allow_html=True)
 render_sidebar()
 
 _n_sel = len(st.session_state.sel_ids)
-st.title("🎲 Generador de Exámenes")
-st.caption(f"{_n_sel} preguntas seleccionadas" if _n_sel else "Selecciona preguntas para el examen")
+_sub_gen = (f"{_n_sel} preguntas seleccionadas" if _n_sel else "Selecciona preguntas para el examen")
+page_header("🎲", "Generador de Exámenes", _sub_gen, color="#1a6b3a")
 
 if not st.session_state.db_connected:
     st.warning("⚠️ Conecta la base de datos desde la barra lateral antes de continuar.")
@@ -768,11 +768,9 @@ def _dev_md_to_html(text):
 _ESP_LABELS = ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"]
 
 with tab_dev:
-    st.title("✍️ Preguntas de Desarrollo")
-    st.caption(
-        "Se incluirán como **PARTE I** del examen. "
-        "Formato: `**negrita**` · `*cursiva*` · `$LaTeX inline$` · `$$bloque$$`"
-    )
+    page_header("✍️", "Preguntas de Desarrollo",
+                "Se incluirán como PARTE I del examen · LaTeX y Markdown soportados",
+                color="#7d3c98")
 
     dev_qs: list = st.session_state.dev_questions
 

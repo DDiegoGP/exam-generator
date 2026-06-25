@@ -305,9 +305,9 @@ def _dialog_solucion(pid: str, row: dict):
         st.rerun()
 
 
-st.title("🗄️ Gestor de Base de Datos")
-st.caption(f"{len(st.session_state.df_preguntas)} preguntas · {len(st.session_state.bloques)} bloques"
+_sub_db = (f"{len(st.session_state.df_preguntas)} preguntas · {len(st.session_state.bloques)} bloques"
            if st.session_state.db_connected else "Sin conexión a la base de datos")
+page_header("🗄️", "Gestor de Base de Datos", _sub_db, color="#1a3a5c")
 
 if not st.session_state.db_connected:
     st.warning("⚠️ Conecta la base de datos desde la barra lateral antes de continuar.")

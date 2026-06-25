@@ -30,7 +30,7 @@ handle_oauth_callback()
 st.markdown(APP_CSS, unsafe_allow_html=True)
 render_sidebar()
 
-page_header("⚙️", "Configuración", "Nombres de bloques, temas y datos de la asignatura")
+page_header("⚙️", "Configuración", "Nombres de bloques, temas, objetivos y datos de la asignatura", color="#475569")
 
 if not st.session_state.db_connected:
     st.warning("⚠️ Conecta la base de datos desde la barra lateral antes de continuar.")

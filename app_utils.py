@@ -846,11 +846,18 @@ def render_sidebar():
         )
 
 # ── Page header helper ────────────────────────────────────────────────────────
-def page_header(icon: str, title: str, subtitle: str = ""):
-    """Renderiza una cabecera de página consistente con componentes nativos."""
-    st.title(f"{icon} {title}")
-    if subtitle:
-        st.caption(subtitle)
+def page_header(icon: str, title: str, subtitle: str = "", color: str = "#2c3e50"):
+    sub_html = (f'<div style="font-size:.85em;opacity:.75;margin-top:3px">{subtitle}</div>'
+                if subtitle else "")
+    st.markdown(
+        f"""<div style="background:linear-gradient(90deg,{color} 0%,{color}cc 100%);
+            border-radius:10px;padding:14px 22px;margin-bottom:8px;color:white;
+            box-shadow:0 3px 10px {color}40">
+          <div style="font-size:1.55em;font-weight:800;letter-spacing:-.01em">{icon} {title}</div>
+          {sub_html}
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
 # ── Helpers varios ────────────────────────────────────────────────────────────
 def temas_de_bloque(bloque: str) -> list[str]:
