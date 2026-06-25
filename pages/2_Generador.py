@@ -767,6 +767,34 @@ def _dev_md_to_html(text):
 
 _ESP_LABELS = ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Completa"]
 
+
+def _dev_qs_to_json(dev_qs: list) -> bytes:
+    import json as _j, base64 as _b
+    out = []
+    for q in dev_qs:
+        q2 = {k: v for k, v in q.items() if k != "imagen_bytes"}
+        if q.get("imagen_bytes"):
+            q2["imagen_b64"] = _b.b64encode(q["imagen_bytes"]).decode()
+        out.append(q2)
+    return _j.dumps(out, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def _dev_qs_from_json(raw: bytes) -> list:
+    import json as _j, base64 as _b
+    qs = _j.loads(raw.decode("utf-8"))
+    for q in qs:
+        if "imagen_b64" in q:
+            q["imagen_bytes"] = _b.b64decode(q.pop("imagen_b64"))
+        else:
+            q["imagen_bytes"] = None
+        q.setdefault("txt", ""); q.setdefault("pts", 1.0)
+        q.setdefault("espacio", "Automático"); q.setdefault("modo", "markdown")
+        q.setdefault("criterios", []); q.setdefault("solucion_modelo", "")
+        q.setdefault("imagen_name", ""); q.setdefault("imagen_pos", "debajo")
+        q.setdefault("datos_ids", "")
+    return qs
+
+
 with tab_dev:
     page_header("✍️", "Preguntas de Desarrollo",
                 "Se incluirán como PARTE I del examen · Markdown y LaTeX soportados",
@@ -782,6 +810,33 @@ with tab_dev:
                        "datos_ids": ""})
         st.session_state.dev_questions = dev_qs
         st.rerun()
+
+    # ── Export / Import JSON ──────────────────────────────────────────────────
+    _io1, _io2 = st.columns(2)
+    if dev_qs:
+        _io1.download_button(
+            "⬇️ Exportar preguntas (JSON)",
+            data=_dev_qs_to_json(dev_qs),
+            file_name="dev_questions.json",
+            mime="application/json",
+            use_container_width=True,
+            key="dl_dev_qs",
+            help="Descarga las preguntas de desarrollo como JSON para guardar, recuperar o compartir con compañeros",
+        )
+    _imp_up = _io2.file_uploader(
+        "⬆️ Importar preguntas (JSON)", type=["json"], key="dev_qs_import",
+        help="Carga un JSON exportado previamente — las preguntas se añaden a las existentes",
+    )
+    if _imp_up and st.session_state.get("_dev_json_upload_name") != _imp_up.name:
+        try:
+            _imported = _dev_qs_from_json(_imp_up.getvalue())
+            dev_qs.extend(_imported)
+            st.session_state.dev_questions = dev_qs
+            st.session_state["_dev_json_upload_name"] = _imp_up.name
+            st.success(f"✅ {len(_imported)} pregunta(s) importada(s)")
+            st.rerun()
+        except Exception as _ie:
+            st.error(f"Error al importar: {_ie}")
 
     if not dev_qs:
         st.info("No hay preguntas de desarrollo. Haz clic en **➕ Añadir pregunta** para empezar.")
@@ -1458,6 +1513,15 @@ with tab_prev:
 # TAB 4 · EXPORTAR  (rediseñado)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Helper: inyectar formulario en fichero LaTeX ─────────────────────────────
+def _inject_formulario_tex(tex_str: str, formulario_name: str) -> str:
+    pkg = "\\usepackage{pdfpages}"
+    if pkg not in tex_str:
+        tex_str = tex_str.replace("\\begin{document}", pkg + "\n\\begin{document}")
+    inc = f"\n\\clearpage\n\\includepdf[pages=-]{{{formulario_name}}}\n"
+    return tex_str.replace("\\end{document}", inc + "\\end{document}")
+
+
 # ── Helper: ejecutar exportación completa en memoria ─────────────────────────
 def _ejecutar_export():
     """Genera todos los archivos en memoria y los guarda en session_state['export_files']."""
@@ -1633,8 +1697,26 @@ def _ejecutar_export():
                 import os as _os
                 with open(_logo_p, "rb") as _lf:
                     ef["_zip_all"][_os.path.basename(_logo_p)] = _lf.read()
+            _form_bytes_e = st.session_state.get("_formulario_bytes")
+            _form_name_e  = st.session_state.get("_formulario_name", "formulario.pdf")
+            if _form_bytes_e and cfg.get("incl_formulario", False):
+                _tex_ex  = {k: _inject_formulario_tex(v, _form_name_e) for k, v in _tex_ex.items()}
+                _tex_sol = {k: _inject_formulario_tex(v, _form_name_e) for k, v in _tex_sol.items()}
+                # Actualizar _zip_all con las versiones inyectadas
+                for _l, _d in _tex_ex.items():
+                    ef["_zip_all"][f"{_arch}_MOD{_l}.tex"] = _d
+                for _l, _d in _tex_sol.items():
+                    ef["_zip_all"][f"{_arch}_MOD{_l}_SOL.tex"] = _d
             ef[f"latex_exam{_sfx}"] = _tex_ex   # "" | "_TEST" | "_DEV"
             ef[f"latex_sol{_sfx}"]  = _tex_sol
+
+    # Incluir PDF del formulario en el ZIP si procede
+    _form_bytes_final = st.session_state.get("_formulario_bytes")
+    _form_name_final  = st.session_state.get("_formulario_name", "formulario.pdf")
+    if _form_bytes_final and cfg.get("incl_formulario", False):
+        ef["_zip_all"][_form_name_final] = _form_bytes_final
+        ef["formulario_bytes"] = _form_bytes_final
+        ef["formulario_name"]  = _form_name_final
 
     # usar primer master para referencias internas
     master = lib.generar_master_examen(
@@ -2470,6 +2552,39 @@ with tab_exp:
                                         value=cfg.get("tit_rubrica", "Guía de Corrección"),
                                         key="exp_tit_rubrica", disabled=not incl_rubrica)
 
+        # ── 4b-quinto. Formulario / Hoja de fórmulas ─────────────────────────
+        _form_stored = bool(st.session_state.get("_formulario_bytes"))
+        with st.expander("📄 Formulario / Hoja de fórmulas", expanded=_form_stored):
+            st.caption(
+                "Adjunta un PDF con el formulario de la asignatura. "
+                "Se incluirá como última página en los archivos LaTeX (requiere compilación local con pdfpages)."
+            )
+            _f1, _f2 = st.columns([2, 1])
+            incl_formulario = _f1.checkbox(
+                "Incluir formulario al final del examen",
+                value=cfg.get("incl_formulario", _form_stored),
+                key="exp_incl_formulario",
+                disabled=not _form_stored,
+            )
+            _form_up = st.file_uploader(
+                "Subir PDF del formulario", type=["pdf"], key="formulario_upload",
+                help="El PDF se incluirá como página(s) extra al final del LaTeX con \\includepdf",
+            )
+            if _form_up:
+                if st.session_state.get("_formulario_upload_name") != _form_up.name:
+                    st.session_state["_formulario_bytes"]      = _form_up.getvalue()
+                    st.session_state["_formulario_name"]       = _form_up.name
+                    st.session_state["_formulario_upload_name"] = _form_up.name
+                    st.rerun()
+            if _form_stored:
+                _f2.success(f"📎 {st.session_state.get('_formulario_name','formulario.pdf')}")
+                if _f2.button("🗑️ Quitar formulario", key="btn_del_formulario", use_container_width=True):
+                    for _k in ("_formulario_bytes", "_formulario_name", "_formulario_upload_name"):
+                        st.session_state.pop(_k, None)
+                    st.rerun()
+            else:
+                incl_formulario = False
+
         # ── 4c-bis. Caja de calificación ──────────────────────────────────────
         _has_test_q = bool(sel_actual) or bool(st.session_state.get("auto_recipe"))
         _has_dev_q  = bool(st.session_state.get("dev_questions", []))
@@ -2666,6 +2781,8 @@ with tab_exp:
             "fmt_rubrica_word": fmt_rubrica_word,
             "fmt_rubrica_tex":  fmt_rubrica_tex,
             "tit_rubrica":      tit_rubrica,
+            # Formulario
+            "incl_formulario":  incl_formulario,
             # Caja de calificación
             "notacal_dev":   notacal_dev,
             "notacal_test":  notacal_test,
@@ -2855,6 +2972,9 @@ with tab_exp:
         else:
             _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
             _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")}
+            # Añadir formulario al bundle de compilación online
+            if _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
+                _img_files[_ef_now["formulario_name"]] = _ef_now["formulario_bytes"]
             _nombre_base = _ef_now.get("nombre", "examen")
 
             # Selector de documento cuando hay varios (modo separados)
