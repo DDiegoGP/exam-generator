@@ -44,8 +44,8 @@ st.session_state.excel_dfs = dfs
 bloques_list  = st.session_state.bloques
 df_preguntas  = st.session_state.df_preguntas
 
-tab_gen, tab_bloques, tab_temas, tab_backup = st.tabs(
-    ["📋 General", "📦 Bloques", "📌 Temas", "💾 Backup config"]
+tab_gen, tab_bloques, tab_temas, tab_obj, tab_backup = st.tabs(
+    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos", "💾 Backup config"]
 )
 
 
@@ -284,7 +284,76 @@ with tab_temas:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 · BACKUP CONFIG
+# TAB 4 · OBJETIVOS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_obj:
+    st.markdown("#### Objetivos docentes / Competencias")
+    st.caption(
+        "Define los objetivos o competencias que pueden asignarse a las preguntas. "
+        "Se mostrarán en filtros y estadísticas. Puedes restringir cada objetivo a un bloque o tema concreto."
+    )
+
+    cfg_o = st.session_state.excel_dfs.get(
+        lib.CFG_OBJETIVOS_SHEET,
+        pd.DataFrame({"Codigo": [], "Nombre_corto": [], "Descripcion": [], "Bloque": [], "Tema": []})
+    ).copy()
+    for _c in ["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]:
+        if _c not in cfg_o.columns:
+            cfg_o[_c] = ""
+
+    # Añadir contador de preguntas asignadas
+    if not df_preguntas.empty and "objetivo" in df_preguntas.columns:
+        counts_o = df_preguntas.groupby(df_preguntas["objetivo"].astype(str)).size().to_dict()
+        cfg_o["N preg."] = cfg_o["Codigo"].apply(lambda c: counts_o.get(str(c), 0))
+    else:
+        cfg_o["N preg."] = 0
+
+    # Métricas
+    n_obj_total = len(cfg_o)
+    n_obj_usados = int((cfg_o["N preg."] > 0).sum())
+    om1, om2, om3 = st.columns(3)
+    om1.metric("Total objetivos", n_obj_total)
+    om2.metric("Con preguntas asignadas", n_obj_usados)
+    om3.metric("Sin asignar", n_obj_total - n_obj_usados)
+
+    edited_o = st.data_editor(
+        cfg_o,
+        column_config={
+            "Codigo":       st.column_config.TextColumn("Código", width="medium",
+                                                         help="Identificador único, p.ej. OBJ_01 o CE1"),
+            "Nombre_corto": st.column_config.TextColumn("Nombre corto", width="large",
+                                                         help="Nombre que aparecerá en filtros"),
+            "Descripcion":  st.column_config.TextColumn("Descripción completa", width="large"),
+            "Bloque":       st.column_config.SelectboxColumn("Bloque (opcional)", options=[""] + bloques_list,
+                                                              width="medium",
+                                                              help="Dejar vacío = aplicable a todos los bloques"),
+            "Tema":         st.column_config.TextColumn("Tema (opcional)", width="small",
+                                                         help="Número de tema. Dejar vacío = todos"),
+            "N preg.":      st.column_config.NumberColumn("Preguntas", disabled=True, width="small"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        key="editor_objetivos",
+        num_rows="dynamic",
+    )
+
+    if st.button("💾 Guardar objetivos", type="primary", key="btn_save_obj"):
+        save_o = edited_o[["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]].copy()
+        save_o = save_o[save_o["Codigo"].astype(str).str.strip() != ""].reset_index(drop=True)
+        dfs2 = lib.save_cfg_objetivos(st.session_state.excel_dfs, save_o)
+        dfs2 = _load_cfg(dfs2)
+        st.session_state.excel_dfs   = dfs2
+        st.session_state.excel_bytes = lib.generar_excel_bytes(dfs2)
+        path = st.session_state.get("excel_path", "")
+        if path:
+            lib.guardar_excel_local(path, dfs2)
+        sync_hoja_gsheets(lib.CFG_OBJETIVOS_SHEET)
+        st.success("✅ Objetivos guardados.")
+        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 · BACKUP CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_backup:
     st.markdown("#### Exportar / importar configuración")
@@ -313,6 +382,14 @@ with tab_backup:
                     lib.CFG_TEMAS_SHEET, pd.DataFrame()
                 ).iterrows()
             ],
+            "objetivos": [
+                {"codigo": r.get("Codigo", ""), "nombre_corto": r.get("Nombre_corto", ""),
+                 "descripcion": r.get("Descripcion", ""), "bloque": r.get("Bloque", ""),
+                 "tema": r.get("Tema", "")}
+                for _, r in st.session_state.excel_dfs.get(
+                    lib.CFG_OBJETIVOS_SHEET, pd.DataFrame()
+                ).iterrows()
+            ],
         }
         json_bytes = json.dumps(cfg_export, ensure_ascii=False, indent=2).encode("utf-8")
         st.download_button(
@@ -323,7 +400,8 @@ with tab_backup:
             key="btn_export_cfg",
             use_container_width=True,
         )
-        st.caption(f"Se exportarán: {len(cfg_export['bloques'])} bloques · {len(cfg_export['temas'])} temas")
+        st.caption(f"Se exportarán: {len(cfg_export['bloques'])} bloques · "
+                   f"{len(cfg_export['temas'])} temas · {len(cfg_export['objetivos'])} objetivos")
 
     # ── Importar ──────────────────────────────────────────────────────────────
     with bc2:
@@ -398,11 +476,43 @@ with tab_backup:
                     for t in sorted(cur_t_map, key=_k2)
                 ])
 
+                # Objetivos
+                cur_o_df = st.session_state.excel_dfs.get(lib.CFG_OBJETIVOS_SHEET, pd.DataFrame())
+                cur_o_map = {}
+                if not cur_o_df.empty and "Codigo" in cur_o_df.columns:
+                    for _, r in cur_o_df.iterrows():
+                        cod = str(r.get("Codigo", "")).strip()
+                        if cod:
+                            cur_o_map[cod] = {
+                                "nombre_corto": str(r.get("Nombre_corto", "") or ""),
+                                "descripcion":  str(r.get("Descripcion",  "") or ""),
+                                "bloque":       str(r.get("Bloque",       "") or ""),
+                                "tema":         str(r.get("Tema",         "") or ""),
+                            }
+                for item in data.get("objetivos", []):
+                    cod = str(item.get("codigo", "")).strip()
+                    if not cod:
+                        continue
+                    if cod in cur_o_map and merge_mode and cur_o_map[cod]["nombre_corto"]:
+                        continue
+                    cur_o_map[cod] = {
+                        "nombre_corto": str(item.get("nombre_corto", "") or ""),
+                        "descripcion":  str(item.get("descripcion",  "") or ""),
+                        "bloque":       str(item.get("bloque",       "") or ""),
+                        "tema":         str(item.get("tema",         "") or ""),
+                    }
+                new_o_df = pd.DataFrame([
+                    {"Codigo": cod, "Nombre_corto": v["nombre_corto"],
+                     "Descripcion": v["descripcion"], "Bloque": v["bloque"], "Tema": v["tema"]}
+                    for cod, v in cur_o_map.items()
+                ])
+
                 # Guardar todo
                 dfs = st.session_state.excel_dfs
                 dfs = lib.save_cfg_general(dfs, new_gen)
                 dfs = lib.save_cfg_bloques(dfs, new_b_df)
                 dfs = lib.save_cfg_temas(dfs, new_t_df)
+                dfs = lib.save_cfg_objetivos(dfs, new_o_df)
                 dfs = _load_cfg(dfs)
                 st.session_state.excel_dfs   = dfs
                 st.session_state.excel_bytes = lib.generar_excel_bytes(dfs)
@@ -412,6 +522,7 @@ with tab_backup:
                 sync_hoja_gsheets(lib.CFG_BLOQUES_SHEET)
                 sync_hoja_gsheets(lib.CFG_TEMAS_SHEET)
                 sync_hoja_gsheets(lib.CFG_GENERAL_SHEET)
+                sync_hoja_gsheets(lib.CFG_OBJETIVOS_SHEET)
                 st.success("✅ Configuración importada correctamente.")
                 st.rerun()
             except Exception as e:

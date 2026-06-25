@@ -1010,6 +1010,11 @@ def save_cfg_temas(dfs: dict, df: pd.DataFrame) -> dict:
     return dfs
 
 
+def save_cfg_objetivos(dfs: dict, df: pd.DataFrame) -> dict:
+    dfs[CFG_OBJETIVOS_SHEET] = df.copy()
+    return dfs
+
+
 def save_cfg_general(dfs: dict, kv: dict) -> dict:
     rows = [{"Clave": k, "Valor": v} for k, v in kv.items()]
     dfs[CFG_GENERAL_SHEET] = pd.DataFrame(rows)
