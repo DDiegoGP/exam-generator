@@ -1085,17 +1085,65 @@ with tab_dev:
                         new_img_name  = ""
 
                 with _sol_tab:
-                    st.caption("Solución modelo (puede contener LaTeX). Aparecerá en el Solucionario del preview y en el archivo de rúbrica.")
-                    new_sol_modelo = st.text_area(
-                        "Solución modelo", value=q.get("solucion_modelo", ""),
-                        height=140, key=f"dev_sol_{i}",
-                        label_visibility="collapsed",
-                        placeholder="Escribe la solución modelo…\n$E = mc^2$\n$$\\int_0^\\infty e^{-x}\\,dx = 1$$"
-                    )
-                    if new_sol_modelo.strip():
-                        stcomponents.html(mathjax_html(
-                            f'<div style="padding:8px;font-family:serif;font-size:11pt">{new_sol_modelo}</div>'
-                        ), height=120, scrolling=False)
+                    st.caption("Solución modelo — aparecerá en el Solucionario y en el archivo de rúbrica.")
+
+                    # Toolbar texto
+                    st.markdown("<div style='font-size:.72em;color:#27ae60;font-weight:700;"
+                                "letter-spacing:.06em;margin:4px 0 3px'>✏️ TEXTO</div>",
+                                unsafe_allow_html=True)
+                    _stb1 = st.columns(len(_snips_text))
+                    for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_stb1, _snips_text)):
+                        if _col.button(_lbl, key=f"ssT_{i}_{_j}", help=_tip, use_container_width=True):
+                            _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
+                            st.session_state[f"dev_sol_{i}"] = _cur + _snip
+                            st.rerun()
+
+                    _stc_math, _stc_phys = st.columns([9, 8])
+                    with _stc_math:
+                        st.markdown("<div style='font-size:.72em;color:#1a6b3a;font-weight:700;"
+                                    "letter-spacing:.06em;margin:4px 0 3px'>📐 MATEMÁTICAS</div>",
+                                    unsafe_allow_html=True)
+                        _stb2 = st.columns(len(_snips_math))
+                        for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_stb2, _snips_math)):
+                            if _col.button(_lbl, key=f"ssM_{i}_{_j}", help=_tip, use_container_width=True):
+                                _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
+                                st.session_state[f"dev_sol_{i}"] = _cur + _snip
+                                st.rerun()
+
+                    with _stc_phys:
+                        st.markdown("<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
+                                    "letter-spacing:.06em;margin:4px 0 3px'>🔬 FÍSICA MÉDICA</div>",
+                                    unsafe_allow_html=True)
+                        _stb3 = st.columns(len(_snips_phys))
+                        for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_stb3, _snips_phys)):
+                            if _col.button(_lbl, key=f"ssP_{i}_{_j}", help=_tip, use_container_width=True):
+                                _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
+                                st.session_state[f"dev_sol_{i}"] = _cur + _snip
+                                st.rerun()
+
+                    # Tabs Editar / Vista previa
+                    _sol_edit_tab, _sol_prev_tab = st.tabs(["✏️ Editar solución", "👁 Vista previa"])
+                    with _sol_edit_tab:
+                        new_sol_modelo = st.text_area(
+                            "Solución modelo", value=q.get("solucion_modelo", ""),
+                            height=240, key=f"dev_sol_{i}",
+                            label_visibility="collapsed",
+                            placeholder="Escribe la solución en Markdown…\n\n**a)** Aplicando $A = \\lambda N$:\n\n$$\\lambda = \\frac{M \\cdot A}{m \\cdot N_A}$$"
+                        )
+                    with _sol_prev_tab:
+                        if new_sol_modelo.strip():
+                            _sbody = _dev_md_to_html(new_sol_modelo)
+                            stcomponents.html(mathjax_html(
+                                f"""<div style="font-family:Calibri,sans-serif;font-size:10.5pt;
+                                    line-height:1.7;padding:16px 22px;background:#f6fff6;
+                                    border:1px solid #c8e6c9;border-radius:8px;color:#1a1a2e">
+                                  <div style="color:#27ae60;font-size:8pt;text-transform:uppercase;
+                                      letter-spacing:.1em;font-weight:700;border-bottom:2px solid #c8e6c9;
+                                      padding-bottom:6px;margin-bottom:14px">Solución modelo</div>
+                                  {_sbody}</div>"""
+                            ), height=310, scrolling=True)
+                        else:
+                            st.info("Escribe la solución en **✏️ Editar solución** para ver la vista previa.")
 
                 with _dat_tab:
                     st.caption(
