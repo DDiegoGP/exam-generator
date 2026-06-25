@@ -23,7 +23,16 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 import streamlit.components.v1 as stcomponents
+from pathlib import Path as _Path
 import examen_lib_latex as lib
+
+# ── Editor de desarrollo con ace.js ──────────────────────────────────────────
+_EDITOR_DIR = str(_Path(__file__).parent.parent / "editor_component")
+_ace_editor_cmp = stcomponents.declare_component("dev_ace_editor", path=_EDITOR_DIR)
+
+def _ace_editor(value: str, mode: str = "latex", height: int = 200, key: str = None):
+    default = {"content": value, "mode": mode}
+    return _ace_editor_cmp(value=value, mode=mode, height=height, key=key, default=default)
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     reload_db, bloques_disponibles, temas_de_bloque, objetivos_de_tema,
@@ -778,6 +787,7 @@ with tab_dev:
 
     if st.button("➕ Añadir pregunta de desarrollo", key="btn_add_dev"):
         dev_qs.append({"txt": "", "pts": 1.0, "espacio": "Automático",
+                       "modo": "latex",
                        "criterios": [], "solucion_modelo": "",
                        "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo",
                        "datos_ids": ""})
@@ -802,47 +812,20 @@ with tab_dev:
             if cd.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
                 to_delete.append(i)
 
-            # ── Toolbar snippets LaTeX ────────────────────────────────────────
-            _snippets = [
-                ("**B**",     "\\textbf{texto}"),
-                ("_I_",       "\\textit{texto}"),
-                ("$…$",       "$valor$"),
-                ("$$…$$",     "$$\n\\frac{a}{b}\n$$"),
-                ("½",         "\\frac{a}{b}"),
-                ("x²",        "^{2}"),
-                ("xₙ",        "_{n}"),
-                ("√",         "\\sqrt{x}"),
-                ("∫",         "\\int_{}^{}"),
-                ("Σ",         "\\sum_{i=1}^{n}"),
-                ("→",         "\\rightarrow"),
-                ("α…",        "\\alpha"),
-            ]
-            _tb_cols = st.columns(len(_snippets))
-            for _tc, (_lbl, _snip) in zip(_tb_cols, _snippets):
-                if _tc.button(_lbl, key=f"snip_{i}_{_lbl}", help=_snip,
-                               use_container_width=True):
-                    _cur = st.session_state.get(f"dev_txt_{i}", "")
-                    st.session_state[f"dev_txt_{i}"] = _cur + _snip
-                    st.rerun()
-
-            # ── Split: editor | preview ───────────────────────────────────────
+            # ── Editor ace (LaTeX / Markdown) + preview ──────────────────────
             col_edit, col_prev = st.columns(2, gap="medium")
 
             with col_edit:
-                new_txt = st.text_area(
-                    "Enunciado",
+                _ed_result = _ace_editor(
                     value=q["txt"],
-                    height=160,
-                    key=f"dev_txt_{i}",
-                    label_visibility="collapsed",
-                    placeholder=(
-                        "Escribe el enunciado...\n\n"
-                        "Negrita: **texto**\n"
-                        "Cursiva: *texto*\n"
-                        "Fórmula inline: $E = mc^2$\n"
-                        "Fórmula bloque: $$\\frac{d}{dx}f(x)$$"
-                    ),
+                    mode=q.get("modo", "latex"),
+                    height=190,
+                    key=f"dev_editor_{i}",
                 )
+                if _ed_result and isinstance(_ed_result, dict):
+                    q["txt"]  = _ed_result.get("content", q["txt"])
+                    q["modo"] = _ed_result.get("mode", q.get("modo", "latex"))
+                new_txt = q["txt"]
 
             with col_prev:
                 if new_txt.strip():

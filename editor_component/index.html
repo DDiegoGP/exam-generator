@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: transparent; }
+
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 3px;
+      padding: 5px 8px;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      min-height: 36px;
+    }
+    .tb-btn {
+      padding: 2px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      background: white;
+      border: 1px solid #ced4da;
+      border-radius: 3px;
+      line-height: 1.5;
+      color: #495057;
+      white-space: nowrap;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .tb-btn:hover { background: #e8f4fd; border-color: #74b9ff; }
+    .tb-btn:active { transform: translateY(1px); }
+
+    .tb-mode {
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.4px;
+      padding: 2px 10px;
+    }
+    .mode-latex    { background: #2c3e50; color: #ecf0f1; border-color: #2c3e50; }
+    .mode-latex:hover { background: #3d5166; border-color: #3d5166; }
+    .mode-markdown { background: #27ae60; color: white; border-color: #27ae60; }
+    .mode-markdown:hover { background: #2ecc71; border-color: #2ecc71; }
+
+    .tb-sep { width: 1px; height: 18px; background: #dee2e6; margin: 0 3px; flex-shrink: 0; }
+
+    #editor {
+      width: 100%;
+      border: 1px solid #dee2e6;
+      border-radius: 0 0 6px 6px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar"></div>
+<div id="editor"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<script>
+  ace.config.set('basePath', 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/');
+
+  var SNIPPETS = {
+    latex: [
+      { label: 'B',         s: '\\textbf{TEXTO}',             t: 'Negrita  \\textbf{}' },
+      { label: 'I',         s: '\\textit{TEXTO}',             t: 'Cursiva  \\textit{}' },
+      { label: '$…$',       s: '$valor$',                     t: 'Fórmula inline' },
+      { label: '\\[…\\]',   s: '\\[\n\\frac{a}{b}\n\\]',     t: 'Fórmula bloque' },
+      { label: '½',         s: '\\frac{num}{den}',            t: 'Fracción  \\frac{}{}' },
+      { label: '√',         s: '\\sqrt{x}',                   t: 'Raíz cuadrada  \\sqrt{}' },
+      { label: 'x²',        s: '^{2}',                        t: 'Superíndice  ^{}' },
+      { label: 'xₙ',        s: '_{n}',                        t: 'Subíndice  _{}' },
+      { label: '∑',         s: '\\sum_{i=1}^{n}',             t: 'Sumatorio' },
+      { label: '∫',         s: '\\int_{a}^{b}',               t: 'Integral' },
+      { label: 'α',         s: '\\alpha',                     t: 'Letra griega — escribe el nombre' },
+      { label: '→',         s: '\\rightarrow',                t: 'Flecha derecha' }
+    ],
+    markdown: [
+      { label: 'B',         s: '**TEXTO**',                   t: 'Negrita' },
+      { label: 'I',         s: '*TEXTO*',                     t: 'Cursiva' },
+      { label: '$…$',       s: '$valor$',                     t: 'Fórmula inline' },
+      { label: '$$…$$',     s: '$$\n\\frac{a}{b}\n$$',       t: 'Fórmula bloque' },
+      { label: '½',         s: '$\\frac{num}{den}$',          t: 'Fracción (en fórmula)' },
+      { label: '√',         s: '$\\sqrt{x}$',                 t: 'Raíz cuadrada (en fórmula)' },
+      { label: 'x²',        s: '^{2}',                        t: 'Superíndice (dentro de $…$)' },
+      { label: '• lista',   s: '\n- elemento\n',              t: 'Lista con viñetas' },
+      { label: '1. lista',  s: '\n1. elemento\n',             t: 'Lista numerada' },
+      { label: '---',       s: '\n---\n',                     t: 'Separador horizontal' },
+      { label: 'α',         s: '$\\alpha$',                   t: 'Letra griega (en fórmula)' },
+      { label: '→',         s: '$\\rightarrow$',              t: 'Flecha (en fórmula)' }
+    ]
+  };
+
+  var editor = null;
+  var currentMode = 'latex';
+  var initialized = false;
+
+  function buildToolbar() {
+    var toolbar = document.getElementById('toolbar');
+    toolbar.innerHTML = '';
+
+    var modeBtn = document.createElement('button');
+    modeBtn.className = 'tb-btn tb-mode mode-' + currentMode;
+    modeBtn.textContent = currentMode === 'latex' ? '⚙ LaTeX' : '✍ Markdown';
+    modeBtn.title = 'Cambiar entre modo LaTeX y Markdown';
+    modeBtn.onclick = function() {
+      currentMode = currentMode === 'latex' ? 'markdown' : 'latex';
+      buildToolbar();
+      if (editor) {
+        editor.session.setMode('ace/mode/' + currentMode);
+      }
+      reportValue();
+    };
+    toolbar.appendChild(modeBtn);
+
+    var sep = document.createElement('div');
+    sep.className = 'tb-sep';
+    toolbar.appendChild(sep);
+
+    SNIPPETS[currentMode].forEach(function(item) {
+      var btn = document.createElement('button');
+      btn.className = 'tb-btn';
+      btn.textContent = item.label;
+      btn.title = item.t;
+      btn.onclick = function() {
+        if (editor) {
+          editor.insert(item.s);
+          editor.focus();
+        }
+      };
+      toolbar.appendChild(btn);
+    });
+  }
+
+  function reportValue() {
+    if (window.Streamlit) {
+      window.Streamlit.setComponentValue({
+        content: editor ? editor.getValue() : '',
+        mode: currentMode
+      });
+    }
+  }
+
+  function onRender(event) {
+    var args = event.detail.args;
+    var newVal  = args.value  !== undefined ? args.value  : '';
+    var newMode = args.mode   !== undefined ? args.mode   : 'latex';
+    var height  = args.height !== undefined ? args.height : 200;
+
+    if (!initialized) {
+      initialized = true;
+      currentMode = newMode;
+
+      document.getElementById('editor').style.height = height + 'px';
+
+      editor = ace.edit('editor');
+      editor.setTheme('ace/theme/github');
+      editor.session.setMode('ace/mode/' + currentMode);
+      editor.setOptions({
+        fontSize: '13px',
+        showPrintMargin: false,
+        wrap: true,
+        highlightActiveLine: true,
+        tabSize: 2
+      });
+      editor.setValue(newVal, -1);
+      editor.on('change', reportValue);
+
+      buildToolbar();
+      window.Streamlit.setFrameHeight(height + 44);
+    } else {
+      // Update only if changed externally (e.g., Python reset)
+      if (newVal !== editor.getValue()) {
+        var cursor = editor.getCursorPosition();
+        editor.setValue(newVal, -1);
+        editor.moveCursorToPosition(cursor);
+      }
+      if (newMode !== currentMode) {
+        currentMode = newMode;
+        editor.session.setMode('ace/mode/' + currentMode);
+        buildToolbar();
+      }
+    }
+  }
+
+  // Setup after streamlit-component-lib loads
+  function setupStreamlit() {
+    window.Streamlit.events.addEventListener(window.Streamlit.RENDER_EVENT, onRender);
+    window.Streamlit.setComponentReady();
+  }
+</script>
+
+<script src="https://unpkg.com/streamlit-component-lib/dist/index.js" onload="setupStreamlit()"></script>
+
+</body>
+</html>
