@@ -293,20 +293,25 @@ with tab_obj:
         "Se mostrarán en filtros y estadísticas. Puedes restringir cada objetivo a un bloque o tema concreto."
     )
 
-    cfg_o = st.session_state.excel_dfs.get(
-        lib.CFG_OBJETIVOS_SHEET,
-        pd.DataFrame({"Codigo": [], "Nombre_corto": [], "Descripcion": [], "Bloque": [], "Tema": []})
-    ).copy()
+    _empty_obj = pd.DataFrame({
+        "Codigo": pd.Series(dtype=str), "Nombre_corto": pd.Series(dtype=str),
+        "Descripcion": pd.Series(dtype=str), "Bloque": pd.Series(dtype=str),
+        "Tema": pd.Series(dtype=str),
+    })
+    cfg_o = st.session_state.excel_dfs.get(lib.CFG_OBJETIVOS_SHEET, _empty_obj).copy()
+    # Asegurar columnas y tipos — NaN en SelectboxColumn causa StreamlitAPIException
     for _c in ["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]:
         if _c not in cfg_o.columns:
             cfg_o[_c] = ""
+        cfg_o[_c] = cfg_o[_c].fillna("").astype(str)
 
     # Añadir contador de preguntas asignadas
     if not df_preguntas.empty and "objetivo" in df_preguntas.columns:
         counts_o = df_preguntas.groupby(df_preguntas["objetivo"].astype(str)).size().to_dict()
-        cfg_o["N preg."] = cfg_o["Codigo"].apply(lambda c: counts_o.get(str(c), 0))
+        cfg_o["N preg."] = cfg_o["Codigo"].apply(lambda c: int(counts_o.get(str(c), 0)))
     else:
         cfg_o["N preg."] = 0
+    cfg_o["N preg."] = cfg_o["N preg."].astype(int)
 
     # Métricas
     n_obj_total = len(cfg_o)
@@ -316,6 +321,7 @@ with tab_obj:
     om2.metric("Con preguntas asignadas", n_obj_usados)
     om3.metric("Sin asignar", n_obj_total - n_obj_usados)
 
+    _bloques_opts = [""] + [str(b) for b in bloques_list if str(b).strip()]
     edited_o = st.data_editor(
         cfg_o,
         column_config={
@@ -324,7 +330,7 @@ with tab_obj:
             "Nombre_corto": st.column_config.TextColumn("Nombre corto", width="large",
                                                          help="Nombre que aparecerá en filtros"),
             "Descripcion":  st.column_config.TextColumn("Descripción completa", width="large"),
-            "Bloque":       st.column_config.SelectboxColumn("Bloque (opcional)", options=[""] + bloques_list,
+            "Bloque":       st.column_config.SelectboxColumn("Bloque (opcional)", options=_bloques_opts,
                                                               width="medium",
                                                               help="Dejar vacío = aplicable a todos los bloques"),
             "Tema":         st.column_config.TextColumn("Tema (opcional)", width="small",
