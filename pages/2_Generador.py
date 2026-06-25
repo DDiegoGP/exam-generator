@@ -1615,6 +1615,8 @@ def _ejecutar_export():
                 ef["_zip_all"][f"{_arch}_MOD{letra}.docx"] = data
             for letra, data in _wsol.items():
                 ef["_zip_all"][f"{_arch}_MOD{letra}_SOL.docx"] = data
+            ef[f"word_exam{_sfx}"] = _wex   # "" | "_TEST" | "_DEV"
+            ef[f"word_sol{_sfx}"]  = _wsol
 
         if exp_tex:
             _tex_ex  = lib.generar_latex_strings(_master, _arch, _cfg, modo_solucion=False)
@@ -1631,6 +1633,8 @@ def _ejecutar_export():
                 import os as _os
                 with open(_logo_p, "rb") as _lf:
                     ef["_zip_all"][_os.path.basename(_logo_p)] = _lf.read()
+            ef[f"latex_exam{_sfx}"] = _tex_ex   # "" | "_TEST" | "_DEV"
+            ef[f"latex_sol{_sfx}"]  = _tex_sol
 
     # usar primer master para referencias internas
     master = lib.generar_master_examen(
@@ -2760,34 +2764,44 @@ with tab_exp:
                 type="primary",
             )
 
-            if ef.get("word_exam"):
+            _word_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"word_exam{s}")]
+            if _word_sfxs:
                 st.markdown("**Word:**")
-                _wc1, _wc2 = st.columns(2)
-                _wc1.download_button("📄 Exámenes",
-                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}.docx": d for l, d in ef["word_exam"].items()}),
-                    file_name=f"{_nef}_word_examenes.zip", mime="application/zip",
-                    use_container_width=True, key="dl_word_exam")
-                _wc2.download_button("📄 Soluciones",
-                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_SOL.docx": d for l, d in ef["word_sol"].items()}),
-                    file_name=f"{_nef}_word_soluciones.zip", mime="application/zip",
-                    use_container_width=True, key="dl_word_sol")
+                _wlbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
+                for _ws in _word_sfxs:
+                    _wlbl = _wlbl_map[_ws]
+                    _warch = _nef + _ws
+                    _wc1, _wc2 = st.columns(2)
+                    _wc1.download_button(f"📄 Exámenes{_wlbl}",
+                        data=lib.generar_zip_bytes({f"{_warch}_MOD{l}.docx": d for l, d in ef[f"word_exam{_ws}"].items()}),
+                        file_name=f"{_warch}_word_examenes.zip", mime="application/zip",
+                        use_container_width=True, key=f"dl_word_exam{_ws}")
+                    _wc2.download_button(f"📄 Soluciones{_wlbl}",
+                        data=lib.generar_zip_bytes({f"{_warch}_MOD{l}_SOL.docx": d for l, d in ef[f"word_sol{_ws}"].items()}),
+                        file_name=f"{_warch}_word_soluciones.zip", mime="application/zip",
+                        use_container_width=True, key=f"dl_word_sol{_ws}")
                 if ef.get("word_adapt"):
                     st.download_button("♿ Adaptada (Word)",
                         data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.docx": d for l, d in ef["word_adapt"].items()}),
                         file_name=f"{_nef}_word_adaptada.zip", mime="application/zip",
                         use_container_width=True, key="dl_word_adapt")
 
-            if ef.get("latex_exam"):
+            _latex_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"latex_exam{s}")]
+            if _latex_sfxs:
                 st.markdown("**LaTeX:**")
-                _lc1, _lc2 = st.columns(2)
-                _lc1.download_button("📑 Exámenes",
-                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}.tex": d for l, d in ef["latex_exam"].items()}),
-                    file_name=f"{_nef}_latex_examenes.zip", mime="application/zip",
-                    use_container_width=True, key="dl_latex_exam")
-                _lc2.download_button("📑 Soluciones",
-                    data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_SOL.tex": d for l, d in ef["latex_sol"].items()}),
-                    file_name=f"{_nef}_latex_soluciones.zip", mime="application/zip",
-                    use_container_width=True, key="dl_latex_sol")
+                _llbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
+                for _ls in _latex_sfxs:
+                    _llbl = _llbl_map[_ls]
+                    _larch = _nef + _ls
+                    _lc1, _lc2 = st.columns(2)
+                    _lc1.download_button(f"📑 Exámenes{_llbl}",
+                        data=lib.generar_zip_bytes({f"{_larch}_MOD{l}.tex": d for l, d in ef[f"latex_exam{_ls}"].items()}),
+                        file_name=f"{_larch}_latex_examenes.zip", mime="application/zip",
+                        use_container_width=True, key=f"dl_latex_exam{_ls}")
+                    _lc2.download_button(f"📑 Soluciones{_llbl}",
+                        data=lib.generar_zip_bytes({f"{_larch}_MOD{l}_SOL.tex": d for l, d in ef[f"latex_sol{_ls}"].items()}),
+                        file_name=f"{_larch}_latex_soluciones.zip", mime="application/zip",
+                        use_container_width=True, key=f"dl_latex_sol{_ls}")
                 if ef.get("latex_adapt"):
                     st.download_button("♿ Adaptada (LaTeX)",
                         data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.tex": d for l, d in ef["latex_adapt"].items()}),
@@ -2834,17 +2848,31 @@ with tab_exp:
         st.markdown("---")
 
         _ef_now    = st.session_state.get("export_files")
-        _tex_avail = _ef_now and _ef_now.get("latex_exam")
+        _tex_avail_sfxs = [s for s in ("", "_TEST", "_DEV") if _ef_now and _ef_now.get(f"latex_exam{s}")]
 
-        if not _tex_avail:
+        if not _tex_avail_sfxs:
             st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
         else:
-            _latex_exam   = _ef_now["latex_exam"]
-            _sty_b        = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
-            _img_files    = {k: v for k, v in _ef_now["_zip_all"].items()
-                             if k.startswith("dev_img_")}
-            _modelos_disp = list(_latex_exam.keys())
-            nombre_compile = _ef_now.get("nombre", "examen")
+            _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
+            _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")}
+            _nombre_base = _ef_now.get("nombre", "examen")
+
+            # Selector de documento cuando hay varios (modo separados)
+            if len(_tex_avail_sfxs) > 1:
+                _doc_lbl_map = {"": "Completo", "_TEST": "Test (MCQ)", "_DEV": "Desarrollo"}
+                _doc_opts = [(_s, _doc_lbl_map[_s]) for _s in _tex_avail_sfxs]
+                _compile_sfx = st.selectbox(
+                    "Documento a compilar",
+                    _doc_opts,
+                    format_func=lambda x: x[1],
+                    key="compile_doc",
+                )[0]
+            else:
+                _compile_sfx = _tex_avail_sfxs[0]
+
+            _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
+            _modelos_disp   = list(_latex_exam_sel.keys())
+            nombre_compile  = _nombre_base + _compile_sfx
 
             _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
             _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
@@ -2856,9 +2884,9 @@ with tab_exp:
             if _cx3.button("🔨 Compilar PDF", type="primary",
                             use_container_width=True, key="btn_compile_pdf"):
                 _tex_src = (
-                    _ef_now["latex_exam"][_modelo_sel]
+                    _latex_exam_sel[_modelo_sel]
                     if _sol_sel == "Alumno"
-                    else _ef_now.get("latex_sol", _ef_now["latex_exam"])[_modelo_sel]
+                    else _ef_now.get(f"latex_sol{_compile_sfx}", _latex_exam_sel)[_modelo_sel]
                 )
                 _pdf_name = f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf"
                 st.session_state["_compile_request"] = {
