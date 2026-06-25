@@ -793,9 +793,9 @@ def _escape_latex(text):
     def _save_math(m):
         _math_parts.append(m.group(0))
         return f'\x00MATH{len(_math_parts)-1}\x00'
-    # Proteger $$...$$ primero, luego $...$
+    # Proteger $$...$$ primero, luego $...$  (DOTALL para ambos: admite saltos de línea en math)
     text = _re.sub(r'\$\$.+?\$\$', _save_math, text, flags=_re.DOTALL)
-    text = _re.sub(r'\$.+?\$', _save_math, text)
+    text = _re.sub(r'\$(?!\$).{1,500}?(?<!\$)\$', _save_math, text, flags=_re.DOTALL)
     # Marcar unicode común con placeholders ANTES de escapar
     _uc_parts = []
     def _save_uc(ch):
@@ -839,10 +839,16 @@ def _parse_markdown_runs(paragraph, text, font_name='Calibri', font_size=None):
         if font_size: run.font.size = Pt(font_size)
 
 
-def _markdown_to_latex(text):
-    """Convierte **bold** y *italic* markdown a LaTeX \\textbf{}/\\textit{}. Escapa el resto."""
+def _markdown_to_latex(text, modo='markdown'):
+    """Convierte texto Markdown (con math $...$) a LaTeX.
+    modo='latex': pasa directamente sin procesar (el usuario ya escribió LaTeX).
+    modo='markdown': convierte bold/italic y escapa el resto, protegiendo $...$ math."""
+    if modo == 'latex':
+        return str(text)   # ya es LaTeX válido, no tocar
     import re as _re
-    parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', str(text))
+    # Convertir saltos de párrafo Markdown (\n\n) en \par de LaTeX
+    text = _re.sub(r'\n{2,}', '\n\\\\par\n', str(text))
+    parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', text)
     result = ""
     for part in parts:
         if not part:
@@ -1259,7 +1265,7 @@ def generar_latex(master, ruta, nombre, cfg, modo_solucion=False):
         if cfg.get('fundamentales_data'):
             bloque_fund = r"\begin{enumerate}" + "\n"
             for c in cfg['fundamentales_data']:
-                bloque_fund += r"\item " + _markdown_to_latex(c['txt']) + r" (" + str(c['pts']) + " pts)\n"
+                bloque_fund += r"\item " + _markdown_to_latex(c['txt'], c.get('modo', 'markdown')) + r" (" + str(c['pts']) + " pts)\n"
                 _d = format_datos_latex(c.get('datos_ids', ''), _datos_df_g)
                 if _d:
                     bloque_fund += _d + "\n"
@@ -2011,7 +2017,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 bloque_fund += '\\item \\begin{minipage}[t]{\\linewidth}\n'
                 if img_name and img_pos == 'encima':
                     bloque_fund += _img_cmd
-                bloque_fund += pts_prefix + _markdown_to_latex(c['txt']) + '\n'
+                bloque_fund += pts_prefix + _markdown_to_latex(c['txt'], c.get('modo', 'markdown')) + '\n'
                 _d = format_datos_latex(c.get('datos_ids', ''), _datos_df_g)
                 if _d:
                     bloque_fund += _d + '\n'
@@ -2418,11 +2424,12 @@ def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
     lines.append(r'\hrule\bigskip')
 
     for i, q in enumerate(dev_questions):
-        txt      = _markdown_to_latex(q.get('txt', ''))
+        _modo_q  = q.get('modo', 'markdown')
+        txt      = _markdown_to_latex(q.get('txt', ''), _modo_q)
         pts      = q.get('pts', '')
         esp      = q.get('espacio', '')
         criterios = q.get('criterios', [])
-        sol_mod  = q.get('solucion_modelo', '').strip()
+        sol_mod  = _markdown_to_latex(q.get('solucion_modelo', '').strip(), _modo_q)
         img_name = q.get('imagen_name', '')
         img_pos  = q.get('imagen_pos', 'debajo')
 

@@ -1575,10 +1575,12 @@ def _ejecutar_export():
         "fundamentales_data": [
             {
                 "txt":            q["txt"],
+                "modo":           q.get("modo", "markdown"),
                 "pts":            q["pts"],
                 "espacio":        q["espacio"],
                 "criterios":      q.get("criterios", []),
                 "solucion_modelo": q.get("solucion_modelo", ""),
+                "solucion_modo":  q.get("modo", "markdown"),
                 "imagen_bytes":   q.get("imagen_bytes"),
                 "imagen_name":    q.get("imagen_name", f"dev_img_{di+1}.png"),
                 "imagen_pos":     q.get("imagen_pos", "debajo"),
@@ -3039,6 +3041,28 @@ with tab_exp:
                     st.rerun()
                 if st.session_state.pop("_show_pdf_viewer", False):
                     _dialog_ver_pdf(_cpdf)
+
+        # ── Compilar rúbrica ─────────────────────────────────────────────────
+        _rub_tex_key = f"{_ef_now.get('nombre','examen')}_RUBRICA.tex" if _ef_now else ""
+        _rub_tex_bytes = _ef_now["_zip_all"].get(_rub_tex_key, b"") if _ef_now else b""
+        if _rub_tex_bytes:
+            st.markdown("**📐 Compilar guía de corrección (rúbrica):**")
+            _rc1, _rc2 = st.columns([3, 1])
+            _rc1.caption(f"Archivo: `{_rub_tex_key}`")
+            if _rc2.button("🔨 Compilar rúbrica", use_container_width=True, key="btn_compile_rub"):
+                _sty_rub  = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"") if _ef_now else b""
+                _imgs_rub = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")}
+                if _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
+                    _imgs_rub[_ef_now["formulario_name"]] = _ef_now["formulario_bytes"]
+                st.session_state["_compile_request"] = {
+                    "tex": _rub_tex_bytes.decode("utf-8", errors="replace"),
+                    "sty": _sty_rub, "imgs": _imgs_rub,
+                    "nombre": _rub_tex_key.replace(".tex", ""),
+                    "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
+                }
+                st.session_state.pop("_compiled_pdf", None)
+                st.session_state["_show_compile_dialog"] = True
+                st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 · HISTORIAL
