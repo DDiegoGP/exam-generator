@@ -769,116 +769,239 @@ _ESP_LABELS = ["Automático", "5 líneas", "10 líneas", "Media Cara", "Cara Com
 
 with tab_dev:
     page_header("✍️", "Preguntas de Desarrollo",
-                "Se incluirán como PARTE I del examen · LaTeX y Markdown soportados",
+                "Se incluirán como PARTE I del examen · Markdown y LaTeX soportados",
                 color="#7d3c98")
 
     dev_qs: list = st.session_state.dev_questions
 
-    if st.button("➕ Añadir pregunta de desarrollo", key="btn_add_dev"):
+    if st.button("➕ Añadir pregunta de desarrollo", key="btn_add_dev", type="primary"):
         dev_qs.append({"txt": "", "pts": 1.0, "espacio": "Automático",
-                       "modo": "latex",
+                       "modo": "markdown",
                        "criterios": [], "solucion_modelo": "",
                        "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo",
                        "datos_ids": ""})
         st.session_state.dev_questions = dev_qs
         st.rerun()
 
+    if not dev_qs:
+        st.info("No hay preguntas de desarrollo. Haz clic en **➕ Añadir pregunta** para empezar.")
+
+    # ── Snippets (definidos una sola vez fuera del bucle) ────────────────────
+    _SNIPS_TEXT_MD = [
+        ("B",       "**TEXTO**",                           "**Negrita**: rodea el texto con **texto**"),
+        ("I",       "*TEXTO*",                             "*Cursiva*: rodea el texto con *texto*"),
+        ("• Lista", "\n- Elemento 1\n- Elemento 2\n",      "Lista con viñetas (cada línea empieza con -)"),
+        ("1. Num",  "\n1. Primer punto\n2. Segundo\n",     "Lista numerada"),
+        ("— Sep",   "\n---\n",                             "Separador horizontal"),
+    ]
+    _SNIPS_MATH_MD = [
+        ("$ …",     "$valor$",                             "Fórmula inline: $E=mc^2$  ← entre signos $"),
+        ("$$ …",    "$$\n\\frac{a}{b}\n$$",               "Fórmula en bloque centrada (línea propia)"),
+        ("½",       "$\\frac{num}{den}$",                  "Fracción: $\\frac{numerador}{denominador}$"),
+        ("√",       "$\\sqrt{x}$",                         "Raíz cuadrada: $\\sqrt{x}$"),
+        ("xⁿ",      "$x^{n}$",                             "Potencia / superíndice: $x^{2}$"),
+        ("xₙ",      "$x_{n}$",                             "Subíndice: $x_{n}$"),
+        ("∑",       "$\\sum_{i=1}^{n} x_i$",              "Sumatorio"),
+        ("∫",       "$\\int_a^b f(x)\\,dx$",              "Integral definida"),
+        ("αβγ…",    "$\\alpha$",                           "Letras griegas: α→\\alpha  β→\\beta  γ→\\gamma  μ→\\mu  λ→\\lambda  ω→\\omega…"),
+    ]
+    _SNIPS_PHYS_MD = [
+        ("Dosis",      "$D = \\frac{E}{m}$",                         "Dosis absorbida D [Gy = J/kg]"),
+        ("Actividad",  "$A = A_0\\,e^{-\\lambda t}$",                "Actividad radiactiva A [Bq]"),
+        ("T½",         "$T_{1/2} = \\frac{\\ln 2}{\\lambda}$",       "Período de semidesintegración"),
+        ("Atenuación", "$I = I_0\\,e^{-\\mu x}$",                   "Ley de atenuación exponencial"),
+        ("μ/ρ",        "$\\frac{\\mu}{\\rho}$",                      "Coeficiente de atenuación másico"),
+        ("HVL",        "$HVL = \\frac{\\ln 2}{\\mu}$",              "Capa hemirreductora"),
+        ("E=mc²",      "$E = mc^2$",                                 "Equivalencia masa-energía"),
+        ("SNR",        "$SNR = \\frac{\\bar{S}}{\\sigma_S}$",        "Relación señal-ruido"),
+    ]
+    _SNIPS_TEXT_LATEX = [
+        ("B",       "\\textbf{TEXTO}",                              "Negrita LaTeX: \\textbf{texto}"),
+        ("I",       "\\textit{TEXTO}",                              "Cursiva LaTeX: \\textit{texto}"),
+        ("• Lista", "\\begin{itemize}\n  \\item \n\\end{itemize}",  "Lista con viñetas"),
+        ("1. Num",  "\\begin{enumerate}\n  \\item \n\\end{enumerate}", "Lista numerada"),
+        ("— Sep",   "\\medskip",                                    "Espacio vertical"),
+    ]
+    _SNIPS_MATH_LATEX = [
+        ("$ …",     "$valor$",                    "Fórmula inline"),
+        ("\\[…\\]", "\\[\n\\frac{a}{b}\n\\]",    "Fórmula en bloque centrada"),
+        ("½",       "\\frac{num}{den}",           "Fracción"),
+        ("√",       "\\sqrt{x}",                 "Raíz cuadrada"),
+        ("xⁿ",      "^{n}",                      "Superíndice"),
+        ("xₙ",      "_{n}",                      "Subíndice"),
+        ("∑",       "\\sum_{i=1}^{n}",           "Sumatorio"),
+        ("∫",       "\\int_a^b",                 "Integral"),
+        ("αβγ…",    "\\alpha",                   "Letras griegas: \\alpha \\beta \\gamma \\mu \\lambda…"),
+    ]
+    _SNIPS_PHYS_LATEX = [
+        ("Dosis",      "$D = \\frac{E}{m}$",                        "Dosis absorbida [Gy]"),
+        ("Actividad",  "$A = A_0\\,e^{-\\lambda t}$",               "Actividad radiactiva [Bq]"),
+        ("T½",         "$T_{1/2} = \\frac{\\ln 2}{\\lambda}$",      "Período de semidesintegración"),
+        ("Atenuación", "$I = I_0\\,e^{-\\mu x}$",                  "Ley de atenuación"),
+        ("μ/ρ",        "$\\frac{\\mu}{\\rho}$",                     "Coef. atenuación másico"),
+        ("HVL",        "$HVL = \\frac{\\ln 2}{\\mu}$",             "Capa hemirreductora"),
+        ("E=mc²",      "$E = mc^2$",                                "Equivalencia masa-energía"),
+    ]
+
     to_delete = []
     for i, q in enumerate(dev_qs):
-        with st.container(border=True):
-            # ── Cabecera: título + controles ──────────────────────────────────
-            ch, cp, ce, cd = st.columns([3, 1, 2, 1])
-            ch.markdown(f"**Pregunta {i+1}**")
-            new_pts = cp.number_input(
-                "pts", value=float(q["pts"]), min_value=0.0, step=0.5,
-                key=f"dev_pts_{i}", help="Puntuación"
+        # ── Acordeón: título muestra primer fragmento del enunciado ──────────
+        _prev_txt = q.get("txt", "")
+        _acc_preview = _prev_txt[:65].replace("\n", " ").strip() if _prev_txt.strip() else "— vacía"
+        _acc_label = (f"**Pregunta {i+1}**  ·  {q.get('pts', 1.0)} pts"
+                      f"  —  {_acc_preview}{'…' if len(_prev_txt) > 65 else ''}")
+        _auto_expand = (len(dev_qs) == 1) or not _prev_txt.strip()
+
+        with st.expander(_acc_label, expanded=_auto_expand):
+            # ── Cabecera: puntos + espacio + eliminar ─────────────────────────
+            _ch1, _ch2, _ch3 = st.columns([2, 2, 1])
+            new_pts = _ch1.number_input(
+                "Puntuación (pts)", value=float(q["pts"]), min_value=0.0, step=0.5,
+                key=f"dev_pts_{i}"
             )
-            new_esp = ce.selectbox(
-                "Espacio respuesta", _ESP_LABELS,
+            new_esp = _ch2.selectbox(
+                "Espacio para respuesta", _ESP_LABELS,
                 index=_ESP_LABELS.index(q.get("espacio", "Automático")),
-                key=f"dev_esp_{i}", label_visibility="collapsed",
+                key=f"dev_esp_{i}",
             )
-            if cd.button("🗑️", key=f"dev_del_{i}", help="Eliminar pregunta"):
+            if _ch3.button("🗑️ Eliminar", key=f"dev_del_{i}", use_container_width=True):
                 to_delete.append(i)
 
-            # ── Modo + toolbar + editor ──────────────────────────────────────
-            _SNIPS_LATEX = [
-                ("B",       "\\textbf{TEXTO}",           "Negrita"),
-                ("I",       "\\textit{TEXTO}",           "Cursiva"),
-                ("$…$",     "$valor$",                   "Fórmula inline"),
-                ("\\[…\\]", "\\[\n\\frac{a}{b}\n\\]",   "Fórmula bloque"),
-                ("½",       "\\frac{num}{den}",          "Fracción"),
-                ("√",       "\\sqrt{x}",                 "Raíz"),
-                ("x²",      "^{2}",                      "Superíndice"),
-                ("xₙ",      "_{n}",                      "Subíndice"),
-                ("∑",       "\\sum_{i=1}^{n}",           "Sumatorio"),
-                ("∫",       "\\int_{a}^{b}",             "Integral"),
-                ("α",       "\\alpha",                   "Letra griega"),
-                ("→",       "\\rightarrow",              "Flecha"),
-            ]
-            _SNIPS_MD = [
-                ("B",         "**TEXTO**",               "Negrita"),
-                ("I",         "*TEXTO*",                 "Cursiva"),
-                ("$…$",       "$valor$",                 "Fórmula inline"),
-                ("$$…$$",     "$$\n\\frac{a}{b}\n$$",   "Fórmula bloque"),
-                ("½",         "$\\frac{num}{den}$",      "Fracción"),
-                ("√",         "$\\sqrt{x}$",             "Raíz"),
-                ("x²",        "^{2}",                    "Superíndice (en $)"),
-                ("• lista",   "\n- elemento\n",          "Lista viñetas"),
-                ("1. lista",  "\n1. elemento\n",         "Lista numerada"),
-                ("---",       "\n---\n",                 "Separador"),
-                ("α",         "$\\alpha$",               "Letra griega"),
-                ("→",         "$\\rightarrow$",          "Flecha"),
-            ]
-
-            _modo_actual = q.get("modo", "latex")
-            _mc, _tc = st.columns([1, 4])
-            _modo_sel = _mc.radio(
-                "Modo", ["⚙ LaTeX", "✍ Markdown"], horizontal=True,
-                index=0 if _modo_actual == "latex" else 1,
-                key=f"dev_mode_{i}", label_visibility="collapsed"
+            # ── Modo de escritura ─────────────────────────────────────────────
+            _modo_actual = q.get("modo", "markdown")
+            _modo_sel = st.radio(
+                "Modo de escritura",
+                ["✍ Markdown (recomendado)", "⚙ LaTeX puro"],
+                horizontal=True,
+                index=0 if _modo_actual != "latex" else 1,
+                key=f"dev_mode_{i}",
+                help="**Markdown**: texto normal + fórmulas con $…$. Fácil para todos. | **LaTeX puro**: para usuarios avanzados."
             )
             q["modo"] = "latex" if "LaTeX" in _modo_sel else "markdown"
-            _snips = _SNIPS_LATEX if q["modo"] == "latex" else _SNIPS_MD
-            _tb_cols = _tc.columns(len(_snips))
-            for _tc2, (_lbl, _snip, _help) in zip(_tb_cols, _snips):
-                if _tc2.button(_lbl, key=f"snip_{i}_{_lbl}", help=_help,
-                               use_container_width=True):
-                    _cur = st.session_state.get(f"dev_txt_{i}", q["txt"])
-                    st.session_state[f"dev_txt_{i}"] = _cur + _snip
-                    st.rerun()
+            _is_md = q["modo"] == "markdown"
+            _snips_text = _SNIPS_TEXT_MD   if _is_md else _SNIPS_TEXT_LATEX
+            _snips_math = _SNIPS_MATH_MD   if _is_md else _SNIPS_MATH_LATEX
+            _snips_phys = _SNIPS_PHYS_MD   if _is_md else _SNIPS_PHYS_LATEX
 
-            col_edit, col_prev = st.columns(2, gap="medium")
+            # ── Pestañas: Editar / Vista previa ──────────────────────────────
+            _edit_tab, _prev_tab = st.tabs(["✏️ Editar", "👁 Vista previa"])
 
-            with col_edit:
-                _ph = ("Escribe en LaTeX...\n$E = mc^2$\n\\textbf{negrita}\n\\frac{a}{b}"
-                       if q["modo"] == "latex" else
-                       "Escribe en Markdown...\n**negrita**  *cursiva*\n$E = mc^2$\n- elemento")
+            with _edit_tab:
+                # Barra de herramientas – Texto
+                st.markdown(
+                    "<div style='font-size:.72em;color:#7d3c98;font-weight:700;"
+                    "letter-spacing:.06em;margin:6px 0 3px'>✏️ TEXTO</div>",
+                    unsafe_allow_html=True,
+                )
+                _tb1 = st.columns(len(_snips_text))
+                for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_tb1, _snips_text)):
+                    if _col.button(_lbl, key=f"sT_{i}_{_j}", help=_tip, use_container_width=True):
+                        _cur = st.session_state.get(f"dev_txt_{i}", q.get("txt", ""))
+                        st.session_state[f"dev_txt_{i}"] = _cur + _snip
+                        st.rerun()
+
+                # Barra de herramientas – Matemáticas + Física Médica
+                _tc_math, _tc_phys = st.columns([9, 8])
+                with _tc_math:
+                    st.markdown(
+                        "<div style='font-size:.72em;color:#1a6b3a;font-weight:700;"
+                        "letter-spacing:.06em;margin:4px 0 3px'>📐 MATEMÁTICAS</div>",
+                        unsafe_allow_html=True,
+                    )
+                    _tb2 = st.columns(len(_snips_math))
+                    for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_tb2, _snips_math)):
+                        if _col.button(_lbl, key=f"sM_{i}_{_j}", help=_tip, use_container_width=True):
+                            _cur = st.session_state.get(f"dev_txt_{i}", q.get("txt", ""))
+                            st.session_state[f"dev_txt_{i}"] = _cur + _snip
+                            st.rerun()
+
+                with _tc_phys:
+                    st.markdown(
+                        "<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
+                        "letter-spacing:.06em;margin:4px 0 3px'>🔬 FÍSICA MÉDICA</div>",
+                        unsafe_allow_html=True,
+                    )
+                    _tb3 = st.columns(len(_snips_phys))
+                    for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_tb3, _snips_phys)):
+                        if _col.button(_lbl, key=f"sP_{i}_{_j}", help=_tip, use_container_width=True):
+                            _cur = st.session_state.get(f"dev_txt_{i}", q.get("txt", ""))
+                            st.session_state[f"dev_txt_{i}"] = _cur + _snip
+                            st.rerun()
+
+                # Guía rápida (colapsada por defecto)
+                with st.expander("📚 Guía rápida de escritura", expanded=False):
+                    if _is_md:
+                        st.markdown("""
+**Markdown con fórmulas LaTeX** — escribe texto normal y envuelve las fórmulas con `$`
+
+| Escribes… | Resultado |
+|---|---|
+| `**texto**` | **negrita** |
+| `*texto*` | *cursiva* |
+| `- elemento` | • lista con viñetas |
+| `1. elemento` | 1. lista numerada |
+| `$E = mc^2$` | fórmula inline: E = mc² |
+| `$$\\frac{a}{b}$$` | fracción en bloque centrada |
+| `$\\alpha$`, `$\\beta$`, `$\\mu$` | α, β, μ |
+| `$x^{2}$`, `$x_{n}$` | x², xₙ |
+| `$D = \\frac{E}{m}$` | D = E/m (dosis) |
+| `$I = I_0 e^{-\\mu x}$` | ley de atenuación |
+
+💡 **Consejo**: para fórmulas largas usa `$$...$$` en su propia línea para centrarlas.
+                        """)
+                    else:
+                        st.markdown("""
+**LaTeX puro** — para usuarios avanzados
+
+| Escribes… | Resultado |
+|---|---|
+| `\\textbf{texto}` | **negrita** |
+| `\\textit{texto}` | *cursiva* |
+| `$E = mc^2$` | fórmula inline |
+| `\\frac{a}{b}` | fracción (dentro de `$`) |
+| `\\sqrt{x}` | √x |
+| `^{2}`, `_{n}` | superíndice, subíndice |
+| `\\alpha`, `\\beta`, `\\mu` | α, β, μ |
+| `\\begin{itemize}…\\end{itemize}` | lista |
+
+💡 Para texto mixto con pocas fórmulas considera usar **Markdown** (más fácil).
+                        """)
+
+                # Editor de texto
+                _ph_edit = (
+                    "Escribe el enunciado en Markdown…\n\n"
+                    "Ejemplo:\nCalcula la dosis absorbida si la energía depositada es\n"
+                    "$E = 5\\,\\mathrm{mJ}$ en una masa de $m = 2\\,\\mathrm{g}$.\n\n"
+                    "Usando $D = \\frac{E}{m}$, obtenemos…"
+                    if _is_md else
+                    "Escribe en LaTeX…\nCalcula $D = \\frac{E}{m}$ si…"
+                )
                 new_txt = st.text_area(
-                    "Enunciado", value=q["txt"], height=175,
+                    "Enunciado", value=q.get("txt", ""), height=300,
                     key=f"dev_txt_{i}", label_visibility="collapsed",
-                    placeholder=_ph,
+                    placeholder=_ph_edit,
                 )
                 q["txt"] = new_txt
 
-            with col_prev:
+            with _prev_tab:
                 if new_txt.strip():
-                    body = _dev_md_to_html(new_txt)
-                else:
-                    body = '<span style="color:#bbb;font-style:italic">El preview aparece aquí al escribir…</span>'
-                prev_html = f"""
-<div style="font-family:Calibri,sans-serif;font-size:11pt;line-height:1.6;
-            padding:12px 16px;background:#fff;border:1px solid #ddd;
-            border-radius:6px;min-height:160px;color:#111;box-sizing:border-box">
-  <div style="color:#aaa;font-size:8pt;text-transform:uppercase;letter-spacing:.06em;
-              border-bottom:1px solid #eee;padding-bottom:5px;margin-bottom:10px">
-    Vista previa · Word / LaTeX
+                    _body = _dev_md_to_html(new_txt)
+                    _prev_html = f"""
+<div style="font-family:Calibri,sans-serif;font-size:11pt;line-height:1.75;
+            padding:20px 26px;background:#fdfaff;border:1px solid #ede7f6;
+            border-radius:8px;min-height:280px;color:#1a1a2e">
+  <div style="color:#7d3c98;font-size:8pt;text-transform:uppercase;letter-spacing:.1em;
+              font-weight:700;border-bottom:2px solid #ede7f6;padding-bottom:6px;
+              margin-bottom:16px">
+    Vista previa · {'Markdown' if _is_md else 'LaTeX'}
   </div>
-  {body}
+  {_body}
 </div>"""
-                stcomponents.html(mathjax_html(prev_html), height=200, scrolling=False)
+                    stcomponents.html(mathjax_html(_prev_html), height=380, scrolling=True)
+                else:
+                    st.info("💡 Escribe el enunciado en **✏️ Editar** para ver aquí cómo quedará impreso.")
 
-            # Inicializar con valores actuales (se sobreescriben dentro del expander)
+            # ── Rúbrica + Imagen + Solución modelo + Datos ───────────────────
             criterios      = list(q.get("criterios", []))
             new_sol_modelo = q.get("solucion_modelo", "")
             new_img_bytes  = q.get("imagen_bytes")
@@ -886,7 +1009,6 @@ with tab_dev:
             new_img_pos    = q.get("imagen_pos", "debajo")
             new_datos_ids  = q.get("datos_ids", "")
 
-            # ── Rúbrica + Imagen + Solución modelo + Datos ───────────────────
             with st.expander("📋 Rúbrica / Imagen / Solución / Datos", expanded=False):
                 _rub_tab, _img_tab, _sol_tab, _dat_tab = st.tabs(
                     ["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo", "🔢 Datos"]
@@ -1012,6 +1134,7 @@ with tab_dev:
 
             dev_qs[i] = {
                 "txt": new_txt, "pts": new_pts, "espacio": new_esp,
+                "modo": q["modo"],
                 "criterios": criterios,
                 "solucion_modelo": new_sol_modelo,
                 "imagen_bytes": new_img_bytes,
