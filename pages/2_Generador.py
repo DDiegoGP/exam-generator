@@ -1536,7 +1536,7 @@ def _ejecutar_export():
         _runs = [("", [], cfg_export)]
     elif partes_modo == "separados":
         _cfg_test = dict(cfg_export); _cfg_test["fundamentales_data"] = []
-        _cfg_dev  = dict(cfg_export)
+        _cfg_dev  = dict(cfg_export); _cfg_dev["dos_por_hoja"] = False  # 2-por-hoja solo para test
         _runs = [("_TEST", pool, _cfg_test), ("_DEV", [], _cfg_dev)]
     else:
         _runs = [("", pool, cfg_export)]
@@ -2221,14 +2221,14 @@ with tab_exp:
                 ("separados",   "📑 Separados (dos documentos independientes)"),
             ]
             _partes_idx = next((i for i, (v, _) in enumerate(_partes_opts)
-                                if v == cfg.get("partes_modo", "completo")), 0)
+                                if v == cfg.get("partes_modo", "separados")), 3)
             partes_modo = st.selectbox(
                 "Modo de partes", _partes_opts, index=_partes_idx,
                 format_func=lambda x: x[1], key="exp_partes_modo",
                 label_visibility="collapsed",
             )[0]
             if partes_modo == "separados":
-                st.caption("ℹ️ Se generarán dos documentos: uno con la parte de desarrollo y otro con el test.")
+                st.caption("ℹ️ Dos documentos independientes: **_DEV** (desarrollo, A4) y **_TEST** (test, con opción 2-por-hoja).")
         campos_alumno = _campos_sel
 
         # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
@@ -2353,10 +2353,20 @@ with tab_exp:
                                           value=cfg.get("footer_text", ""), key="exp_footer",
                                           placeholder="ej: Prohibido el uso de móvil",
                                           disabled=not fancyhdr_on)
+            _dph_label = (
+                "2 páginas por hoja en el **Test** (A5 → A4 apaisado)"
+                if partes_modo == "separados" else
+                "2 páginas por hoja (A5 → A4 apaisado)"
+            )
+            _dph_help = (
+                "Solo para el documento _TEST. El documento de desarrollo (_DEV) se genera siempre en A4 normal."
+                if partes_modo == "separados" else
+                "LaTeX: imprime 2 páginas A5 en una hoja A4 apaisada (pgfpages). Word: genera en tamaño A5."
+            )
             dos_por_hoja = st.checkbox(
-                "2 páginas por hoja (A5 → A4 apaisado)",
+                _dph_label,
                 value=cfg.get("dos_por_hoja", False), key="exp_dos_por_hoja",
-                help="LaTeX: imprime 2 páginas A5 en una hoja A4 apaisada (pgfpages). Word: genera en tamaño A5."
+                help=_dph_help,
             )
 
         # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
