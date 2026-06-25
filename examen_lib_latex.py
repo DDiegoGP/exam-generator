@@ -793,9 +793,11 @@ def _escape_latex(text):
     def _save_math(m):
         _math_parts.append(m.group(0))
         return f'\x00MATH{len(_math_parts)-1}\x00'
-    # Proteger $$...$$ primero, luego $...$  (DOTALL para ambos: admite saltos de línea en math)
-    text = _re.sub(r'\$\$.+?\$\$', _save_math, text, flags=_re.DOTALL)
-    text = _re.sub(r'\$(?!\$).{1,500}?(?<!\$)\$', _save_math, text, flags=_re.DOTALL)
+    # Proteger $$...$$ primero, luego $...$ (DOTALL para ambos: admite saltos de línea)
+    # El inner group (?:[^$\\]|\\[\s\S])* captura: cualquier carácter no-$ no-\, O una
+    # secuencia de escape \X. Esto evita que \$ interior se confunda con el cierre.
+    text = _re.sub(r'\$\$(?:[^$\\]|\\[\s\S])*?\$\$', _save_math, text, flags=_re.DOTALL)
+    text = _re.sub(r'\$(?!\$)(?:[^$\\]|\\[\s\S])*?(?<!\$)\$(?!\$)', _save_math, text, flags=_re.DOTALL)
     # Marcar unicode común con placeholders ANTES de escapar
     _uc_parts = []
     def _save_uc(ch):

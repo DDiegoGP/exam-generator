@@ -2968,101 +2968,116 @@ with tab_exp:
 
         _ef_now    = st.session_state.get("export_files")
         _tex_avail_sfxs = [s for s in ("", "_TEST", "_DEV") if _ef_now and _ef_now.get(f"latex_exam{s}")]
+        _nombre_base    = _ef_now.get("nombre", "examen") if _ef_now else "examen"
+        _rub_tex_key    = f"{_nombre_base}_RUBRICA.tex"
+        _rub_tex_bytes  = (_ef_now["_zip_all"].get(_rub_tex_key, b"") if _ef_now else b"")
 
-        if not _tex_avail_sfxs:
+        # Abrir diálogo de compilación (siempre fuera del bloque condicional)
+        if st.session_state.pop("_show_compile_dialog", False):
+            _dialog_compilar_pdf()
+
+        if not _tex_avail_sfxs and not _rub_tex_bytes:
             st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
         else:
-            _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
-            _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")}
-            # Añadir formulario al bundle de compilación online
-            if _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
+            _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"") if _ef_now else b""
+            _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")} if _ef_now else {}
+            if _ef_now and _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
                 _img_files[_ef_now["formulario_name"]] = _ef_now["formulario_bytes"]
-            _nombre_base = _ef_now.get("nombre", "examen")
 
-            # Selector de documento cuando hay varios (modo separados)
-            if len(_tex_avail_sfxs) > 1:
-                _doc_lbl_map = {"": "Completo", "_TEST": "Test (MCQ)", "_DEV": "Desarrollo"}
-                _doc_opts = [(_s, _doc_lbl_map[_s]) for _s in _tex_avail_sfxs]
-                _compile_sfx = st.selectbox(
+            # Construir lista de documentos compilables (examen + rúbrica si existe)
+            _doc_lbl_map = {"": "Examen completo", "_TEST": "Test (MCQ)", "_DEV": "Desarrollo"}
+            _compile_opts = [("exam", s, _doc_lbl_map[s]) for s in _tex_avail_sfxs]
+            if _rub_tex_bytes:
+                _compile_opts.append(("rub", "", "Rúbrica / Guía de corrección"))
+
+            if len(_compile_opts) > 1:
+                _doc_sel = st.selectbox(
                     "Documento a compilar",
-                    _doc_opts,
-                    format_func=lambda x: x[1],
+                    _compile_opts,
+                    format_func=lambda x: x[2],
                     key="compile_doc",
-                )[0]
+                )
+            elif _compile_opts:
+                _doc_sel = _compile_opts[0]
             else:
-                _compile_sfx = _tex_avail_sfxs[0]
+                _doc_sel = None
 
-            _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
-            _modelos_disp   = list(_latex_exam_sel.keys())
-            nombre_compile  = _nombre_base + _compile_sfx
+            if _doc_sel:
+                _doc_type, _compile_sfx, _doc_label = _doc_sel
 
-            _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
-            _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
-                                          key="compile_modelo",
-                                          format_func=lambda x: f"Modelo {x}")
-            _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
-                                      horizontal=True, key="compile_ver")
+                if _doc_type == "rub":
+                    # Compilar rúbrica
+                    _cx_rub, _cx_btn = st.columns([3, 1])
+                    _cx_rub.caption(f"📐 **{_doc_label}** — {_rub_tex_key}")
+                    if _cx_btn.button("🔨 Compilar PDF", type="primary",
+                                       use_container_width=True, key="btn_compile_pdf"):
+                        st.session_state["_compile_request"] = {
+                            "tex":    _rub_tex_bytes.decode("utf-8", errors="replace"),
+                            "sty":    _sty_b, "imgs": _img_files,
+                            "nombre": _rub_tex_key.replace(".tex", ""),
+                            "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
+                        }
+                        st.session_state.pop("_compiled_pdf", None)
+                        st.session_state["_show_compile_dialog"] = True
+                        st.rerun()
+                    _tex_preview_src = _rub_tex_bytes.decode("utf-8", errors="replace")
+                else:
+                    # Compilar examen
+                    _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
+                    _modelos_disp   = list(_latex_exam_sel.keys())
+                    nombre_compile  = _nombre_base + _compile_sfx
 
-            if _cx3.button("🔨 Compilar PDF", type="primary",
-                            use_container_width=True, key="btn_compile_pdf"):
-                _tex_src = (
-                    _latex_exam_sel[_modelo_sel]
-                    if _sol_sel == "Alumno"
-                    else _ef_now.get(f"latex_sol{_compile_sfx}", _latex_exam_sel)[_modelo_sel]
-                )
-                _pdf_name = f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf"
-                st.session_state["_compile_request"] = {
-                    "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
-                    "nombre": nombre_compile, "pdf_name": _pdf_name,
-                }
-                st.session_state.pop("_compiled_pdf", None)
-                st.session_state["_show_compile_dialog"] = True
-                st.rerun()
+                    _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
+                    _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
+                                                  key="compile_modelo",
+                                                  format_func=lambda x: f"Modelo {x}")
+                    _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
+                                              horizontal=True, key="compile_ver")
 
-            # Abrir el diálogo si hay petición pendiente
-            if st.session_state.pop("_show_compile_dialog", False):
-                _dialog_compilar_pdf()
+                    if _cx3.button("🔨 Compilar PDF", type="primary",
+                                    use_container_width=True, key="btn_compile_pdf"):
+                        _tex_src = (
+                            _latex_exam_sel[_modelo_sel]
+                            if _sol_sel == "Alumno"
+                            else _ef_now.get(f"latex_sol{_compile_sfx}", _latex_exam_sel)[_modelo_sel]
+                        )
+                        _pdf_name = f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf"
+                        st.session_state["_compile_request"] = {
+                            "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
+                            "nombre": nombre_compile, "pdf_name": _pdf_name,
+                        }
+                        st.session_state.pop("_compiled_pdf", None)
+                        st.session_state["_show_compile_dialog"] = True
+                        st.rerun()
+                    _tex_preview_src = (
+                        _latex_exam_sel.get(_modelos_disp[0], "")
+                        if _modelos_disp else ""
+                    )
 
-            # Resultado previo (persiste entre reruns)
-            _cpdf = st.session_state.get("_compiled_pdf")
-            if _cpdf:
-                import base64 as _b64
-                _da, _db = st.columns([1, 1])
-                _da.download_button(
-                    "⬇️ Descargar PDF compilado",
-                    data=_cpdf["bytes"],
-                    file_name=_cpdf["pdf_name"],
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="dl_compiled_pdf",
-                )
-                if _db.button("🔍 Ver PDF", use_container_width=True, key="btn_ver_pdf"):
-                    st.session_state["_show_pdf_viewer"] = True
-                    st.rerun()
-                if st.session_state.pop("_show_pdf_viewer", False):
-                    _dialog_ver_pdf(_cpdf)
+                # Resultado previo (persiste entre reruns)
+                _cpdf = st.session_state.get("_compiled_pdf")
+                if _cpdf:
+                    import base64 as _b64
+                    _da, _db = st.columns([1, 1])
+                    _da.download_button(
+                        "⬇️ Descargar PDF compilado",
+                        data=_cpdf["bytes"],
+                        file_name=_cpdf["pdf_name"],
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="dl_compiled_pdf",
+                    )
+                    if _db.button("🔍 Ver PDF", use_container_width=True, key="btn_ver_pdf"):
+                        st.session_state["_show_pdf_viewer"] = True
+                        st.rerun()
+                    if st.session_state.pop("_show_pdf_viewer", False):
+                        _dialog_ver_pdf(_cpdf)
 
-        # ── Compilar rúbrica ─────────────────────────────────────────────────
-        _rub_tex_key = f"{_ef_now.get('nombre','examen')}_RUBRICA.tex" if _ef_now else ""
-        _rub_tex_bytes = _ef_now["_zip_all"].get(_rub_tex_key, b"") if _ef_now else b""
-        if _rub_tex_bytes:
-            st.markdown("**📐 Compilar guía de corrección (rúbrica):**")
-            _rc1, _rc2 = st.columns([3, 1])
-            _rc1.caption(f"Archivo: `{_rub_tex_key}`")
-            if _rc2.button("🔨 Compilar rúbrica", use_container_width=True, key="btn_compile_rub"):
-                _sty_rub  = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"") if _ef_now else b""
-                _imgs_rub = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")}
-                if _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
-                    _imgs_rub[_ef_now["formulario_name"]] = _ef_now["formulario_bytes"]
-                st.session_state["_compile_request"] = {
-                    "tex": _rub_tex_bytes.decode("utf-8", errors="replace"),
-                    "sty": _sty_rub, "imgs": _imgs_rub,
-                    "nombre": _rub_tex_key.replace(".tex", ""),
-                    "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
-                }
-                st.session_state.pop("_compiled_pdf", None)
-                st.session_state["_show_compile_dialog"] = True
-                st.rerun()
+                # Fuente .tex (para depuración)
+                with st.expander("📋 Ver fuente .tex (depuración)", expanded=False):
+                    _src_lines = _tex_preview_src.split("\n")
+                    _numbered  = "\n".join(f"{i+1:>3}: {l}" for i, l in enumerate(_src_lines[:100]))
+                    st.code(_numbered, language="latex")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 · HISTORIAL
