@@ -847,13 +847,15 @@ def render_sidebar():
 
 # ── Page header helper ────────────────────────────────────────────────────────
 def page_header(icon: str, title: str, subtitle: str = "", color: str = "#2c3e50"):
-    sub_html = (f'<div style="font-size:.85em;opacity:.75;margin-top:3px">{subtitle}</div>'
+    sub_html = (f'<div style="font-size:.85em;opacity:.75;margin-top:5px;font-weight:400">{subtitle}</div>'
                 if subtitle else "")
+    # Spacer: evita que el primer elemento quede tapado por la barra fija de Streamlit
+    st.markdown('<div style="margin-top:6px"></div>', unsafe_allow_html=True)
     st.markdown(
-        f"""<div style="background:linear-gradient(90deg,{color} 0%,{color}cc 100%);
-            border-radius:10px;padding:14px 22px;margin-bottom:8px;color:white;
-            box-shadow:0 3px 10px {color}40">
-          <div style="font-size:1.55em;font-weight:800;letter-spacing:-.01em">{icon} {title}</div>
+        f"""<div style="background:linear-gradient(90deg,{color} 0%,{color}ee 100%);
+            border-radius:12px;padding:18px 28px;margin-bottom:14px;color:white;
+            box-shadow:0 4px 14px rgba(0,0,0,.22);line-height:1.3">
+          <div style="font-size:1.55em;font-weight:800;letter-spacing:-.02em;line-height:1.2">{icon}&nbsp;{title}</div>
           {sub_html}
         </div>""",
         unsafe_allow_html=True,
