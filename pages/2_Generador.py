@@ -23,16 +23,8 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 import streamlit.components.v1 as stcomponents
-from pathlib import Path as _Path
 import examen_lib_latex as lib
-
-# ── Editor de desarrollo con ace.js ──────────────────────────────────────────
-_EDITOR_DIR = str(_Path(__file__).parent.parent / "editor_component")
-_ace_editor_cmp = stcomponents.declare_component("dev_ace_editor", path=_EDITOR_DIR)
-
-def _ace_editor(value: str, mode: str = "latex", height: int = 200, key: str = None):
-    default = {"content": value, "mode": mode}
-    return _ace_editor_cmp(value=value, mode=mode, height=height, key=key, default=default)
+from dev_editor import ace_editor as _ace_editor
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
     reload_db, bloques_disponibles, temas_de_bloque, objetivos_de_tema,
