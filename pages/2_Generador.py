@@ -841,6 +841,12 @@ def _dev_qs_to_json(dev_qs: list) -> bytes:
         q2 = {k: v for k, v in q.items() if k != "imagen_bytes"}
         if q.get("imagen_bytes"):
             q2["imagen_b64"] = _b.b64encode(q["imagen_bytes"]).decode()
+        q2["subapartados"] = []
+        for apt in (q.get("subapartados") or []):
+            apt2 = {k: v for k, v in apt.items() if k != "imagen_bytes"}
+            if apt.get("imagen_bytes"):
+                apt2["imagen_b64"] = _b.b64encode(apt["imagen_bytes"]).decode()
+            q2["subapartados"].append(apt2)
         out.append(q2)
     return _j.dumps(out, indent=2, ensure_ascii=False).encode("utf-8")
 
@@ -858,7 +864,16 @@ def _dev_qs_from_json(raw: bytes) -> list:
         q.setdefault("criterios", []); q.setdefault("solucion_modelo", "")
         q.setdefault("imagen_name", ""); q.setdefault("imagen_pos", "debajo")
         q.setdefault("datos_ids", "")
-        q.setdefault("subapartados", []); q.setdefault("numeracion_apt", "abc")
+        apts = q.get("subapartados") or []
+        for apt in apts:
+            if "imagen_b64" in apt:
+                apt["imagen_bytes"] = _b.b64decode(apt.pop("imagen_b64"))
+            else:
+                apt["imagen_bytes"] = None
+            apt.setdefault("imagen_name", "")
+            apt.setdefault("imagen_pos", "debajo")
+        q["subapartados"] = apts
+        q.setdefault("numeracion_apt", "abc")
     return qs
 
 
@@ -966,39 +981,49 @@ with tab_dev:
         ("E=mc²",      "$E = mc^2$",                                "Equivalencia masa-energía"),
     ]
 
+    _IMG_POS_OPTS = {
+        "debajo":   "Debajo del texto",
+        "lado":     "Derecha (minipage flotante)",
+        "centrada": "Centrada en bloque",
+    }
+    _SNIPS_APT = [
+        ("$ …",  "$valor$",                "Fórmula inline"),
+        ("$$ …", "$$\n\\frac{a}{b}\n$$",  "Bloque centrado"),
+        ("½",    "$\\frac{n}{d}$",         "Fracción"),
+        ("√",    "$\\sqrt{x}$",            "Raíz"),
+        ("xⁿ",  "$x^{n}$",               "Potencia"),
+        ("xₙ",  "$x_{n}$",                "Subíndice"),
+        ("∑",   "$\\sum_{i=1}^{n}$",      "Sumatorio"),
+        ("∫",   "$\\int_a^b$",            "Integral"),
+        ("αβ…", "$\\alpha$",              "Griegas"),
+    ]
+    _ESP_APT_OPTS = ["3cm","4cm","5cm","6cm","7cm","8cm","10cm","12cm","15cm","18cm"]
+    _NUM_LABELS   = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
+
     to_delete = []
     for i, q in enumerate(dev_qs):
-        # ── Acordeón: título muestra primer fragmento del enunciado ──────────
-        _prev_txt = q.get("txt", "")
-        _acc_preview = _prev_txt[:65].replace("\n", " ").strip() if _prev_txt.strip() else "— vacía"
-        _acc_label = (f"**Pregunta {i+1}**  ·  {q.get('pts', 1.0)} pts"
-                      f"  —  {_acc_preview}{'…' if len(_prev_txt) > 65 else ''}")
+        # ── Acordeón ─────────────────────────────────────────────────────────
+        subapts   = list(q.get("subapartados") or [])
+        _pts_disp = (sum(float(a.get("puntos") or 0) for a in subapts)
+                     if subapts else float(q.get("pts", 1.0)))
+        _prev_txt    = q.get("txt", "")
+        _acc_preview = _prev_txt[:55].replace("\n", " ").strip() if _prev_txt.strip() else "— vacía"
+        _n_apts_lbl  = f"  ·  {len(subapts)} apt." if subapts else ""
+        _acc_label   = (f"**Pregunta {i+1}**  ·  {_pts_disp:g} pts{_n_apts_lbl}"
+                        f"  —  {_acc_preview}{'…' if len(_prev_txt) > 55 else ''}")
         _auto_expand = (len(dev_qs) == 1) or not _prev_txt.strip()
 
         with st.expander(_acc_label, expanded=_auto_expand):
-            # ── Cabecera: puntos + espacio + eliminar ─────────────────────────
-            _ch1, _ch2, _ch3 = st.columns([2, 2, 1])
-            new_pts = _ch1.number_input(
-                "Puntuación (pts)", value=float(q["pts"]), min_value=0.0, step=0.5,
-                key=f"dev_pts_{i}"
-            )
-            new_esp = _ch2.selectbox(
-                "Espacio para respuesta", _ESP_LABELS,
-                index=_ESP_LABELS.index(q.get("espacio", "Automático")),
-                key=f"dev_esp_{i}",
-            )
-            if _ch3.button("🗑️ Eliminar", key=f"dev_del_{i}", use_container_width=True):
-                to_delete.append(i)
-
-            # ── Modo de escritura ─────────────────────────────────────────────
+            # ── Cabecera compacta: modo + eliminar ────────────────────────────
+            _hc1, _hc2 = st.columns([5, 1])
             _modo_actual = q.get("modo", "markdown")
-            _modo_sel = st.radio(
+            _modo_sel = _hc1.radio(
                 "Modo de escritura",
                 ["✍ Markdown (recomendado)", "⚙ LaTeX puro"],
                 horizontal=True,
                 index=0 if _modo_actual != "latex" else 1,
                 key=f"dev_mode_{i}",
-                help="**Markdown**: texto normal + fórmulas con $…$. Fácil para todos. | **LaTeX puro**: para usuarios avanzados."
+                help="**Markdown**: texto normal + fórmulas con $…$. | **LaTeX puro**: usuarios avanzados.",
             )
             q["modo"] = "latex" if "LaTeX" in _modo_sel else "markdown"
             _is_md = q["modo"] == "markdown"
@@ -1006,11 +1031,17 @@ with tab_dev:
             _snips_math = _SNIPS_MATH_MD   if _is_md else _SNIPS_MATH_LATEX
             _snips_phys = _SNIPS_PHYS_MD   if _is_md else _SNIPS_PHYS_LATEX
 
-            # ── Pestañas: Editar / Vista previa ──────────────────────────────
-            _edit_tab, _prev_tab = st.tabs(["✏️ Editar", "👁 Vista previa"])
+            if _hc2.button("🗑️ Eliminar", key=f"dev_del_{i}", use_container_width=True):
+                to_delete.append(i)
 
-            with _edit_tab:
-                # Barra de herramientas – Texto
+            # ── 4 pestañas ────────────────────────────────────────────────────
+            _tab_enun, _tab_apts, _tab_rub, _tab_prev_q = st.tabs(
+                ["📝 Enunciado", "📑 Apartados", "⚙️ Rúbrica & Datos", "👁 Vista previa"]
+            )
+
+            # ══════════════ Tab 1: Enunciado ══════════════════════════════════
+            with _tab_enun:
+                # Barra texto
                 st.markdown(
                     "<div style='font-size:.72em;color:#7d3c98;font-weight:700;"
                     "letter-spacing:.06em;margin:6px 0 3px'>✏️ TEXTO</div>",
@@ -1022,8 +1053,6 @@ with tab_dev:
                         _cur = st.session_state.get(f"dev_txt_{i}", q.get("txt", ""))
                         st.session_state[f"dev_txt_{i}"] = _cur + _snip
                         st.rerun()
-
-                # Barra de herramientas – Matemáticas + Física Médica
                 _tc_math, _tc_phys = st.columns([9, 8])
                 with _tc_math:
                     st.markdown(
@@ -1037,7 +1066,6 @@ with tab_dev:
                             _cur = st.session_state.get(f"dev_txt_{i}", q.get("txt", ""))
                             st.session_state[f"dev_txt_{i}"] = _cur + _snip
                             st.rerun()
-
                 with _tc_phys:
                     st.markdown(
                         "<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
@@ -1051,7 +1079,6 @@ with tab_dev:
                             st.session_state[f"dev_txt_{i}"] = _cur + _snip
                             st.rerun()
 
-                # Guía rápida (colapsada por defecto)
                 with st.expander("📚 Guía rápida de escritura", expanded=False):
                     if _is_md:
                         st.markdown("""
@@ -1066,11 +1093,10 @@ with tab_dev:
 | `$E = mc^2$` | fórmula inline: E = mc² |
 | `$$\\frac{a}{b}$$` | fracción en bloque centrada |
 | `$\\alpha$`, `$\\beta$`, `$\\mu$` | α, β, μ |
-| `$x^{2}$`, `$x_{n}$` | x², xₙ |
 | `$D = \\frac{E}{m}$` | D = E/m (dosis) |
 | `$I = I_0 e^{-\\mu x}$` | ley de atenuación |
 
-💡 **Consejo**: para fórmulas largas usa `$$...$$` en su propia línea para centrarlas.
+💡 Para fórmulas largas usa `$$...$$` en su propia línea.
                         """)
                     else:
                         st.markdown("""
@@ -1083,182 +1109,117 @@ with tab_dev:
 | `$E = mc^2$` | fórmula inline |
 | `\\frac{a}{b}` | fracción (dentro de `$`) |
 | `\\sqrt{x}` | √x |
-| `^{2}`, `_{n}` | superíndice, subíndice |
 | `\\alpha`, `\\beta`, `\\mu` | α, β, μ |
-| `\\begin{itemize}…\\end{itemize}` | lista |
 
-💡 Para texto mixto con pocas fórmulas considera usar **Markdown** (más fácil).
+💡 Para texto mixto con pocas fórmulas considera usar **Markdown**.
                         """)
 
-                # Editor de texto
                 _ph_edit = (
-                    "Escribe el enunciado en Markdown…\n\n"
-                    "Ejemplo:\nCalcula la dosis absorbida si la energía depositada es\n"
+                    "Escribe el enunciado en Markdown…\n\nEjemplo:\n"
+                    "Calcula la dosis absorbida si la energía depositada es\n"
                     "$E = 5\\,\\mathrm{mJ}$ en una masa de $m = 2\\,\\mathrm{g}$.\n\n"
                     "Usando $D = \\frac{E}{m}$, obtenemos…"
-                    if _is_md else
-                    "Escribe en LaTeX…\nCalcula $D = \\frac{E}{m}$ si…"
+                    if _is_md else "Escribe en LaTeX…\nCalcula $D = \\frac{E}{m}$ si…"
                 )
                 new_txt = st.text_area(
-                    "Enunciado", value=q.get("txt", ""), height=300,
+                    "Enunciado", value=q.get("txt", ""), height=220,
                     key=f"dev_txt_{i}", label_visibility="collapsed",
                     placeholder=_ph_edit,
                 )
                 q["txt"] = new_txt
 
-            with _prev_tab:
-                if new_txt.strip():
-                    _body = _dev_md_to_html(new_txt)
-                    _prev_html = f"""
-<div style="font-family:Calibri,sans-serif;font-size:11pt;line-height:1.75;
-            padding:20px 26px;background:#fdfaff;border:1px solid #ede7f6;
-            border-radius:8px;min-height:280px;color:#1a1a2e">
-  <div style="color:#7d3c98;font-size:8pt;text-transform:uppercase;letter-spacing:.1em;
-              font-weight:700;border-bottom:2px solid #ede7f6;padding-bottom:6px;
-              margin-bottom:16px">
-    Vista previa · {'Markdown' if _is_md else 'LaTeX'}
-  </div>
-  {_body}
-</div>"""
-                    stcomponents.html(mathjax_html(_prev_html), height=380, scrolling=True)
-                else:
-                    st.info("💡 Escribe el enunciado en **✏️ Editar** para ver aquí cómo quedará impreso.")
-
-            # ── Rúbrica + Imagen + Solución modelo + Datos ───────────────────
-            criterios      = list(q.get("criterios", []))
-            new_sol_modelo = q.get("solucion_modelo", "")
-            new_img_bytes  = q.get("imagen_bytes")
-            new_img_name   = q.get("imagen_name", "")
-            new_img_pos    = q.get("imagen_pos", "debajo")
-            new_datos_ids  = q.get("datos_ids", "")
-
-            subapts   = list(q.get("subapartados") or [])
-            _num_apt  = q.get("numeracion_apt", "abc")
-
-            with st.expander("📋 Rúbrica / Imagen / Solución / Datos", expanded=False):
-                _rub_tab, _img_tab, _sol_tab, _dat_tab = st.tabs(
-                    ["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo", "🔢 Datos"]
+                # Imagen del enunciado
+                _img_cur_pos = q.get("imagen_pos", "debajo")
+                if _img_cur_pos not in _IMG_POS_OPTS:
+                    _img_cur_pos = "debajo"
+                _ie1, _ie2 = st.columns([2, 3])
+                new_img_pos = _ie1.selectbox(
+                    "Posición de la imagen",
+                    list(_IMG_POS_OPTS.keys()),
+                    index=list(_IMG_POS_OPTS.keys()).index(_img_cur_pos),
+                    format_func=lambda x: _IMG_POS_OPTS[x],
+                    key=f"dev_img_pos_{i}",
                 )
-
-                with _rub_tab:
-                    st.caption("Define los criterios: descripción, puntos máximos e incremento de calificación.")
-                    _rh1, _rh2, _rh3, _rh4 = st.columns([5, 1.2, 1.2, 0.8])
-                    _rh1.markdown("<small style='color:#888'>Criterio</small>", unsafe_allow_html=True)
-                    _rh2.markdown("<small style='color:#888'>Pts máx</small>", unsafe_allow_html=True)
-                    _rh3.markdown("<small style='color:#888'>Incremento</small>", unsafe_allow_html=True)
-                    to_del_crit = []
-                    for ci, crit in enumerate(criterios):
-                        rc1, rc2, rc3, rc4 = st.columns([5, 1.2, 1.2, 0.8])
-                        new_desc = rc1.text_input("Criterio", value=crit.get("desc", ""),
-                                                   key=f"crit_desc_{i}_{ci}",
-                                                   label_visibility="collapsed",
-                                                   placeholder="Descripción del criterio…")
-                        new_cpts = rc2.number_input("pts", value=float(crit.get("pts", 0.5)),
-                                                     min_value=0.0, step=0.25,
-                                                     key=f"crit_pts_{i}_{ci}",
-                                                     label_visibility="collapsed")
-                        new_cinc = rc3.number_input("inc", value=float(crit.get("incremento", 0.25)),
-                                                     min_value=0.0, step=0.05,
-                                                     key=f"crit_inc_{i}_{ci}",
-                                                     label_visibility="collapsed")
-                        if rc4.button("🗑️", key=f"crit_del_{i}_{ci}", help="Eliminar criterio"):
-                            to_del_crit.append(ci)
-                        else:
-                            _levels = []
-                            if new_cinc > 0 and new_cpts > 0:
-                                import math as _m
-                                _n = round(new_cpts / new_cinc)
-                                _levels = [f"{new_cinc*k:.2g}" for k in range(_n + 1)]
-                            criterios[ci] = {"desc": new_desc, "pts": new_cpts,
-                                             "incremento": new_cinc}
-                            if _levels:
-                                rc1.caption(f"Valores posibles: {' / '.join(_levels)}")
-                    for ci in sorted(to_del_crit, reverse=True):
-                        criterios.pop(ci)
-                    if st.button("➕ Añadir criterio", key=f"crit_add_{i}"):
-                        criterios.append({"desc": "", "pts": 0.5, "incremento": 0.25})
-                    _total_crit = sum(c.get("pts", 0) for c in criterios)
-                    if criterios:
-                        st.caption(f"Total criterios: **{_total_crit:.2f} pts** (pregunta: {new_pts} pts)")
-
-                with _img_tab:
-                    _img_pos_opts = {"debajo": "Entre texto y caja de respuesta",
-                                     "encima": "Encima del texto",
-                                     "lado":   "Al lado del texto (flotante)"}
-                    _img_cur_pos  = q.get("imagen_pos", "debajo")
-                    _img_pos_idx  = list(_img_pos_opts.keys()).index(_img_cur_pos) if _img_cur_pos in _img_pos_opts else 0
-                    new_img_pos = st.selectbox("Posición de la imagen", list(_img_pos_opts.keys()),
-                                               index=_img_pos_idx,
-                                               format_func=lambda x: _img_pos_opts[x],
-                                               key=f"dev_img_pos_{i}")
-                    img_up = st.file_uploader("Subir imagen (PNG/JPG/PDF recortado)",
-                                              type=["png", "jpg", "jpeg"],
-                                              key=f"dev_img_{i}")
-                    if img_up:
-                        new_img_bytes = img_up.getvalue()
-                        new_img_name  = img_up.name
-                        st.image(img_up, width=300)
-                    elif q.get("imagen_bytes"):
-                        import io as _io_tmp
-                        new_img_bytes = q["imagen_bytes"]
-                        new_img_name  = q.get("imagen_name", f"dev_img_{i+1}.png")
-                        st.image(_io_tmp.BytesIO(new_img_bytes), width=300, caption=new_img_name)
-                        if st.button("🗑️ Quitar imagen", key=f"dev_img_del_{i}"):
-                            new_img_bytes = None
-                            new_img_name  = ""
-                    else:
+                img_up = _ie2.file_uploader(
+                    "Añadir imagen al enunciado (PNG/JPG)",
+                    type=["png", "jpg", "jpeg"],
+                    key=f"dev_img_{i}",
+                )
+                if img_up:
+                    new_img_bytes = img_up.getvalue()
+                    new_img_name  = img_up.name
+                    st.image(img_up, width=280)
+                elif q.get("imagen_bytes"):
+                    import io as _io_tmp
+                    new_img_bytes = q["imagen_bytes"]
+                    new_img_name  = q.get("imagen_name", f"dev_img_{i+1}.png")
+                    _ic1, _ic2 = st.columns([3, 1])
+                    _ic1.image(_io_tmp.BytesIO(new_img_bytes), width=260, caption=new_img_name)
+                    if _ic2.button("🗑️ Quitar imagen", key=f"dev_img_del_{i}"):
                         new_img_bytes = None
                         new_img_name  = ""
+                else:
+                    new_img_bytes = None
+                    new_img_name  = ""
 
-                with _sol_tab:
-                    st.caption("Solución modelo — aparecerá en el Solucionario y en el archivo de rúbrica.")
-
-                    # Toolbar texto
-                    st.markdown("<div style='font-size:.72em;color:#27ae60;font-weight:700;"
-                                "letter-spacing:.06em;margin:4px 0 3px'>✏️ TEXTO</div>",
-                                unsafe_allow_html=True)
+                # Solución modelo — solo cuando NO hay apartados
+                if not subapts:
+                    st.divider()
+                    st.markdown(
+                        "<div style='font-size:.8em;color:#27ae60;font-weight:700;"
+                        "margin:6px 0 4px'>📖 Solución modelo</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        "<div style='font-size:.72em;color:#7d3c98;font-weight:700;"
+                        "letter-spacing:.06em;margin:4px 0 3px'>✏️ TEXTO</div>",
+                        unsafe_allow_html=True,
+                    )
                     _stb1 = st.columns(len(_snips_text))
                     for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_stb1, _snips_text)):
                         if _col.button(_lbl, key=f"ssT_{i}_{_j}", help=_tip, use_container_width=True):
                             _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
                             st.session_state[f"dev_sol_{i}"] = _cur + _snip
                             st.rerun()
-
-                    _stc_math, _stc_phys = st.columns([9, 8])
-                    with _stc_math:
-                        st.markdown("<div style='font-size:.72em;color:#1a6b3a;font-weight:700;"
-                                    "letter-spacing:.06em;margin:4px 0 3px'>📐 MATEMÁTICAS</div>",
-                                    unsafe_allow_html=True)
+                    _stc_m, _stc_p = st.columns([9, 8])
+                    with _stc_m:
+                        st.markdown(
+                            "<div style='font-size:.72em;color:#1a6b3a;font-weight:700;"
+                            "letter-spacing:.06em;margin:4px 0 3px'>📐 MATEMÁTICAS</div>",
+                            unsafe_allow_html=True,
+                        )
                         _stb2 = st.columns(len(_snips_math))
                         for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_stb2, _snips_math)):
                             if _col.button(_lbl, key=f"ssM_{i}_{_j}", help=_tip, use_container_width=True):
                                 _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
                                 st.session_state[f"dev_sol_{i}"] = _cur + _snip
                                 st.rerun()
-
-                    with _stc_phys:
-                        st.markdown("<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
-                                    "letter-spacing:.06em;margin:4px 0 3px'>🔬 FÍSICA MÉDICA</div>",
-                                    unsafe_allow_html=True)
+                    with _stc_p:
+                        st.markdown(
+                            "<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
+                            "letter-spacing:.06em;margin:4px 0 3px'>🔬 FÍSICA MÉDICA</div>",
+                            unsafe_allow_html=True,
+                        )
                         _stb3 = st.columns(len(_snips_phys))
                         for _j, (_col, (_lbl, _snip, _tip)) in enumerate(zip(_stb3, _snips_phys)):
                             if _col.button(_lbl, key=f"ssP_{i}_{_j}", help=_tip, use_container_width=True):
                                 _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
                                 st.session_state[f"dev_sol_{i}"] = _cur + _snip
                                 st.rerun()
-
-                    # Tabs Editar / Vista previa
-                    _sol_edit_tab, _sol_prev_tab = st.tabs(["✏️ Editar solución", "👁 Vista previa"])
-                    with _sol_edit_tab:
+                    _sol_et, _sol_pt = st.tabs(["✏️ Editar solución", "👁 Vista previa"])
+                    with _sol_et:
                         new_sol_modelo = st.text_area(
                             "Solución modelo", value=q.get("solucion_modelo", ""),
-                            height=240, key=f"dev_sol_{i}",
+                            height=200, key=f"dev_sol_{i}",
                             label_visibility="collapsed",
-                            placeholder="Escribe la solución en Markdown…\n\n**a)** Aplicando $A = \\lambda N$:\n\n$$\\lambda = \\frac{M \\cdot A}{m \\cdot N_A}$$"
+                            placeholder="Escribe la solución en Markdown…\n\n"
+                                        "**a)** Aplicando $A = \\lambda N$:\n\n"
+                                        "$$\\lambda = \\frac{M \\cdot A}{m \\cdot N_A}$$",
                         )
-                    with _sol_prev_tab:
-                        if new_sol_modelo.strip():
-                            _sbody = _dev_md_to_html(new_sol_modelo)
+                    with _sol_pt:
+                        _sol_cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
+                        if _sol_cur.strip():
+                            _sbody = _dev_md_to_html(_sol_cur)
                             stcomponents.html(mathjax_html(
                                 f"""<div style="font-family:Calibri,sans-serif;font-size:10.5pt;
                                     line-height:1.7;padding:16px 22px;background:#f6fff6;
@@ -1267,139 +1228,363 @@ with tab_dev:
                                       letter-spacing:.1em;font-weight:700;border-bottom:2px solid #c8e6c9;
                                       padding-bottom:6px;margin-bottom:14px">Solución modelo</div>
                                   {_sbody}</div>"""
-                            ), height=310, scrolling=True)
+                            ), height=280, scrolling=True)
                         else:
-                            st.info("Escribe la solución en **✏️ Editar solución** para ver la vista previa.")
+                            st.info("Escribe la solución para ver la vista previa.")
+                else:
+                    new_sol_modelo = q.get("solucion_modelo", "")
 
-                with _dat_tab:
-                    st.caption(
-                        "Selecciona las constantes que aparecerán como *Datos:* debajo del enunciado. "
-                        "Para añadir nuevas constantes ve al **Gestor → 🔢 Constantes**."
-                    )
-                    _datos_df_gen = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
-                    if _datos_df_gen.empty or not _datos_df_gen['ID'].astype(str).str.strip().any():
-                        st.info("No hay constantes en la BD. Añádelas en Gestor → 🔢 Constantes.")
+            # ══════════════ Tab 2: Apartados ══════════════════════════════════
+            with _tab_apts:
+                _num_apt = st.radio(
+                    "Numeración de apartados",
+                    list(_NUM_LABELS.keys()),
+                    index=list(_NUM_LABELS.keys()).index(q.get("numeracion_apt", "abc")),
+                    format_func=lambda x: _NUM_LABELS[x],
+                    horizontal=True,
+                    key=f"apt_num_{i}",
+                )
+                _to_del_apt = []
+                for ai, apt in enumerate(subapts):
+                    _apt_head = apt.get("enunciado","")[:45] or "(vacío)"
+                    _apt_pts_v = float(apt.get("puntos") or 1.0)
+                    with st.expander(
+                        f"**{ai+1}.** {_apt_head}  ·  {_apt_pts_v:g} pt",
+                        expanded=not apt.get("enunciado","").strip(),
+                    ):
+                        _ac1, _ac2, _ac3 = st.columns([1.5, 2, 0.6])
+                        apt["puntos"] = _ac1.number_input(
+                            "Puntos", value=_apt_pts_v, min_value=0.0, step=0.5,
+                            key=f"apt_pts_{i}_{ai}")
+                        _ec = str(apt.get("espacio") or "5cm")
+                        apt["espacio"] = _ac2.selectbox(
+                            "Espacio respuesta", _ESP_APT_OPTS,
+                            index=_ESP_APT_OPTS.index(_ec) if _ec in _ESP_APT_OPTS else 2,
+                            key=f"apt_esp_{i}_{ai}")
+                        if _ac3.button("🗑", key=f"apt_del_{i}_{ai}",
+                                        help="Eliminar", use_container_width=True):
+                            _to_del_apt.append(ai)
+
+                        # Toolbar math apartado
+                        _asb = st.columns(len(_SNIPS_APT))
+                        for _sj, (_asc, (_asl, _ass, _ast)) in enumerate(zip(_asb, _SNIPS_APT)):
+                            if _asc.button(_asl, key=f"aM_{i}_{ai}_{_sj}", help=_ast,
+                                           use_container_width=True):
+                                _ck = f"apt_enun_{i}_{ai}"
+                                st.session_state[_ck] = (
+                                    st.session_state.get(_ck, apt.get("enunciado","")) + _ass)
+                                st.rerun()
+
+                        apt["enunciado"] = st.text_area(
+                            "Enunciado del apartado",
+                            value=apt.get("enunciado",""), height=110,
+                            key=f"apt_enun_{i}_{ai}",
+                            placeholder=f"Enunciado del apartado {ai+1}…",
+                        )
+
+                        # Imagen del apartado
+                        _ai1, _ai2 = st.columns([2, 3])
+                        _apt_img_cur = apt.get("imagen_pos","debajo")
+                        if _apt_img_cur not in _IMG_POS_OPTS:
+                            _apt_img_cur = "debajo"
+                        apt["imagen_pos"] = _ai1.selectbox(
+                            "Posición imagen apartado",
+                            list(_IMG_POS_OPTS.keys()),
+                            index=list(_IMG_POS_OPTS.keys()).index(_apt_img_cur),
+                            format_func=lambda x: _IMG_POS_OPTS[x],
+                            key=f"apt_img_pos_{i}_{ai}",
+                        )
+                        _apt_img_up = _ai2.file_uploader(
+                            "Imagen del apartado (opcional)",
+                            type=["png","jpg","jpeg"],
+                            key=f"apt_img_{i}_{ai}",
+                        )
+                        if _apt_img_up:
+                            apt["imagen_bytes"] = _apt_img_up.getvalue()
+                            apt["imagen_name"]  = _apt_img_up.name
+                            st.image(_apt_img_up, width=240)
+                        elif apt.get("imagen_bytes"):
+                            import io as _io_tmp2
+                            _aic1, _aic2 = st.columns([3, 1])
+                            _aic1.image(_io_tmp2.BytesIO(apt["imagen_bytes"]), width=220,
+                                        caption=apt.get("imagen_name",""))
+                            if _aic2.button("🗑️ Quitar", key=f"apt_img_del_{i}_{ai}"):
+                                apt["imagen_bytes"] = None
+                                apt["imagen_name"]  = ""
+                        else:
+                            apt["imagen_bytes"] = None
+                            apt["imagen_name"]  = ""
+
+                        # Solución del apartado
+                        st.markdown(
+                            "<div style='font-size:.72em;color:#27ae60;font-weight:700;"
+                            "letter-spacing:.06em;margin:6px 0 3px'>📖 SOLUCIÓN (snippets)</div>",
+                            unsafe_allow_html=True,
+                        )
+                        _ssb = st.columns(len(_SNIPS_APT))
+                        for _sj, (_ssc, (_ssl, _sss, _sst)) in enumerate(zip(_ssb, _SNIPS_APT)):
+                            if _ssc.button(_ssl, key=f"aS_{i}_{ai}_{_sj}", help=_sst,
+                                           use_container_width=True):
+                                _sk = f"apt_sol_{i}_{ai}"
+                                st.session_state[_sk] = (
+                                    st.session_state.get(_sk, apt.get("solucion","")) + _sss)
+                                st.rerun()
+                        apt["solucion"] = st.text_area(
+                            "Solución modelo del apartado (opcional)",
+                            value=apt.get("solucion",""), height=90,
+                            key=f"apt_sol_{i}_{ai}",
+                            placeholder="Solución de este apartado…",
+                        )
+
+                        # Preview individual
+                        _apt_pv_key = f"_apt_pv_{i}_{ai}"
+                        if st.button("🔍 Previsualizar apartado", key=f"apt_pv_btn_{i}_{ai}",
+                                      use_container_width=True):
+                            st.session_state[_apt_pv_key] = not st.session_state.get(_apt_pv_key, False)
+                            st.rerun()
+                        if st.session_state.get(_apt_pv_key):
+                            _apt_enun_html = _dev_md_to_html(apt.get("enunciado",""))
+                            _apt_sol_html  = _dev_md_to_html(apt.get("solucion",""))
+                            _apt_html = (
+                                f"<div style='font-family:Calibri,sans-serif;font-size:10.5pt;"
+                                f"line-height:1.7;padding:14px 18px;background:#f8f9fa;"
+                                f"border:1px solid #dee2e6;border-radius:6px;color:#1a1a2e'>"
+                                f"<div style='font-weight:700;color:#7d3c98;margin-bottom:8px'>"
+                                f"Apartado {ai+1}</div>{_apt_enun_html}"
+                            )
+                            if apt.get("solucion","").strip():
+                                _apt_html += (
+                                    f"<div style='margin-top:10px;padding:8px 12px;"
+                                    f"background:#f0fff0;border-left:3px solid #27ae60;"
+                                    f"border-radius:4px'><small style='color:#27ae60;"
+                                    f"font-weight:700'>Solución:</small><br>{_apt_sol_html}</div>"
+                                )
+                            _apt_html += "</div>"
+                            stcomponents.html(mathjax_html(_apt_html), height=260, scrolling=True)
+
+                        subapts[ai] = apt
+
+                for ai in sorted(_to_del_apt, reverse=True):
+                    subapts.pop(ai)
+
+                if st.button("➕ Añadir apartado", key=f"apt_add_{i}", type="primary"):
+                    subapts.append({
+                        "enunciado": "", "puntos": 1.0, "espacio": "5cm",
+                        "solucion": "", "imagen_bytes": None,
+                        "imagen_name": "", "imagen_pos": "debajo",
+                    })
+                    st.rerun()
+                if subapts:
+                    _pts_apts = sum(float(a.get("puntos") or 0) for a in subapts)
+                    st.caption(f"{len(subapts)} apartados · total **{_pts_apts:g} pt**")
+
+            # ══════════════ Tab 3: Rúbrica & Datos ════════════════════════════
+            with _tab_rub:
+                _rr1, _rr2 = st.columns(2)
+                if subapts:
+                    _pts_calc = sum(float(a.get("puntos") or 0) for a in subapts)
+                    _rr1.metric("Puntos totales (suma de apartados)", f"{_pts_calc:g} pt")
+                    new_pts = _pts_calc
+                else:
+                    new_pts = _rr1.number_input(
+                        "Puntuación (pts)", value=float(q.get("pts", 1.0)),
+                        min_value=0.0, step=0.5, key=f"dev_pts_{i}")
+                new_esp = _rr2.selectbox(
+                    "Espacio para respuesta", _ESP_LABELS,
+                    index=_ESP_LABELS.index(q.get("espacio", "Automático"))
+                          if q.get("espacio", "Automático") in _ESP_LABELS else 0,
+                    key=f"dev_esp_{i}",
+                )
+
+                st.markdown("---")
+                st.caption("Criterios de evaluación: descripción, puntos máximos e incremento.")
+                criterios = list(q.get("criterios", []))
+                _rh1, _rh2, _rh3, _rh4 = st.columns([5, 1.2, 1.2, 0.8])
+                _rh1.markdown("<small style='color:#888'>Criterio</small>", unsafe_allow_html=True)
+                _rh2.markdown("<small style='color:#888'>Pts máx</small>", unsafe_allow_html=True)
+                _rh3.markdown("<small style='color:#888'>Incremento</small>", unsafe_allow_html=True)
+                to_del_crit = []
+                for ci, crit in enumerate(criterios):
+                    rc1, rc2, rc3, rc4 = st.columns([5, 1.2, 1.2, 0.8])
+                    new_desc = rc1.text_input(
+                        "Criterio", value=crit.get("desc", ""),
+                        key=f"crit_desc_{i}_{ci}",
+                        label_visibility="collapsed",
+                        placeholder="Descripción del criterio…")
+                    new_cpts = rc2.number_input(
+                        "pts", value=float(crit.get("pts", 0.5)),
+                        min_value=0.0, step=0.25,
+                        key=f"crit_pts_{i}_{ci}",
+                        label_visibility="collapsed")
+                    new_cinc = rc3.number_input(
+                        "inc", value=float(crit.get("incremento", 0.25)),
+                        min_value=0.0, step=0.05,
+                        key=f"crit_inc_{i}_{ci}",
+                        label_visibility="collapsed")
+                    if rc4.button("🗑️", key=f"crit_del_{i}_{ci}", help="Eliminar criterio"):
+                        to_del_crit.append(ci)
                     else:
-                        _cur_ids = [x.strip() for x in new_datos_ids.split(',') if x.strip()]
-                        _cats_gen = sorted(_datos_df_gen['Categoría'].fillna('Sin categoría').unique().tolist())
-                        _sel_ids = list(_cur_ids)
-                        for _cat in _cats_gen:
-                            _cdf = _datos_df_gen[_datos_df_gen['Categoría'].fillna('Sin categoría') == _cat]
-                            if _cdf.empty:
-                                continue
-                            st.markdown(f"**{_cat}**")
-                            for _, _dr in _cdf.iterrows():
-                                _did = str(_dr['ID']).strip()
-                                _nom = str(_dr.get('Nombre','') or '').strip()
-                                _sym = str(_dr.get('Símbolo','') or '').strip()
-                                _val = str(_dr.get('Valor','') or '').strip()
-                                _uni = str(_dr.get('Unidades','') or '').strip()
-                                _lbl = f"{_nom} — {_sym} = {_val} {_uni}".strip(" —")
-                                _chk = st.checkbox(_lbl, value=(_did in _sel_ids),
-                                                   key=f"gen_dat_{i}_{_did}")
-                                if _chk and _did not in _sel_ids:
-                                    _sel_ids.append(_did)
-                                elif not _chk and _did in _sel_ids:
-                                    _sel_ids.remove(_did)
-                        new_datos_ids = ','.join(_sel_ids)
-                        if new_datos_ids:
-                            _prev = lib.format_datos_word(new_datos_ids, _datos_df_gen)
-                            st.caption(f"→ *{_prev}*")
+                        _levels = []
+                        if new_cinc > 0 and new_cpts > 0:
+                            import math as _m
+                            _n = round(new_cpts / new_cinc)
+                            _levels = [f"{new_cinc*k:.2g}" for k in range(_n + 1)]
+                        criterios[ci] = {"desc": new_desc, "pts": new_cpts,
+                                         "incremento": new_cinc}
+                        if _levels:
+                            rc1.caption(f"Valores posibles: {' / '.join(_levels)}")
+                for ci in sorted(to_del_crit, reverse=True):
+                    criterios.pop(ci)
+                if st.button("➕ Añadir criterio", key=f"crit_add_{i}"):
+                    criterios.append({"desc": "", "pts": 0.5, "incremento": 0.25})
+                _total_crit = sum(c.get("pts", 0) for c in criterios)
+                if criterios:
+                    st.caption(f"Total criterios: **{_total_crit:.2f} pts** (pregunta: {new_pts} pts)")
 
-            _apt_n = len(subapts)
-            _apt_pts_str = f" · {sum(float(a.get('puntos') or 0) for a in subapts):g} pt" if subapts else ""
-            _apt_btn_label = f"📑 Subapartados ({_apt_n}){_apt_pts_str}" if subapts else "📑 Subapartados"
-            if st.button(_apt_btn_label, key=f"btn_apt_panel_{i}", use_container_width=False,
-                         help="Editar sub-preguntas con editor completo (se abre panel abajo)"):
-                st.session_state["_apt_edit_q"] = i
-                st.rerun()
+                st.markdown("---")
+                st.caption(
+                    "Constantes que aparecerán como *Datos:* debajo del enunciado. "
+                    "Añade nuevas en **Gestor → 🔢 Constantes**."
+                )
+                new_datos_ids = q.get("datos_ids", "")
+                _datos_df_gen = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
+                if _datos_df_gen.empty or not _datos_df_gen['ID'].astype(str).str.strip().any():
+                    st.info("No hay constantes en la BD. Añádelas en Gestor → 🔢 Constantes.")
+                else:
+                    _cur_ids = [x.strip() for x in new_datos_ids.split(',') if x.strip()]
+                    _cats_gen = sorted(
+                        _datos_df_gen['Categoría'].fillna('Sin categoría').unique().tolist())
+                    _sel_ids = list(_cur_ids)
+                    for _cat in _cats_gen:
+                        _cdf = _datos_df_gen[
+                            _datos_df_gen['Categoría'].fillna('Sin categoría') == _cat]
+                        if _cdf.empty:
+                            continue
+                        st.markdown(f"**{_cat}**")
+                        for _, _dr in _cdf.iterrows():
+                            _did = str(_dr['ID']).strip()
+                            _nom = str(_dr.get('Nombre','') or '').strip()
+                            _sym = str(_dr.get('Símbolo','') or '').strip()
+                            _val = str(_dr.get('Valor','') or '').strip()
+                            _uni = str(_dr.get('Unidades','') or '').strip()
+                            _lbl = f"{_nom} — {_sym} = {_val} {_uni}".strip(" —")
+                            _chk = st.checkbox(_lbl, value=(_did in _sel_ids),
+                                               key=f"gen_dat_{i}_{_did}")
+                            if _chk and _did not in _sel_ids:
+                                _sel_ids.append(_did)
+                            elif not _chk and _did in _sel_ids:
+                                _sel_ids.remove(_did)
+                    new_datos_ids = ','.join(_sel_ids)
+                    if new_datos_ids:
+                        _prev_dat = lib.format_datos_word(new_datos_ids, _datos_df_gen)
+                        st.caption(f"→ *{_prev_dat}*")
 
+            # ══════════════ Tab 4: Vista previa completa ═══════════════════════
+            with _tab_prev_q:
+                _pv1, _pv2 = st.columns([3, 1])
+                _sol_mode_prev = _pv1.radio(
+                    "Versión a previsualizar", ["Alumno", "Soluciones"],
+                    horizontal=True, key=f"qprev_ver_{i}",
+                )
+                _prev_state_key = f"_qprev_{i}"
+                if _pv2.button("🔍 Renderizar", key=f"qprev_btn_{i}",
+                                use_container_width=True, type="primary"):
+                    st.session_state[_prev_state_key] = True
+                    st.rerun()
+                if st.session_state.get(_prev_state_key):
+                    _show_sol  = (_sol_mode_prev == "Soluciones")
+                    _qh_main   = _dev_md_to_html(q.get("txt",""))
+                    _qhtml = (
+                        f"<div style='font-family:Calibri,sans-serif;font-size:11pt;"
+                        f"line-height:1.75;padding:20px 26px;background:#fdfaff;"
+                        f"border:1px solid #ede7f6;border-radius:8px;color:#1a1a2e'>"
+                        f"<div style='color:#7d3c98;font-size:8pt;text-transform:uppercase;"
+                        f"letter-spacing:.1em;font-weight:700;border-bottom:2px solid #ede7f6;"
+                        f"padding-bottom:6px;margin-bottom:16px'>"
+                        f"Pregunta {i+1} · {'Soluciones' if _show_sol else 'Alumno'}</div>"
+                        f"<p style='font-weight:700;margin-bottom:10px'>({_pts_disp:g} pts)</p>"
+                        f"{_qh_main}"
+                    )
+                    if subapts:
+                        _enum_labs = {
+                            "abc":   [chr(ord('a')+k) for k in range(26)],
+                            "roman": ["i","ii","iii","iv","v","vi","vii","viii","ix","x"],
+                            "num":   [str(k+1) for k in range(20)],
+                        }
+                        _labs = _enum_labs.get(q.get("numeracion_apt","abc"), _enum_labs["abc"])
+                        _qhtml += "<ol style='padding-left:20px;margin-top:12px'>"
+                        for ai2, apt2 in enumerate(subapts):
+                            _lab2      = _labs[ai2] if ai2 < len(_labs) else str(ai2+1)
+                            _apt_e2    = _dev_md_to_html(apt2.get("enunciado",""))
+                            _apt_pts2  = float(apt2.get("puntos") or 0)
+                            _qhtml += (
+                                f"<li style='margin-bottom:10px'>"
+                                f"<span style='font-weight:600'>({_lab2})</span> "
+                                f"<em style='color:#888'>({_apt_pts2:g} pt)</em> {_apt_e2}"
+                            )
+                            if _show_sol and apt2.get("solucion","").strip():
+                                _qhtml += (
+                                    f"<div style='margin:6px 0 0 16px;padding:6px 10px;"
+                                    f"background:#f0fff0;border-left:3px solid #27ae60;"
+                                    f"border-radius:3px'><small style='color:#27ae60;"
+                                    f"font-weight:700'>Sol:</small> "
+                                    f"{_dev_md_to_html(apt2.get('solucion',''))}</div>"
+                                )
+                            elif not _show_sol:
+                                _qhtml += (
+                                    f"<div style='margin:6px 0 0 16px;height:40px;"
+                                    f"border:1px dashed #ccc;border-radius:3px;"
+                                    f"background:#fafafa'></div>"
+                                )
+                            _qhtml += "</li>"
+                        _qhtml += "</ol>"
+                    else:
+                        _sol_txt = q.get("solucion_modelo","").strip()
+                        if _show_sol and _sol_txt:
+                            _qhtml += (
+                                f"<div style='margin-top:14px;padding:10px 14px;"
+                                f"background:#f0fff0;border-left:4px solid #27ae60;"
+                                f"border-radius:4px'>"
+                                f"<small style='color:#27ae60;font-weight:700'>"
+                                f"Solución modelo</small><br>"
+                                f"{_dev_md_to_html(_sol_txt)}</div>"
+                            )
+                        else:
+                            _qhtml += (
+                                "<div style='margin-top:14px;height:80px;"
+                                "border:1px dashed #bdc3c7;border-radius:4px;"
+                                "background:#fafafa;display:flex;align-items:center;"
+                                "justify-content:center;color:#aaa'>"
+                                "[ Espacio de respuesta ]</div>"
+                            )
+                    _qhtml += "</div>"
+                    stcomponents.html(mathjax_html(_qhtml), height=520, scrolling=True)
+                else:
+                    st.info("Pulsa **🔍 Renderizar** para ver la vista previa completa.")
+
+            # ── Guardar estado ────────────────────────────────────────────────
             dev_qs[i] = {
-                "txt": new_txt, "pts": new_pts, "espacio": new_esp,
-                "modo": q["modo"],
-                "criterios": criterios,
+                "txt":            new_txt,
+                "pts":            new_pts,
+                "espacio":        new_esp,
+                "modo":           q["modo"],
+                "criterios":      criterios,
                 "solucion_modelo": new_sol_modelo,
-                "imagen_bytes": new_img_bytes,
-                "imagen_name":  new_img_name,
-                "imagen_pos":   new_img_pos,
-                "datos_ids":    new_datos_ids,
-                "subapartados": subapts,
+                "imagen_bytes":   new_img_bytes,
+                "imagen_name":    new_img_name,
+                "imagen_pos":     new_img_pos,
+                "datos_ids":      new_datos_ids,
+                "subapartados":   subapts,
                 "numeracion_apt": _num_apt,
             }
 
     if to_delete:
         for i in sorted(to_delete, reverse=True):
             dev_qs.pop(i)
-            st.session_state.dev_questions = dev_qs
+        st.session_state.dev_questions = dev_qs
         st.rerun()
 
     if dev_qs:
-        st.session_state.dev_questions = dev_qs
-
-    # ── Panel de edición de subapartados (fondo del tab) ─────────────────────
-    _apt_q_idx = st.session_state.get("_apt_edit_q")
-    if _apt_q_idx is not None and _apt_q_idx < len(dev_qs):
-        _aq = dev_qs[_apt_q_idx]
-        _subapts2 = list(_aq.get("subapartados") or [])
-        st.divider()
-        _ph1, _ph2 = st.columns([5, 1])
-        _ph1.markdown(f"### 📑 Subapartados — Pregunta {_apt_q_idx + 1}")
-        if _ph2.button("✕ Cerrar panel", key="apt_panel_close", use_container_width=True):
-            st.session_state.pop("_apt_edit_q", None)
-            st.rerun()
-
-        _NUM_L = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
-        _num2 = st.radio("Numeración", list(_NUM_L.keys()),
-                         index=list(_NUM_L.keys()).index(_aq.get("numeracion_apt", "abc")),
-                         format_func=lambda x: _NUM_L[x], horizontal=True,
-                         key="apt_panel_num")
-        _esp2_opts = ["3cm","4cm","5cm","6cm","7cm","8cm","10cm","12cm","15cm","18cm"]
-        _to_del2 = []
-        for _ai2, _apt2 in enumerate(_subapts2):
-            _is_md2 = _aq.get("modo", "markdown") != "latex"
-            with st.expander(
-                f"**Apartado {_ai2+1}** — {_apt2.get('enunciado','')[:50] or '(vacío)'}  ·  {_apt2.get('puntos',1)} pt",
-                expanded=not _apt2.get("enunciado","").strip()
-            ):
-                _a1, _a2, _a3, _a4 = st.columns([1, 1, 1, 0.5])
-                _apt2["puntos"] = _a1.number_input("Puntos", value=float(_apt2.get("puntos") or 1.0),
-                    min_value=0.0, step=0.5, key=f"ap2_pts_{_apt_q_idx}_{_ai2}")
-                _ec2 = str(_apt2.get("espacio") or "5cm")
-                _apt2["espacio"] = _a2.selectbox("Espacio respuesta", _esp2_opts,
-                    index=_esp2_opts.index(_ec2) if _ec2 in _esp2_opts else 2,
-                    key=f"ap2_esp_{_apt_q_idx}_{_ai2}")
-                _a3.empty()
-                if _a4.button("🗑 Eliminar", key=f"ap2_del_{_apt_q_idx}_{_ai2}", use_container_width=True):
-                    _to_del2.append(_ai2)
-
-                _snips_apt = [("$ …","$valor$","Fórmula inline"),("$$ …","$$\n\\frac{a}{b}\n$$","Bloque"),
-                              ("½","$\\frac{n}{d}$","Fracción"),("xⁿ","$x^{n}$","Potencia"),
-                              ("xₙ","$x_{n}$","Subíndice"),("√","$\\sqrt{x}$","Raíz")]
-                _sb = st.columns(len(_snips_apt))
-                for _sj, (_sc, (_sl, _ss, _st2)) in enumerate(zip(_sb, _snips_apt)):
-                    if _sc.button(_sl, key=f"ap2_s_{_apt_q_idx}_{_ai2}_{_sj}", help=_st2):
-                        _ck = f"ap2_enun_{_apt_q_idx}_{_ai2}"
-                        st.session_state[_ck] = st.session_state.get(_ck, _apt2.get("enunciado","")) + _ss
-                        st.rerun()
-
-                _apt2["enunciado"] = st.text_area(
-                    "Enunciado del apartado", value=_apt2.get("enunciado",""), height=100,
-                    key=f"ap2_enun_{_apt_q_idx}_{_ai2}",
-                    placeholder=f"Enunciado del apartado {_ai2+1}…")
-
-                _apt2["solucion"] = st.text_area(
-                    "Solución modelo (opcional)", value=_apt2.get("solucion",""), height=80,
-                    key=f"ap2_sol_{_apt_q_idx}_{_ai2}",
-                    placeholder="Solución de este apartado…")
-        for _ai2 in sorted(_to_del2, reverse=True):
-            _subapts2.pop(_ai2)
-        if st.button("➕ Añadir apartado", key="apt_panel_add"):
-            _subapts2.append({"enunciado":"", "puntos":1.0, "espacio":"5cm", "solucion":""})
-        if _subapts2:
-            _pts2 = sum(float(a.get("puntos") or 0) for a in _subapts2)
-            st.caption(f"Total: **{_pts2:g} pt** en {len(_subapts2)} apartados")
-        dev_qs[_apt_q_idx]["subapartados"]   = _subapts2
-        dev_qs[_apt_q_idx]["numeracion_apt"] = _num2
         st.session_state.dev_questions = dev_qs
 
 # ─────────────────────────────────────────────────────────────────────────────
