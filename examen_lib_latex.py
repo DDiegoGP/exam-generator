@@ -864,6 +864,35 @@ def _markdown_to_latex(text, modo='markdown'):
     return result
 
 
+def _render_sol_block(text: str, modo: str, estilo: str = 'caja') -> str:
+    """Genera LaTeX para el bloque de solución modelo (estilo configurable)."""
+    _sol = _markdown_to_latex(text, modo)
+    if estilo == 'caja':
+        return (
+            '\\begin{tcolorbox}['
+            'colback=primario!6,colframe=primario,'
+            'coltitle=white,colbacktitle=primario,'
+            'fonttitle=\\bfseries\\small,'
+            'arc=2mm,boxsep=3pt,left=4pt,right=4pt,top=3pt,bottom=3pt,'
+            'title={Solución modelo}]\n'
+            + _sol + '\n'
+            '\\end{tcolorbox}\n'
+        )
+    elif estilo == 'linea':
+        return (
+            '\\begin{tcolorbox}['
+            'blanker,borderline west={3pt}{0pt}{primario},'
+            'left=8pt,top=1pt,bottom=1pt]\n'
+            '{\\small\\textbf{Solución modelo:} ' + _sol + '}\n'
+            '\\end{tcolorbox}\n'
+        )
+    else:  # 'texto'
+        return (
+            '\\par\\vspace{2pt}\\textbf{\\textcolor{primario}{Solución modelo:}}\n'
+            + _sol + '\n'
+        )
+
+
 # ── Configuración de bloques y temas ─────────────────────────────────────────
 
 def get_cfg_bloques(dfs: dict) -> dict:
@@ -2008,6 +2037,8 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
             bloque_fund += f'\\begin{{enumerate}}[{_setlist_label},leftmargin=*,itemsep=1.5em,topsep=1em]\n'
             _esp_map = {'5 líneas': '4cm', '10 líneas': '7cm',
                         'media cara': '11cm', 'cara completa': '20cm'}
+            _estilo_sol = cfg.get('estilo_sol', 'caja')
+            import json as _json
             for ci, c in enumerate(fund_data):
                 esp    = c.get('espacio', 'Automático')
                 h_base = next((v for k, v in _esp_map.items() if k.lower() in esp.lower()), '6cm')
@@ -2018,34 +2049,79 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                     m2 = _re2.match(r'([\d.]+)cm', h_base)
                     if m2:
                         h_base = f"{float(m2.group(1)) * (1 + extra_pct/100):.1f}cm"
-                pts_q = str(c.get('pts', '')).strip()
+
+                # Subapartados
+                _subapts_raw = c.get('subapartados') or c.get('Subapartados') or ''
+                _subapts = []
+                if _subapts_raw:
+                    try:
+                        _subapts = _json.loads(_subapts_raw) if isinstance(_subapts_raw, str) else list(_subapts_raw)
+                    except (ValueError, TypeError):
+                        _subapts = []
+
+                # Puntos: suma apartados si existen, si no campo pts
+                if _subapts:
+                    try:
+                        _pts_calc = sum(float(a.get('puntos') or 0) for a in _subapts)
+                    except (TypeError, ValueError):
+                        _pts_calc = float(c.get('pts') or 0)
+                    pts_q = f'{_pts_calc:g}'
+                else:
+                    pts_q = str(c.get('pts', '')).strip()
                 pts_prefix = f'\\textbf{{({pts_q} pts)}} ' if pts_q else ''
+
                 img_name = c.get('imagen_name', '')
                 img_pos  = c.get('imagen_pos', 'debajo')
                 _img_cmd = (
                     '\n\\begin{center}\\includegraphics[max width=0.85\\linewidth]{'
                     + img_name + '}\\end{center}\n'
                 ) if img_name else ''
+                _modo_c = c.get('modo', 'markdown')
+
                 bloque_fund += '\\item \\begin{minipage}[t]{\\linewidth}\n'
                 if img_name and img_pos == 'encima':
                     bloque_fund += _img_cmd
-                bloque_fund += pts_prefix + _markdown_to_latex(c['txt'], c.get('modo', 'markdown')) + '\n'
+                bloque_fund += pts_prefix + _markdown_to_latex(c['txt'], _modo_c) + '\n'
                 _d = format_datos_latex(c.get('datos_ids', ''), _datos_df_g)
                 if _d:
                     bloque_fund += _d + '\n'
                 if img_name and img_pos in ('debajo', 'lado'):
                     bloque_fund += _img_cmd
-                if modo_solucion:
-                    bloque_fund += f'\\par\\textit{{[Espacio de respuesta ({esp})]}}\n'
-                    _sol_texto = c.get('solucion_modelo', '').strip()
-                    if _sol_texto:
-                        _sol_modo = c.get('solucion_modo', c.get('modo', 'markdown'))
-                        bloque_fund += (
-                            '\\par\\vspace{2pt}\\textbf{\\textcolor{principal}{Solución modelo:}}\n'
-                            + _markdown_to_latex(_sol_texto, _sol_modo) + '\n'
-                        )
+
+                if _subapts:
+                    # ── Pregunta con subapartados ─────────────────────────────
+                    _num_apt = c.get('numeracion_apt') or c.get('Numeracion_apt') or 'abc'
+                    _enum_styles = {'abc': '(a)', 'roman': '(i)', 'num': '1.'}
+                    _enum_sty = _enum_styles.get(_num_apt, '(a)')
+                    bloque_fund += (
+                        f'\\begin{{enumerate}}[{_enum_sty},'
+                        'leftmargin=*,itemsep=8pt,topsep=4pt]\n'
+                    )
+                    for _apt in _subapts:
+                        _apt_pts = str(_apt.get('puntos') or '').strip()
+                        _apt_pts_str = f' \\textit{{({_apt_pts} pt)}}' if _apt_pts else ''
+                        _apt_enun = _markdown_to_latex(_apt.get('enunciado', ''), _modo_c)
+                        _apt_esp  = str(_apt.get('espacio') or '5cm').strip() or '5cm'
+                        bloque_fund += f'\\item{_apt_pts_str} {_apt_enun}\n'
+                        if modo_solucion:
+                            bloque_fund += f'\\par\\textit{{[Espacio ({_apt_esp})]}}\n'
+                            _apt_sol = str(_apt.get('solucion') or '').strip()
+                            if _apt_sol:
+                                bloque_fund += _render_sol_block(_apt_sol, _modo_c, _estilo_sol)
+                        else:
+                            bloque_fund += f'\\espaciorespuesta[{_apt_esp}]\n'
+                    bloque_fund += '\\end{enumerate}\n'
                 else:
-                    bloque_fund += f'\\espaciorespuesta[{h_base}]\n'
+                    # ── Pregunta sin subapartados ─────────────────────────────
+                    if modo_solucion:
+                        bloque_fund += f'\\par\\textit{{[Espacio de respuesta ({esp})]}}\n'
+                        _sol_texto = c.get('solucion_modelo', '').strip()
+                        if _sol_texto:
+                            _sol_modo = c.get('solucion_modo', _modo_c)
+                            bloque_fund += _render_sol_block(_sol_texto, _sol_modo, _estilo_sol)
+                    else:
+                        bloque_fund += f'\\espaciorespuesta[{h_base}]\n'
+
                 bloque_fund += '\\end{minipage}\n\n'
             bloque_fund += '\\end{enumerate}\n'
             if not modo_solucion and cfg.get('notacal_dev', False):

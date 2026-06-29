@@ -64,6 +64,72 @@ def set_sel_ids(ids: list):
     st.session_state.sel_ids = list(ids)
 
 # ═════════════════════════════════════════════════════════════════════════════
+# DIALOG: SUBAPARTADOS DE PREGUNTA DE DESARROLLO
+# ═════════════════════════════════════════════════════════════════════════════
+@st.dialog("📑 Editar subapartados", width="large")
+def _dialog_subapartados(q_idx: int):
+    """Modal para editar los subapartados de una pregunta de desarrollo."""
+    import json as _j
+    dev_qs = st.session_state.dev_questions
+    if q_idx >= len(dev_qs):
+        st.error("Índice de pregunta no válido."); return
+    q = dev_qs[q_idx]
+    subapts = list(q.get("subapartados") or [])
+
+    _NUM_LABELS = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
+    num_apt = st.radio("Numeración", list(_NUM_LABELS.keys()),
+                       index=list(_NUM_LABELS.keys()).index(q.get("numeracion_apt", "abc")),
+                       format_func=lambda x: _NUM_LABELS[x], horizontal=True,
+                       key=f"apt_num_{q_idx}")
+
+    st.divider()
+
+    to_del_apt = []
+    for ai, apt in enumerate(subapts):
+        st.markdown(f"**Apartado {ai+1}**")
+        c1, c2, c3 = st.columns([5, 1, 1])
+        subapts[ai]["enunciado"] = c1.text_area(
+            "Enunciado", value=apt.get("enunciado", ""), height=80,
+            key=f"apt_enun_{q_idx}_{ai}", label_visibility="collapsed")
+        subapts[ai]["puntos"] = c2.number_input(
+            "Pts", value=float(apt.get("puntos") or 1.0), min_value=0.0, step=0.5,
+            key=f"apt_pts_{q_idx}_{ai}")
+        _esp_opts = ["3cm", "4cm", "5cm", "6cm", "7cm", "8cm", "10cm", "12cm", "15cm", "18cm"]
+        _esp_cur  = str(apt.get("espacio") or "5cm")
+        subapts[ai]["espacio"] = c3.selectbox(
+            "Espacio", _esp_opts,
+            index=_esp_opts.index(_esp_cur) if _esp_cur in _esp_opts else 2,
+            key=f"apt_esp_{q_idx}_{ai}")
+        subapts[ai]["solucion"] = st.text_area(
+            "Solución modelo (opcional)", value=apt.get("solucion", ""), height=70,
+            key=f"apt_sol_{q_idx}_{ai}",
+            placeholder="Escribe la solución para este apartado…")
+        if st.button("🗑 Eliminar este apartado", key=f"apt_del_{q_idx}_{ai}"):
+            to_del_apt.append(ai)
+        st.divider()
+
+    if to_del_apt:
+        for ai in sorted(to_del_apt, reverse=True):
+            subapts.pop(ai)
+
+    if st.button("➕ Añadir apartado", key=f"apt_add_{q_idx}"):
+        subapts.append({"enunciado": "", "puntos": 1.0, "espacio": "5cm", "solucion": ""})
+
+    _pts_total = sum(float(a.get("puntos") or 0) for a in subapts)
+    if subapts:
+        st.info(f"Total puntos: **{_pts_total:g} pt**")
+
+    _sa1, _sa2 = st.columns(2)
+    if _sa1.button("💾 Guardar", type="primary", use_container_width=True, key=f"apt_save_{q_idx}"):
+        dev_qs[q_idx]["subapartados"] = subapts
+        dev_qs[q_idx]["numeracion_apt"] = num_apt
+        st.session_state.dev_questions = dev_qs
+        st.rerun()
+    if _sa2.button("✕ Cancelar", use_container_width=True, key=f"apt_cancel_{q_idx}"):
+        st.rerun()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # DIALOG: CONFIGURACIÓN DE RELLENO AUTOMÁTICO
 # ═════════════════════════════════════════════════════════════════════════════
 @st.dialog("🤖 Configuración de relleno automático", width="large")
@@ -792,6 +858,7 @@ def _dev_qs_from_json(raw: bytes) -> list:
         q.setdefault("criterios", []); q.setdefault("solucion_modelo", "")
         q.setdefault("imagen_name", ""); q.setdefault("imagen_pos", "debajo")
         q.setdefault("datos_ids", "")
+        q.setdefault("subapartados", []); q.setdefault("numeracion_apt", "abc")
     return qs
 
 
@@ -807,7 +874,8 @@ with tab_dev:
                        "modo": "markdown",
                        "criterios": [], "solucion_modelo": "",
                        "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo",
-                       "datos_ids": ""})
+                       "datos_ids": "",
+                       "subapartados": [], "numeracion_apt": "abc"})
         st.session_state.dev_questions = dev_qs
         st.rerun()
 
@@ -1064,6 +1132,20 @@ with tab_dev:
             new_img_pos    = q.get("imagen_pos", "debajo")
             new_datos_ids  = q.get("datos_ids", "")
 
+            # ── Subapartados ─────────────────────────────────────────────────
+            _subapts_cur = q.get("subapartados") or []
+            _napt_labels = {"abc": "a/b/c", "roman": "i/ii/iii", "num": "1/2/3"}
+            _napt_cur    = q.get("numeracion_apt", "abc")
+            if _subapts_cur:
+                _apt_summary = f"{len(_subapts_cur)} apto. · {_napt_labels.get(_napt_cur, _napt_cur)} · " + \
+                               f"{sum(float(a.get('puntos') or 0) for a in _subapts_cur):g} pt total"
+                st.caption(f"📑 Subapartados: {_apt_summary}")
+            _ba1, _ba2 = st.columns([3, 1])
+            _ba1.empty()
+            if _ba2.button("📑 Subapartados", key=f"btn_apt_{i}", use_container_width=True,
+                           help="Editar sub-preguntas a/b/c con puntos y espacio por apartado"):
+                _dialog_subapartados(i)
+
             with st.expander("📋 Rúbrica / Imagen / Solución / Datos", expanded=False):
                 _rub_tab, _img_tab, _sol_tab, _dat_tab = st.tabs(
                     ["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo", "🔢 Datos"]
@@ -1244,6 +1326,8 @@ with tab_dev:
                 "imagen_name":  new_img_name,
                 "imagen_pos":   new_img_pos,
                 "datos_ids":    new_datos_ids,
+                "subapartados": q.get("subapartados", []),
+                "numeracion_apt": q.get("numeracion_apt", "abc"),
             }
 
     if to_delete:
@@ -1585,6 +1669,8 @@ def _ejecutar_export():
                 "imagen_name":    q.get("imagen_name", f"dev_img_{di+1}.png"),
                 "imagen_pos":     q.get("imagen_pos", "debajo"),
                 "datos_ids":      q.get("datos_ids", ""),
+                "subapartados":   q.get("subapartados", []),
+                "numeracion_apt": q.get("numeracion_apt", "abc"),
             }
             for di, q in enumerate(st.session_state.get("dev_questions", []))
         ],
@@ -1633,6 +1719,8 @@ def _ejecutar_export():
         "notacal_dev":   cfg.get("notacal_dev",   False),
         "notacal_test":  cfg.get("notacal_test",  False),
         "notacal_final": cfg.get("notacal_final", False),
+        # Estilo bloque solución desarrollo
+        "estilo_sol":    cfg.get("estilo_sol", "caja"),
     }
     tpl_word_bytes = st.session_state.get("_tpl_word_bytes")
     tpl_tex_bytes  = st.session_state.get("_tpl_tex_bytes")
@@ -2387,6 +2475,13 @@ with tab_exp:
                                       index=_color_idx, format_func=lambda x: _color_opts[x],
                                       key="exp_sol_color")
             sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
+            st.markdown("**Estilo bloque solución (desarrollo):**")
+            _esol_opts = {"caja": "📦 Caja tcolorbox", "linea": "📌 Línea lateral", "texto": "🔤 Texto"}
+            _esol_cur  = cfg.get("estilo_sol", "caja")
+            estilo_sol = st.radio("Estilo bloque solución", list(_esol_opts.keys()),
+                                  index=list(_esol_opts.keys()).index(_esol_cur) if _esol_cur in _esol_opts else 0,
+                                  format_func=lambda x: _esol_opts[x], horizontal=True,
+                                  key="exp_estilo_sol")
             st.markdown("**Marca de agua en versión soluciones:**")
             wc1, wc2 = st.columns([1, 2])
             watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
@@ -2789,6 +2884,8 @@ with tab_exp:
             "notacal_dev":   notacal_dev,
             "notacal_test":  notacal_test,
             "notacal_final": notacal_final,
+            # Estilo bloque solución desarrollo
+            "estilo_sol": estilo_sol,
             # Modo partes
             "partes_modo": partes_modo,
         }
@@ -2972,10 +3069,6 @@ with tab_exp:
         _rub_tex_key    = f"{_nombre_base}_RUBRICA.tex"
         _rub_tex_bytes  = (_ef_now["_zip_all"].get(_rub_tex_key, b"") if _ef_now else b"")
 
-        # Abrir diálogo de compilación (siempre fuera del bloque condicional)
-        if st.session_state.pop("_show_compile_dialog", False):
-            _dialog_compilar_pdf()
-
         if not _tex_avail_sfxs and not _rub_tex_bytes:
             st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
         else:
@@ -3018,8 +3111,7 @@ with tab_exp:
                             "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
                         }
                         st.session_state.pop("_compiled_pdf", None)
-                        st.session_state["_show_compile_dialog"] = True
-                        st.rerun()
+                        _dialog_compilar_pdf()
                     _tex_preview_src = _rub_tex_bytes.decode("utf-8", errors="replace")
                 else:
                     # Compilar examen
@@ -3047,8 +3139,7 @@ with tab_exp:
                             "nombre": nombre_compile, "pdf_name": _pdf_name,
                         }
                         st.session_state.pop("_compiled_pdf", None)
-                        st.session_state["_show_compile_dialog"] = True
-                        st.rerun()
+                        _dialog_compilar_pdf()
                     _tex_preview_src = (
                         _latex_exam_sel.get(_modelos_disp[0], "")
                         if _modelos_disp else ""
@@ -3068,9 +3159,6 @@ with tab_exp:
                         key="dl_compiled_pdf",
                     )
                     if _db.button("🔍 Ver PDF", use_container_width=True, key="btn_ver_pdf"):
-                        st.session_state["_show_pdf_viewer"] = True
-                        st.rerun()
-                    if st.session_state.pop("_show_pdf_viewer", False):
                         _dialog_ver_pdf(_cpdf)
 
                 # Fuente .tex (para depuración)
