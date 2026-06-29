@@ -966,6 +966,11 @@ with tab_dev:
         ("E=mc²",      "$E = mc^2$",                                "Equivalencia masa-energía"),
     ]
 
+    # Abrir diálogo subapartados fuera del expander (los @st.dialog no funcionan dentro)
+    _apt_idx = st.session_state.pop("_edit_apt_idx", None)
+    if _apt_idx is not None:
+        _dialog_subapartados(_apt_idx)
+
     to_delete = []
     for i, q in enumerate(dev_qs):
         # ── Acordeón: título muestra primer fragmento del enunciado ──────────
@@ -1144,7 +1149,8 @@ with tab_dev:
             _ba1.empty()
             if _ba2.button("📑 Subapartados", key=f"btn_apt_{i}", use_container_width=True,
                            help="Editar sub-preguntas a/b/c con puntos y espacio por apartado"):
-                _dialog_subapartados(i)
+                st.session_state["_edit_apt_idx"] = i
+                st.rerun()
 
             with st.expander("📋 Rúbrica / Imagen / Solución / Datos", expanded=False):
                 _rub_tab, _img_tab, _sol_tab, _dat_tab = st.tabs(
