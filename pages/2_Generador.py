@@ -1306,42 +1306,13 @@ with tab_dev:
                             _prev = lib.format_datos_word(new_datos_ids, _datos_df_gen)
                             st.caption(f"→ *{_prev}*")
 
-            _apt_label = f"📑 Subapartados  ({len(subapts)} apartados)" if subapts else "📑 Subapartados  (sin apartados)"
-            with st.expander(_apt_label, expanded=False):
-                _NUM_LABELS = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
-                _num_apt = st.radio("Numeración", list(_NUM_LABELS.keys()),
-                                    index=list(_NUM_LABELS.keys()).index(q.get("numeracion_apt", "abc")),
-                                    format_func=lambda x: _NUM_LABELS[x], horizontal=True,
-                                    key=f"apt_num_{i}")
-                _esp_opts_apt = ["3cm","4cm","5cm","6cm","7cm","8cm","10cm","12cm","15cm","18cm"]
-                to_del_apt = []
-                for ai, apt in enumerate(subapts):
-                    ac1, ac2, ac3, ac4 = st.columns([5, 1, 1.2, 0.6])
-                    subapts[ai]["enunciado"] = ac1.text_area(
-                        "Enunciado", value=apt.get("enunciado", ""), height=68,
-                        key=f"apt_enun_{i}_{ai}", label_visibility="collapsed",
-                        placeholder=f"Enunciado apartado {ai+1}…")
-                    subapts[ai]["puntos"] = ac2.number_input(
-                        "Pts", value=float(apt.get("puntos") or 1.0),
-                        min_value=0.0, step=0.5, key=f"apt_pts_{i}_{ai}")
-                    _ec = str(apt.get("espacio") or "5cm")
-                    subapts[ai]["espacio"] = ac3.selectbox(
-                        "Espacio", _esp_opts_apt,
-                        index=_esp_opts_apt.index(_ec) if _ec in _esp_opts_apt else 2,
-                        key=f"apt_esp_{i}_{ai}")
-                    if ac4.button("🗑", key=f"apt_del_{i}_{ai}", help="Eliminar apartado"):
-                        to_del_apt.append(ai)
-                    subapts[ai]["solucion"] = st.text_area(
-                        "Solución modelo (opcional)", value=apt.get("solucion", ""), height=55,
-                        key=f"apt_sol_{i}_{ai}", placeholder="Solución de este apartado…")
-                    st.divider()
-                for ai in sorted(to_del_apt, reverse=True):
-                    subapts.pop(ai)
-                if st.button("➕ Añadir apartado", key=f"apt_add_{i}"):
-                    subapts.append({"enunciado": "", "puntos": 1.0, "espacio": "5cm", "solucion": ""})
-                if subapts:
-                    _pts_apt = sum(float(a.get("puntos") or 0) for a in subapts)
-                    st.caption(f"{len(subapts)} apartados · total **{_pts_apt:g} pt**")
+            _apt_n = len(subapts)
+            _apt_pts_str = f" · {sum(float(a.get('puntos') or 0) for a in subapts):g} pt" if subapts else ""
+            _apt_btn_label = f"📑 Subapartados ({_apt_n}){_apt_pts_str}" if subapts else "📑 Subapartados"
+            if st.button(_apt_btn_label, key=f"btn_apt_panel_{i}", use_container_width=False,
+                         help="Editar sub-preguntas con editor completo (se abre panel abajo)"):
+                st.session_state["_apt_edit_q"] = i
+                st.rerun()
 
             dev_qs[i] = {
                 "txt": new_txt, "pts": new_pts, "espacio": new_esp,
@@ -1363,6 +1334,72 @@ with tab_dev:
         st.rerun()
 
     if dev_qs:
+        st.session_state.dev_questions = dev_qs
+
+    # ── Panel de edición de subapartados (fondo del tab) ─────────────────────
+    _apt_q_idx = st.session_state.get("_apt_edit_q")
+    if _apt_q_idx is not None and _apt_q_idx < len(dev_qs):
+        _aq = dev_qs[_apt_q_idx]
+        _subapts2 = list(_aq.get("subapartados") or [])
+        st.divider()
+        _ph1, _ph2 = st.columns([5, 1])
+        _ph1.markdown(f"### 📑 Subapartados — Pregunta {_apt_q_idx + 1}")
+        if _ph2.button("✕ Cerrar panel", key="apt_panel_close", use_container_width=True):
+            st.session_state.pop("_apt_edit_q", None)
+            st.rerun()
+
+        _NUM_L = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
+        _num2 = st.radio("Numeración", list(_NUM_L.keys()),
+                         index=list(_NUM_L.keys()).index(_aq.get("numeracion_apt", "abc")),
+                         format_func=lambda x: _NUM_L[x], horizontal=True,
+                         key="apt_panel_num")
+        _esp2_opts = ["3cm","4cm","5cm","6cm","7cm","8cm","10cm","12cm","15cm","18cm"]
+        _to_del2 = []
+        for _ai2, _apt2 in enumerate(_subapts2):
+            _is_md2 = _aq.get("modo", "markdown") != "latex"
+            with st.expander(
+                f"**Apartado {_ai2+1}** — {_apt2.get('enunciado','')[:50] or '(vacío)'}  ·  {_apt2.get('puntos',1)} pt",
+                expanded=not _apt2.get("enunciado","").strip()
+            ):
+                _a1, _a2, _a3, _a4 = st.columns([1, 1, 1, 0.5])
+                _apt2["puntos"] = _a1.number_input("Puntos", value=float(_apt2.get("puntos") or 1.0),
+                    min_value=0.0, step=0.5, key=f"ap2_pts_{_apt_q_idx}_{_ai2}")
+                _ec2 = str(_apt2.get("espacio") or "5cm")
+                _apt2["espacio"] = _a2.selectbox("Espacio respuesta", _esp2_opts,
+                    index=_esp2_opts.index(_ec2) if _ec2 in _esp2_opts else 2,
+                    key=f"ap2_esp_{_apt_q_idx}_{_ai2}")
+                _a3.empty()
+                if _a4.button("🗑 Eliminar", key=f"ap2_del_{_apt_q_idx}_{_ai2}", use_container_width=True):
+                    _to_del2.append(_ai2)
+
+                _snips_apt = [("$ …","$valor$","Fórmula inline"),("$$ …","$$\n\\frac{a}{b}\n$$","Bloque"),
+                              ("½","$\\frac{n}{d}$","Fracción"),("xⁿ","$x^{n}$","Potencia"),
+                              ("xₙ","$x_{n}$","Subíndice"),("√","$\\sqrt{x}$","Raíz")]
+                _sb = st.columns(len(_snips_apt))
+                for _sj, (_sc, (_sl, _ss, _st2)) in enumerate(zip(_sb, _snips_apt)):
+                    if _sc.button(_sl, key=f"ap2_s_{_apt_q_idx}_{_ai2}_{_sj}", help=_st2):
+                        _ck = f"ap2_enun_{_apt_q_idx}_{_ai2}"
+                        st.session_state[_ck] = st.session_state.get(_ck, _apt2.get("enunciado","")) + _ss
+                        st.rerun()
+
+                _apt2["enunciado"] = st.text_area(
+                    "Enunciado del apartado", value=_apt2.get("enunciado",""), height=100,
+                    key=f"ap2_enun_{_apt_q_idx}_{_ai2}",
+                    placeholder=f"Enunciado del apartado {_ai2+1}…")
+
+                _apt2["solucion"] = st.text_area(
+                    "Solución modelo (opcional)", value=_apt2.get("solucion",""), height=80,
+                    key=f"ap2_sol_{_apt_q_idx}_{_ai2}",
+                    placeholder="Solución de este apartado…")
+        for _ai2 in sorted(_to_del2, reverse=True):
+            _subapts2.pop(_ai2)
+        if st.button("➕ Añadir apartado", key="apt_panel_add"):
+            _subapts2.append({"enunciado":"", "puntos":1.0, "espacio":"5cm", "solucion":""})
+        if _subapts2:
+            _pts2 = sum(float(a.get("puntos") or 0) for a in _subapts2)
+            st.caption(f"Total: **{_pts2:g} pt** en {len(_subapts2)} apartados")
+        dev_qs[_apt_q_idx]["subapartados"]   = _subapts2
+        dev_qs[_apt_q_idx]["numeracion_apt"] = _num2
         st.session_state.dev_questions = dev_qs
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3124,36 +3161,36 @@ with tab_exp:
             if _doc_sel:
                 _doc_type, _compile_sfx, _doc_label = _doc_sel
 
+                # Layout unificado [info1 | info2 | botón] para rubrica y examen
+                _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
+
                 if _doc_type == "rub":
-                    # Compilar rúbrica
-                    _cx_rub, _cx_btn = st.columns([3, 1])
-                    _cx_rub.caption(f"📐 **{_doc_label}** — {_rub_tex_key}")
-                    if _cx_btn.button("🔨 Compilar PDF", type="primary",
-                                       use_container_width=True, key="btn_compile_pdf"):
+                    _cx1.caption(f"📐 **{_doc_label}**")
+                    _cx2.caption(_rub_tex_key)
+                    _tex_preview_src = _rub_tex_bytes.decode("utf-8", errors="replace")
+                else:
+                    _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
+                    _modelos_disp   = list(_latex_exam_sel.keys())
+                    nombre_compile  = _nombre_base + _compile_sfx
+                    _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
+                                                  key="compile_modelo",
+                                                  format_func=lambda x: f"Modelo {x}")
+                    _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
+                                              horizontal=True, key="compile_ver")
+                    _tex_preview_src = (
+                        _latex_exam_sel.get(_modelos_disp[0], "") if _modelos_disp else ""
+                    )
+
+                if _cx3.button("🔨 Compilar PDF", type="primary",
+                                use_container_width=True, key="btn_compile_pdf"):
+                    if _doc_type == "rub":
                         st.session_state["_compile_request"] = {
                             "tex":    _rub_tex_bytes.decode("utf-8", errors="replace"),
                             "sty":    _sty_b, "imgs": _img_files,
                             "nombre": _rub_tex_key.replace(".tex", ""),
                             "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
                         }
-                        st.session_state.pop("_compiled_pdf", None)
-                        _dialog_compilar_pdf()
-                    _tex_preview_src = _rub_tex_bytes.decode("utf-8", errors="replace")
-                else:
-                    # Compilar examen
-                    _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
-                    _modelos_disp   = list(_latex_exam_sel.keys())
-                    nombre_compile  = _nombre_base + _compile_sfx
-
-                    _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
-                    _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
-                                                  key="compile_modelo",
-                                                  format_func=lambda x: f"Modelo {x}")
-                    _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
-                                              horizontal=True, key="compile_ver")
-
-                    if _cx3.button("🔨 Compilar PDF", type="primary",
-                                    use_container_width=True, key="btn_compile_pdf"):
+                    else:
                         _tex_src = (
                             _latex_exam_sel[_modelo_sel]
                             if _sol_sel == "Alumno"
@@ -3164,12 +3201,8 @@ with tab_exp:
                             "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
                             "nombre": nombre_compile, "pdf_name": _pdf_name,
                         }
-                        st.session_state.pop("_compiled_pdf", None)
-                        _dialog_compilar_pdf()
-                    _tex_preview_src = (
-                        _latex_exam_sel.get(_modelos_disp[0], "")
-                        if _modelos_disp else ""
-                    )
+                    st.session_state.pop("_compiled_pdf", None)
+                    _dialog_compilar_pdf()
 
                 # Resultado previo (persiste entre reruns)
                 _cpdf = st.session_state.get("_compiled_pdf")
