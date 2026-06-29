@@ -3130,7 +3130,8 @@ with tab_exp:
         _tex_avail_sfxs = [s for s in ("", "_TEST", "_DEV") if _ef_now and _ef_now.get(f"latex_exam{s}")]
         _nombre_base    = _ef_now.get("nombre", "examen") if _ef_now else "examen"
         _rub_tex_key    = f"{_nombre_base}_RUBRICA.tex"
-        _rub_tex_bytes  = (_ef_now["_zip_all"].get(_rub_tex_key, b"") if _ef_now else b"")
+        _rub_tex_raw    = (_ef_now["_zip_all"].get(_rub_tex_key) or "") if _ef_now else ""
+        _rub_tex_bytes  = _rub_tex_raw.decode("utf-8", errors="replace") if isinstance(_rub_tex_raw, (bytes, bytearray)) else str(_rub_tex_raw)
 
         if not _tex_avail_sfxs and not _rub_tex_bytes:
             st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
@@ -3167,7 +3168,7 @@ with tab_exp:
                 if _doc_type == "rub":
                     _cx1.caption(f"📐 **{_doc_label}**")
                     _cx2.caption(_rub_tex_key)
-                    _tex_preview_src = _rub_tex_bytes.decode("utf-8", errors="replace")
+                    _tex_preview_src = _rub_tex_bytes
                 else:
                     _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
                     _modelos_disp   = list(_latex_exam_sel.keys())
@@ -3185,7 +3186,7 @@ with tab_exp:
                                 use_container_width=True, key="btn_compile_pdf"):
                     if _doc_type == "rub":
                         st.session_state["_compile_request"] = {
-                            "tex":    _rub_tex_bytes.decode("utf-8", errors="replace"),
+                            "tex":    _rub_tex_bytes,
                             "sty":    _sty_b, "imgs": _img_files,
                             "nombre": _rub_tex_key.replace(".tex", ""),
                             "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
