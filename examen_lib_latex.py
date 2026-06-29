@@ -814,9 +814,9 @@ def _escape_latex(text):
     # Restaurar unicode
     for i, ltx in enumerate(_uc_parts):
         text = text.replace(f'\x00UC{i}\x00', ltx)
-    # Restaurar secciones math
+    # Restaurar secciones math (y corregir \text{X^{Y}} → \text{X}^{Y} dentro de ellas)
     for i, mp in enumerate(_math_parts):
-        text = text.replace(f'\x00MATH{i}\x00', mp)
+        text = text.replace(f'\x00MATH{i}\x00', _fix_text_superscripts(mp))
     return text
 
 
@@ -846,7 +846,7 @@ def _markdown_to_latex(text, modo='markdown'):
     modo='latex': pasa directamente sin procesar (el usuario ya escribió LaTeX).
     modo='markdown': convierte bold/italic y escapa el resto, protegiendo $...$ math."""
     if modo == 'latex':
-        return str(text)   # ya es LaTeX válido, no tocar
+        return _fix_text_superscripts(str(text))
     import re as _re
     # Convertir saltos de párrafo Markdown (\n\n) en \par de LaTeX
     text = _re.sub(r'\n{2,}', '\n\\\\par\n', str(text))
@@ -1047,6 +1047,16 @@ def save_datos_df(dfs: dict, df: pd.DataFrame) -> dict:
     return dfs
 
 
+def _fix_text_superscripts(s: str) -> str:
+    """Saca ^ y _ del interior de \\text{} donde no son válidos en modo texto.
+    Ejemplo: \\text{mol^{-1}} → \\text{mol}^{-1}
+    """
+    import re as _re
+    s = _re.sub(r'\\text\{([^{}]*?)\^(\{[^{}]*\})\}', r'\\text{\1}^\2', s)
+    s = _re.sub(r'\\text\{([^{}]*?)_(\{[^{}]*\})\}',  r'\\text{\1}_\2',  s)
+    return s
+
+
 def format_datos_latex(ids_str: str, datos_df: pd.DataFrame) -> str:
     """Formatea las constantes seleccionadas como bloque LaTeX inline.
     ids_str: IDs separados por comas. Retorna string LaTeX o '' si vacío."""
@@ -1067,7 +1077,7 @@ def format_datos_latex(ids_str: str, datos_df: pd.DataFrame) -> str:
         if not val:
             continue
         if uni:
-            uni_str = f'\\;{uni}' if '\\' in uni else f'\\;\\mathrm{{{uni}}}'
+            uni_str = f'\\;{_fix_text_superscripts(uni)}' if '\\' in uni else f'\\;\\mathrm{{{uni}}}'
         else:
             uni_str = ''
         if sym:
@@ -2027,6 +2037,13 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                     bloque_fund += _img_cmd
                 if modo_solucion:
                     bloque_fund += f'\\par\\textit{{[Espacio de respuesta ({esp})]}}\n'
+                    _sol_texto = c.get('solucion_modelo', '').strip()
+                    if _sol_texto:
+                        _sol_modo = c.get('solucion_modo', c.get('modo', 'markdown'))
+                        bloque_fund += (
+                            '\\par\\vspace{2pt}\\textbf{\\textcolor{principal}{Solución modelo:}}\n'
+                            + _markdown_to_latex(_sol_texto, _sol_modo) + '\n'
+                        )
                 else:
                     bloque_fund += f'\\espaciorespuesta[{h_base}]\n'
                 bloque_fund += '\\end{minipage}\n\n'
