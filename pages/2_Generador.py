@@ -1439,7 +1439,11 @@ with tab_dev:
                     criterios.append({"desc": "", "pts": 0.5, "incremento": 0.25})
                 _total_crit = sum(c.get("pts", 0) for c in criterios)
                 if criterios:
-                    st.caption(f"Total criterios: **{_total_crit:.2f} pts** (pregunta: {new_pts} pts)")
+                    _crit_caption = f"Total criterios: **{_total_crit:.2f} pts** (pregunta: {new_pts} pts)"
+                    if abs(_total_crit - new_pts) > 0.01:
+                        st.warning(f"⚠️ {_crit_caption} — **No coinciden**")
+                    else:
+                        st.caption(_crit_caption)
 
                 st.markdown("---")
                 st.caption(
@@ -2073,10 +2077,11 @@ def _ejecutar_export():
     # Guía de corrección (rúbrica)
     if cfg.get("incl_rubrica", False) and dev_qs_export:
         _rub_cfg = {
-            "titulo": cfg.get("tit_rubrica", "Guía de Corrección"),
-            "asig":   cfg.get("asig", ""),
-            "inst":   cfg.get("inst", ""),
-            "fecha":  cfg.get("fecha", ""),
+            "titulo":        cfg.get("tit_rubrica", "Guía de Corrección"),
+            "asig":          cfg.get("asig", ""),
+            "inst":          cfg.get("inst", ""),
+            "fecha":         cfg.get("fecha", ""),
+            "rubrica_cajas": cfg.get("rubrica_cajas", False),
         }
         if cfg.get("fmt_rubrica_tex", True) and exp_tex:
             _rub_tex = lib.generar_rubrica_latex(dev_qs_export, _rub_cfg)
@@ -2896,6 +2901,13 @@ with tab_exp:
             tit_rubrica = st.text_input("Título del documento",
                                         value=cfg.get("tit_rubrica", "Guía de Corrección"),
                                         key="exp_tit_rubrica", disabled=not incl_rubrica)
+            rubrica_cajas = st.checkbox(
+                "☑ Cajas de puntuación para corrector (columna derecha en criterios)",
+                value=cfg.get("rubrica_cajas", False),
+                key="exp_rubrica_cajas",
+                disabled=not incl_rubrica,
+                help="Añade una caja [ ___ ] a la derecha de cada criterio para que el corrector anote la nota directamente en el PDF impreso.",
+            )
 
         # ── 4b-quinto. Formulario / Hoja de fórmulas ─────────────────────────
         _form_stored = bool(st.session_state.get("_formulario_bytes"))
@@ -3126,6 +3138,7 @@ with tab_exp:
             "fmt_rubrica_word": fmt_rubrica_word,
             "fmt_rubrica_tex":  fmt_rubrica_tex,
             "tit_rubrica":      tit_rubrica,
+            "rubrica_cajas":    rubrica_cajas,
             # Formulario
             "incl_formulario":  incl_formulario,
             # Caja de calificación

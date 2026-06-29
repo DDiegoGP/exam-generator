@@ -848,20 +848,25 @@ def _markdown_to_latex(text, modo='markdown'):
     if modo == 'latex':
         return _fix_text_superscripts(str(text))
     import re as _re
-    # Convertir saltos de párrafo Markdown (\n\n) en \par de LaTeX
-    text = _re.sub(r'\n{2,}', '\n\\\\par\n', str(text))
-    parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', text)
-    result = ""
-    for part in parts:
-        if not part:
-            continue
-        if part.startswith('**') and part.endswith('**') and len(part) > 4:
-            result += r'\textbf{' + _escape_latex(part[2:-2]) + '}'
-        elif part.startswith('*') and part.endswith('*') and len(part) > 2:
-            result += r'\textit{' + _escape_latex(part[1:-1]) + '}'
-        else:
-            result += _escape_latex(part)
-    return result
+    # Separar primero por párrafos; procesar cada párrafo por separado y unir con \par
+    # DESPUÉS del escape, para que \par nunca pase por _escape_latex (que convertiría
+    # su \ en \textbackslash{}).
+    paragraphs = _re.split(r'\n{2,}', str(text))
+    para_results = []
+    for para in paragraphs:
+        parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', para)
+        result = ""
+        for part in parts:
+            if not part:
+                continue
+            if part.startswith('**') and part.endswith('**') and len(part) > 4:
+                result += r'\textbf{' + _escape_latex(part[2:-2]) + '}'
+            elif part.startswith('*') and part.endswith('*') and len(part) > 2:
+                result += r'\textit{' + _escape_latex(part[1:-1]) + '}'
+            else:
+                result += _escape_latex(part)
+        para_results.append(result)
+    return '\n\\par\n'.join(para_results)
 
 
 def _render_sol_block(text: str, modo: str, estilo: str = 'caja') -> str:
@@ -2491,10 +2496,11 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
 
 def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
     """Genera un .tex de la guía de corrección para las preguntas de desarrollo."""
-    titulo  = _escape_latex(cfg.get('titulo', 'Guía de Corrección'))
-    asig    = _escape_latex(cfg.get('asig',   ''))
-    inst    = _escape_latex(cfg.get('inst',   ''))
-    fecha   = _escape_latex(cfg.get('fecha',  ''))
+    titulo    = _escape_latex(cfg.get('titulo', 'Guía de Corrección'))
+    asig      = _escape_latex(cfg.get('asig',   ''))
+    inst      = _escape_latex(cfg.get('inst',   ''))
+    fecha     = _escape_latex(cfg.get('fecha',  ''))
+    con_cajas = bool(cfg.get('rubrica_cajas', False))
 
     lines = [
         r'\documentclass[a4paper,11pt]{article}',
@@ -2505,8 +2511,11 @@ def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
         r'\geometry{a4paper,left=25mm,right=25mm,top=30mm,bottom=25mm}',
         r'\usepackage{xcolor,booktabs,enumitem,amsmath,amssymb}',
         r'\usepackage{graphicx}',
+        r'\usepackage{tcolorbox}',
+        r'\tcbuselibrary{skins,breakable}',
         r'\definecolor{rubcolor}{HTML}{2C3E50}',
         r'\definecolor{critbg}{HTML}{EAF4FB}',
+        r'\definecolor{warncolor}{HTML}{C0392B}',
         r'\usepackage{fancyhdr}',
         r'\pagestyle{fancy}',
         r'\fancyhf{}',
@@ -2522,69 +2531,169 @@ def generar_rubrica_latex(dev_questions: list, cfg: dict) -> str:
         lines.append(r'\textit{' + meta + r'}\par\bigskip')
     lines.append(r'\hrule\bigskip')
 
-    for i, q in enumerate(dev_questions):
-        _modo_q  = q.get('modo', 'markdown')
-        txt      = _markdown_to_latex(q.get('txt', ''), _modo_q)
-        pts      = q.get('pts', '')
-        esp      = q.get('espacio', '')
-        criterios = q.get('criterios', [])
-        sol_mod  = _markdown_to_latex(q.get('solucion_modelo', '').strip(), _modo_q)
-        img_name = q.get('imagen_name', '')
-        img_pos  = q.get('imagen_pos', 'debajo')
+    # ── Tabla resumen de puntuaciones ─────────────────────────────────────────
+    if dev_questions:
+        def _q_pts(q):
+            subapts = q.get('subapartados') or []
+            if subapts:
+                try:
+                    return sum(float(a.get('puntos') or 0) for a in subapts)
+                except Exception:
+                    pass
+            return float(q.get('pts', 0) or 0)
 
-        lines.append(r'\vspace{6pt}')
+        lines.append(r'\textbf{Resumen de puntuaciones}\par\smallskip')
+        lines.append(r'\begin{tabular}{@{}clcc@{}}')
+        lines.append(r'\toprule')
+        lines.append(r'\textbf{Nº} & \textbf{Enunciado (extracto)} & \textbf{Máx} & \textbf{Nota} \\')
+        lines.append(r'\midrule')
+        total_all = 0.0
+        for i, q in enumerate(dev_questions):
+            qp = _q_pts(q)
+            total_all += qp
+            _raw = str(q.get('txt', '') or '').replace('\n', ' ').strip()
+            _lbl = _escape_latex(_raw[:45]) + (r'\,\ldots' if len(_raw) > 45 else '')
+            lines.append(
+                rf'{i+1} & {_lbl} & {qp:g} pts & \makebox[2.2cm]{{\hrulefill}} \\'
+            )
+        lines.append(r'\midrule')
+        lines.append(
+            rf'& \multicolumn{{1}}{{r}}{{\textbf{{Total}}}} & \textbf{{{total_all:g} pts}}'
+            rf' & \makebox[2.2cm]{{\hrulefill}} \\'
+        )
+        lines.append(r'\bottomrule')
+        lines.append(r'\end{tabular}\par\bigskip')
+        lines.append(r'\hrule\bigskip')
+
+    # ── Una sección por pregunta ───────────────────────────────────────────────
+    _apt_labels = {
+        'abc':   [chr(ord('a') + k) for k in range(26)],
+        'roman': ['i','ii','iii','iv','v','vi','vii','viii','ix','x'],
+        'num':   [str(k + 1) for k in range(20)],
+    }
+
+    for i, q in enumerate(dev_questions):
+        _modo_q   = q.get('modo', 'markdown')
+        txt       = _markdown_to_latex(q.get('txt', ''), _modo_q)
+        criterios = q.get('criterios', [])
+        sol_mod   = q.get('solucion_modelo', '').strip()
+        img_name  = q.get('imagen_name', '')
+        img_pos   = q.get('imagen_pos', 'debajo')
+        subapts   = q.get('subapartados') or []
+        num_apt   = q.get('numeracion_apt', 'abc')
+        pts_q     = _q_pts(q)
+        _labs     = _apt_labels.get(num_apt, _apt_labels['abc'])
+
+        lines.append(r'\vspace{8pt}')
         lines.append(
             r'{\large\bfseries\color{rubcolor}Pregunta '
             + str(i + 1)
-            + (f' ({pts} pts)' if pts else '')
+            + (f' ({pts_q:g} pts)' if pts_q else '')
             + r'}\par\smallskip'
         )
-        # Imagen encima del enunciado
-        if img_name and img_pos == 'encima':
+
+        # Imagen encima / centrada
+        if img_name and img_pos in ('encima', 'centrada'):
             lines.append(
                 r'\begin{center}\includegraphics[max width=0.8\linewidth]{'
                 + img_name + r'}\end{center}'
             )
-        lines.append(txt + r'\par')
-        # Imagen entre texto y solución
+        # Enunciado (img_pos=='lado' usa minipage flotante)
+        if img_name and img_pos == 'lado':
+            lines.append(r'\begin{minipage}[t]{0.55\linewidth}')
+            lines.append(txt)
+            lines.append(r'\end{minipage}\hfill')
+            lines.append(r'\begin{minipage}[t]{0.42\linewidth}')
+            lines.append(r'\includegraphics[width=\linewidth]{' + img_name + r'}')
+            lines.append(r'\end{minipage}')
+        else:
+            lines.append(txt)
+        # Imagen debajo del enunciado
         if img_name and img_pos == 'debajo':
             lines.append(
                 r'\begin{center}\includegraphics[max width=0.8\linewidth]{'
                 + img_name + r'}\end{center}'
             )
-        lines.append(r'\smallskip')
+        lines.append(r'\par\smallskip')
 
+        # ── Criterios de evaluación ────────────────────────────────────────────
         if criterios:
-            lines.append(r'\textbf{Criterios de evaluación:}')
-            lines.append(r'\begin{itemize}[leftmargin=*,itemsep=2pt]')
+            lines.append(r'\textbf{Criterios de evaluación:}\par\vspace{3pt}')
+            lines.append(r'\begin{itemize}[leftmargin=*,itemsep=4pt,topsep=2pt]')
             total_crit = 0.0
             for c in criterios:
                 desc  = _escape_latex(c.get('desc', ''))
-                cpts  = float(c.get('pts', 0))
+                cpts  = float(c.get('pts',  0))
                 cinc  = float(c.get('incremento', 0.25))
                 total_crit += cpts
                 if cinc > 0 and cpts > 0:
                     import math as _math
-                    n_steps = round(cpts / cinc)
-                    levels = [f"{cinc * k:.2g}" for k in range(n_steps + 1)]
-                    levels_str = r' / '.join(levels)
-                    lines.append(r'\item ' + desc
-                                 + rf' \hfill \textbf{{{cpts:.2g} pts}}'
-                                 + r' \quad {\small\textcolor{gray}{(' + levels_str + r')}}'
-                                 )
+                    n_steps  = round(cpts / cinc)
+                    levels   = [f'{cinc * k:.2g}' for k in range(n_steps + 1)]
+                    lev_str  = ' / '.join(levels)
                 else:
-                    lines.append(r'\item ' + desc + rf' \hfill \textbf{{{cpts:.2g} pts}}')
-            lines.append(r'\end{itemize}')
-            lines.append(rf'\textit{{Total criterios: {total_crit:.2f} pts}}\par\smallskip')
+                    lev_str = ''
 
-        if sol_mod:
-            lines.append(r'\textbf{Solución modelo:}\par\smallskip')
+                if con_cajas:
+                    line = (
+                        r'\item ' + desc
+                        + r' \dotfill\ \textbf{' + f'{cpts:g}' + r'\,pts}'
+                        + r' \quad \fbox{\phantom{00.0}}'
+                    )
+                    if lev_str:
+                        line += (r' \\[1pt]\hspace*{1.5em}'
+                                 r'{\scriptsize\textcolor{gray}{Valores: ' + lev_str + r'}}')
+                else:
+                    line = (
+                        r'\item ' + desc
+                        + r' \hfill \textbf{' + f'{cpts:g}' + r'\,pts}'
+                    )
+                    if lev_str:
+                        line += r' {\small\textcolor{gray}{(' + lev_str + r')}}'
+                lines.append(line)
+
+            lines.append(r'\end{itemize}')
+
+            # Total criterios ± aviso mismatch
+            total_line = rf'\textit{{Total criterios: {total_crit:.2g}\,pts}}'
+            if pts_q and abs(total_crit - pts_q) > 0.01:
+                total_line += (
+                    r' \quad {\small\bfseries\color{warncolor}'
+                    r'⚠\enspace No coincide con la puntuación de la pregunta ('
+                    + f'{pts_q:g}' + r'\,pts)}'
+                )
+            lines.append(total_line + r'\par\smallskip')
+
+        # ── Solución modelo ────────────────────────────────────────────────────
+        # Si hay subapartados con solución, renderizar por apartado
+        has_apt_sol = any(str(a.get('solucion') or '').strip() for a in subapts)
+        if has_apt_sol:
+            lines.append(r'\textbf{Solución modelo:}\par\vspace{3pt}')
             lines.append(
-                r'\colorbox{critbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{'
-                + sol_mod
-                + r'}}\par'
+                r'\begin{tcolorbox}[breakable,colback=critbg,colframe=rubcolor!50,'
+                r'arc=2mm,boxsep=4pt,left=6pt,right=6pt,top=4pt,bottom=4pt]'
             )
-        lines.append(r'\medskip\hrule')
+            for ai, apt in enumerate(subapts):
+                apt_sol = str(apt.get('solucion') or '').strip()
+                if not apt_sol:
+                    continue
+                _lab   = _labs[ai] if ai < len(_labs) else str(ai + 1)
+                sol_tx = _markdown_to_latex(apt_sol, _modo_q)
+                lines.append(
+                    r'{\bfseries(' + _escape_latex(_lab) + r')}\ ' + sol_tx + r'\par\smallskip'
+                )
+            lines.append(r'\end{tcolorbox}')
+        elif sol_mod:
+            sol_latex = _markdown_to_latex(sol_mod, _modo_q)
+            lines.append(r'\textbf{Solución modelo:}\par\vspace{3pt}')
+            lines.append(
+                r'\begin{tcolorbox}[breakable,colback=critbg,colframe=rubcolor!50,'
+                r'arc=2mm,boxsep=4pt,left=6pt,right=6pt,top=4pt,bottom=4pt]'
+            )
+            lines.append(sol_latex)
+            lines.append(r'\end{tcolorbox}')
+
+        lines.append(r'\vspace{6pt}\hrule\vspace{4pt}')
 
     lines.append(r'\end{document}')
     return '\n'.join(lines)
