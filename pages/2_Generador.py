@@ -1135,9 +1135,9 @@ with tab_dev:
             subapts   = list(q.get("subapartados") or [])
             _num_apt  = q.get("numeracion_apt", "abc")
 
-            with st.expander("📋 Rúbrica / Imagen / Solución / Datos / Subapartados", expanded=False):
-                _rub_tab, _img_tab, _sol_tab, _dat_tab, _apt_tab = st.tabs(
-                    ["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo", "🔢 Datos", "📑 Subapartados"]
+            with st.expander("📋 Rúbrica / Imagen / Solución / Datos", expanded=False):
+                _rub_tab, _img_tab, _sol_tab, _dat_tab = st.tabs(
+                    ["📋 Rúbrica", "🖼️ Imagen", "📖 Solución modelo", "🔢 Datos"]
                 )
 
                 with _rub_tab:
@@ -1306,41 +1306,42 @@ with tab_dev:
                             _prev = lib.format_datos_word(new_datos_ids, _datos_df_gen)
                             st.caption(f"→ *{_prev}*")
 
-                with _apt_tab:
-                    _NUM_LABELS = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
-                    _num_apt = st.radio("Numeración", list(_NUM_LABELS.keys()),
-                                        index=list(_NUM_LABELS.keys()).index(q.get("numeracion_apt", "abc")),
-                                        format_func=lambda x: _NUM_LABELS[x], horizontal=True,
-                                        key=f"apt_num_{i}")
-                    _esp_opts_apt = ["3cm","4cm","5cm","6cm","7cm","8cm","10cm","12cm","15cm","18cm"]
-                    to_del_apt = []
-                    for ai, apt in enumerate(subapts):
-                        ac1, ac2, ac3, ac4 = st.columns([5, 1, 1.2, 0.6])
-                        subapts[ai]["enunciado"] = ac1.text_area(
-                            "Enunciado", value=apt.get("enunciado", ""), height=68,
-                            key=f"apt_enun_{i}_{ai}", label_visibility="collapsed",
-                            placeholder=f"Enunciado apartado {ai+1}…")
-                        subapts[ai]["puntos"] = ac2.number_input(
-                            "Pts", value=float(apt.get("puntos") or 1.0),
-                            min_value=0.0, step=0.5, key=f"apt_pts_{i}_{ai}")
-                        _ec = str(apt.get("espacio") or "5cm")
-                        subapts[ai]["espacio"] = ac3.selectbox(
-                            "Espacio", _esp_opts_apt,
-                            index=_esp_opts_apt.index(_ec) if _ec in _esp_opts_apt else 2,
-                            key=f"apt_esp_{i}_{ai}")
-                        if ac4.button("🗑", key=f"apt_del_{i}_{ai}", help="Eliminar apartado"):
-                            to_del_apt.append(ai)
-                        subapts[ai]["solucion"] = st.text_area(
-                            "Solución modelo (opcional)", value=apt.get("solucion", ""), height=55,
-                            key=f"apt_sol_{i}_{ai}", placeholder="Solución de este apartado…")
-                        st.divider()
-                    for ai in sorted(to_del_apt, reverse=True):
-                        subapts.pop(ai)
-                    if st.button("➕ Añadir apartado", key=f"apt_add_{i}"):
-                        subapts.append({"enunciado": "", "puntos": 1.0, "espacio": "5cm", "solucion": ""})
-                    if subapts:
-                        _pts_apt = sum(float(a.get("puntos") or 0) for a in subapts)
-                        st.caption(f"{len(subapts)} apartados · total **{_pts_apt:g} pt**")
+            _apt_label = f"📑 Subapartados  ({len(subapts)} apartados)" if subapts else "📑 Subapartados  (sin apartados)"
+            with st.expander(_apt_label, expanded=False):
+                _NUM_LABELS = {"abc": "a), b), c)…", "roman": "i), ii), iii)…", "num": "1), 2), 3)…"}
+                _num_apt = st.radio("Numeración", list(_NUM_LABELS.keys()),
+                                    index=list(_NUM_LABELS.keys()).index(q.get("numeracion_apt", "abc")),
+                                    format_func=lambda x: _NUM_LABELS[x], horizontal=True,
+                                    key=f"apt_num_{i}")
+                _esp_opts_apt = ["3cm","4cm","5cm","6cm","7cm","8cm","10cm","12cm","15cm","18cm"]
+                to_del_apt = []
+                for ai, apt in enumerate(subapts):
+                    ac1, ac2, ac3, ac4 = st.columns([5, 1, 1.2, 0.6])
+                    subapts[ai]["enunciado"] = ac1.text_area(
+                        "Enunciado", value=apt.get("enunciado", ""), height=68,
+                        key=f"apt_enun_{i}_{ai}", label_visibility="collapsed",
+                        placeholder=f"Enunciado apartado {ai+1}…")
+                    subapts[ai]["puntos"] = ac2.number_input(
+                        "Pts", value=float(apt.get("puntos") or 1.0),
+                        min_value=0.0, step=0.5, key=f"apt_pts_{i}_{ai}")
+                    _ec = str(apt.get("espacio") or "5cm")
+                    subapts[ai]["espacio"] = ac3.selectbox(
+                        "Espacio", _esp_opts_apt,
+                        index=_esp_opts_apt.index(_ec) if _ec in _esp_opts_apt else 2,
+                        key=f"apt_esp_{i}_{ai}")
+                    if ac4.button("🗑", key=f"apt_del_{i}_{ai}", help="Eliminar apartado"):
+                        to_del_apt.append(ai)
+                    subapts[ai]["solucion"] = st.text_area(
+                        "Solución modelo (opcional)", value=apt.get("solucion", ""), height=55,
+                        key=f"apt_sol_{i}_{ai}", placeholder="Solución de este apartado…")
+                    st.divider()
+                for ai in sorted(to_del_apt, reverse=True):
+                    subapts.pop(ai)
+                if st.button("➕ Añadir apartado", key=f"apt_add_{i}"):
+                    subapts.append({"enunciado": "", "puntos": 1.0, "espacio": "5cm", "solucion": ""})
+                if subapts:
+                    _pts_apt = sum(float(a.get("puntos") or 0) for a in subapts)
+                    st.caption(f"{len(subapts)} apartados · total **{_pts_apt:g} pt**")
 
             dev_qs[i] = {
                 "txt": new_txt, "pts": new_pts, "espacio": new_esp,

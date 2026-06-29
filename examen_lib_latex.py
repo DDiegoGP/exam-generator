@@ -2091,8 +2091,12 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 if _subapts:
                     # ── Pregunta con subapartados ─────────────────────────────
                     _num_apt = c.get('numeracion_apt') or c.get('Numeracion_apt') or 'abc'
-                    _enum_styles = {'abc': '(a)', 'roman': '(i)', 'num': '1.'}
-                    _enum_sty = _enum_styles.get(_num_apt, '(a)')
+                    _enum_styles = {
+                        'abc':   r'label=(\alph*)',
+                        'roman': r'label=(\roman*)',
+                        'num':   r'label=\arabic*.',
+                    }
+                    _enum_sty = _enum_styles.get(_num_apt, r'label=(\alph*)')
                     bloque_fund += (
                         f'\\begin{{enumerate}}[{_enum_sty},'
                         'leftmargin=*,itemsep=8pt,topsep=4pt]\n'
