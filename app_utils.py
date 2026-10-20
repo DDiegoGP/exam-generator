@@ -577,6 +577,14 @@ _GSHEETS_SCOPES = (
 )
 
 
+def _oauth_cfg() -> dict:
+    """Bloque GOOGLE_OAUTH de st.secrets, o {} si no hay secrets (p. ej. en local)."""
+    try:
+        return st.secrets.get("GOOGLE_OAUTH", {})
+    except Exception:
+        return {}
+
+
 def _google_oauth_url(cfg: dict) -> str:
     """Genera la URL de autorización de Google para redirigir al usuario."""
     params = {
@@ -625,7 +633,7 @@ def handle_oauth_callback():
     Llamar al inicio de CADA página, antes de render_sidebar().
     """
     try:
-        cfg = st.secrets.get("GOOGLE_OAUTH", {})
+        cfg = _oauth_cfg()
         if not cfg.get("client_id"):
             return
         params = st.query_params
@@ -654,7 +662,7 @@ def _render_gsheets_oauth():
     Sección Google Sheets en el sidebar.
     Solo se renderiza si 'GOOGLE_OAUTH' está configurado en st.secrets.
     """
-    cfg = st.secrets.get("GOOGLE_OAUTH", {})
+    cfg = _oauth_cfg()
     if not cfg.get("client_id"):
         return  # No configurado: sección invisible
 
