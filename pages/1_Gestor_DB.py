@@ -22,7 +22,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
-from app_theme import get_preview_mode
+from app_theme import get_preview_mode, get_estilo, question_detail_html
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
     connect_db, reload_db,
@@ -665,7 +665,9 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
 # TAB 3 · GESTIONAR
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_man:
-    st.subheader("Gestionar preguntas")
+    _bit = get_estilo() == "bitacora"   # Bitácora: disposición nueva; Clásico: la de siempre
+    if not _bit:
+        st.subheader("Gestionar preguntas")
 
     # ── Filtros ──────────────────────────────────────────────────────────────
     # Flag pattern: aplicar resets ANTES de renderizar widgets
@@ -679,44 +681,99 @@ with tab_man:
         st.session_state["man_filter_sin_sol"] = False
         st.session_state["_man_prev_bloque"]   = "Todos"
 
-    fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1.5, 2, 0.7])
+    if _bit:
+        # Uso y dificultad como píldoras (radios con estilo); mismas claves y valores
+        _u = df_total["usada"]
+        _uso_lbl = {"Todos": "Todas", "Nunca usada": "Nunca usadas", "Usada": "Usadas",
+                    "Usada >6m": "Más de 6 meses", "Usada >12m": "Más de 12 meses"}
+        _uso_n = {"Todos": len(df_total), "Nunca usada": int((_u == "").sum()),
+                  "Usada": int((_u != "").sum()),
+                  "Usada >6m": int(_u.apply(lambda v: es_uso_antiguo(v, 6)).sum()),
+                  "Usada >12m": int(_u.apply(lambda v: es_uso_antiguo(v, 12)).sum())}
+        ra1, ra2 = st.columns([3, 1.3], vertical_alignment="bottom")
+        with ra1.container(key="man_uso_box"):
+            f_uso = st.radio("Uso", list(_uso_lbl), key="man_f_uso", horizontal=True,
+                             format_func=lambda o: f"{_uso_lbl[o]} · {_uso_n[o]}")
+        with ra2.container(key="man_dif_box"):
+            f_dif = st.radio("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif",
+                             horizontal=True,
+                             format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
 
-    f_bloque = fc1.selectbox(
-        "Bloque", ["Todos"] + bloques, key="man_f_bloque",
-        format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b),
-    )
+        rb1, rb2, rb3, rb4 = st.columns([2.6, 1.3, 1.3, 1], vertical_alignment="bottom")
+        f_search = rb1.text_input("Buscar", placeholder="Enunciado, opciones, notas…", key="man_search")
+        f_bloque = rb2.selectbox(
+            "Bloque", ["Todos"] + bloques, key="man_f_bloque",
+            format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b),
+        )
+        _prev_blq = st.session_state.get("_man_prev_bloque", f_bloque)
+        if _prev_blq != f_bloque:
+            st.session_state["man_f_tema"] = "Todos"
+        st.session_state["_man_prev_bloque"] = f_bloque
+        temas_disponibles = temas_en_db(f_bloque)
+        _t_cur = st.session_state.get("man_f_tema", "Todos")
+        if _t_cur != "Todos" and _t_cur not in temas_disponibles:
+            st.session_state["man_f_tema"] = "Todos"
+        f_tema = rb3.selectbox(
+            "Tema", ["Todos"] + temas_disponibles, key="man_f_tema",
+            format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t),
+        )
+        if rb4.button("Limpiar filtros", key="btn_clear_filters", use_container_width=True):
+            st.session_state["_do_clear_filters"] = True
+            st.rerun()
 
-    # Reset tema si cambia el bloque
-    _prev_blq = st.session_state.get("_man_prev_bloque", f_bloque)
-    if _prev_blq != f_bloque:
-        st.session_state["man_f_tema"] = "Todos"
-    st.session_state["_man_prev_bloque"] = f_bloque
+        rc1, rc2, rc3, rc4 = st.columns([2.2, 1, 1.7, 1.5], vertical_alignment="center")
+        f_sin_sol = rc2.checkbox("Sin solución", key="man_filter_sin_sol", value=False)
+        f_global  = rc3.checkbox("Buscar en todos los bloques", key="man_search_global", value=False,
+                                 help="Buscar ignorando el filtro de bloque")
+        with rc4:
+            _multi_mode = st.toggle(
+                "Selección múltiple",
+                value=st.session_state.get("man_multi_mode", False),
+                key="man_multi_mode",
+                help="Activa para seleccionar varias filas y borrarlas. Desactiva para navegar pregunta a pregunta.",
+            )
+        _count_slot = rc1
+    else:
+        fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1.5, 2, 0.7])
 
-    # Temas que REALMENTE existen en la DB (sin añadir 1-50)
-    temas_disponibles = temas_en_db(f_bloque)
-    # Asegurar que el valor guardado en session_state sea válido
-    _t_cur = st.session_state.get("man_f_tema", "Todos")
-    if _t_cur != "Todos" and _t_cur not in temas_disponibles:
-        st.session_state["man_f_tema"] = "Todos"
+        f_bloque = fc1.selectbox(
+            "Bloque", ["Todos"] + bloques, key="man_f_bloque",
+            format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b),
+        )
 
-    f_tema = fc2.selectbox(
-        "Tema", ["Todos"] + temas_disponibles, key="man_f_tema",
-        format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t),
-    )
-    f_dif  = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif")
-    f_uso  = fc4.selectbox(
-        "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6m", "Usada >12m"], key="man_f_uso",
-    )
-    fc5.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
-    if fc5.button("🔄", key="btn_clear_filters", help="Limpiar todos los filtros"):
-        st.session_state["_do_clear_filters"] = True
-        st.rerun()
+        # Reset tema si cambia el bloque
+        _prev_blq = st.session_state.get("_man_prev_bloque", f_bloque)
+        if _prev_blq != f_bloque:
+            st.session_state["man_f_tema"] = "Todos"
+        st.session_state["_man_prev_bloque"] = f_bloque
 
-    srch1, srch2, srch3 = st.columns([4, 1.2, 1])
-    f_search  = srch1.text_input("🔍 Buscar", placeholder="Enunciado, opciones, notas…", key="man_search")
-    f_global  = srch2.checkbox("🌐 Todos los bloques", key="man_search_global", value=False,
-                                help="Buscar ignorando el filtro de bloque")
-    f_sin_sol = srch3.checkbox("Sin solución", key="man_filter_sin_sol", value=False)
+        # Temas que REALMENTE existen en la DB (sin añadir 1-50)
+        temas_disponibles = temas_en_db(f_bloque)
+        # Asegurar que el valor guardado en session_state sea válido
+        _t_cur = st.session_state.get("man_f_tema", "Todos")
+        if _t_cur != "Todos" and _t_cur not in temas_disponibles:
+            st.session_state["man_f_tema"] = "Todos"
+
+        f_tema = fc2.selectbox(
+            "Tema", ["Todos"] + temas_disponibles, key="man_f_tema",
+            format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t),
+        )
+        f_dif  = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif")
+        f_uso  = fc4.selectbox(
+            "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6m", "Usada >12m"], key="man_f_uso",
+        )
+        fc5.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+        if fc5.button("🔄", key="btn_clear_filters", help="Limpiar todos los filtros"):
+            st.session_state["_do_clear_filters"] = True
+            st.rerun()
+
+        srch1, srch2, srch3 = st.columns([4, 1.2, 1])
+        f_search  = srch1.text_input("🔍 Buscar", placeholder="Enunciado, opciones, notas…", key="man_search")
+        f_global  = srch2.checkbox("🌐 Todos los bloques", key="man_search_global", value=False,
+                                    help="Buscar ignorando el filtro de bloque")
+        f_sin_sol = srch3.checkbox("Sin solución", key="man_filter_sin_sol", value=False)
+
+        _count_slot = st
 
     # ── Aplicar filtros ───────────────────────────────────────────────────────
     df_filt = df_total.copy()
@@ -753,7 +810,7 @@ with tab_man:
         "padding:1px 8px;font-size:0.9em;font-weight:600'>🌐 búsqueda global</span>"
         if f_global and f_search else ""
     )
-    st.markdown(
+    _count_slot.markdown(
         f"<div style='font-size:0.82em;color:var(--muted, #666);margin-bottom:6px'>"
         f"Mostrando <b style='color:var(--text, #2c3e50)'>{n_filt}</b> de {len(df_total)} preguntas"
         f"{'  ·  <b style=\"color:var(--primary, #3498db)\">' + str(pct_filt) + '%</b>' if pct_filt < 100 else ''}"
@@ -776,8 +833,9 @@ with tab_man:
         notas_txt = str(row_d.get("notas",    "") or "").strip()
         notas_html = ""
 
-        # 1. Tarjeta principal
-        st.markdown(card_html, unsafe_allow_html=True)
+        # 1. Tarjeta principal (Bitácora: cabecera con etiquetas y recuadros)
+        _bt = get_estilo() == "bitacora"
+        st.markdown(question_detail_html(row_d) if _bt else card_html, unsafe_allow_html=True)
 
         # 2. Notas
         if notas_txt:
@@ -809,17 +867,18 @@ with tab_man:
         # 4. Botones de acción — solo icono, misma anchura, tooltip descriptivo
         st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
         ba1, ba2, ba3, ba4 = st.columns(4)
-        if ba1.button("✏️", use_container_width=True, type="primary",
+        if ba1.button("✏️ Editar pregunta" if _bt else "✏️", use_container_width=True, type="primary",
                       key="btn_edit_q", help="Editar pregunta"):
             if in_dialog:   # no se puede abrir una ventana dentro de otra
                 st.session_state["_man_open"] = ("edit", sel_pid); st.rerun()
             _dialog_editar_pregunta(sel_pid, row_d)
-        if ba2.button("📖", use_container_width=True, key="btn_sol_q",
+        if ba2.button(("📖 Ver solución" if sol_txt else "📖 Escribir solución") if _bt else "📖",
+                      use_container_width=True, key="btn_sol_q",
                       help="Sin solución aún" if not sol_txt else "Ver / editar solución"):
             if in_dialog:
                 st.session_state["_man_open"] = ("sol", sel_pid); st.rerun()
             _dialog_solucion(sel_pid, row_d)
-        if ba3.button("📋", use_container_width=True, key="btn_dup_q",
+        if ba3.button("📋 Duplicar" if _bt else "📋", use_container_width=True, key="btn_dup_q",
                       help="Duplicar pregunta"):
             blk    = row_d["bloque"]
             tema_d = str(row_d.get("Tema", "1"))
@@ -845,7 +904,7 @@ with tab_man:
 
         # Borrar con confirmación inline
         _del_key = f"del_confirm_{sel_pid}"
-        if ba4.button("🗑️", use_container_width=True, key="btn_del_q",
+        if ba4.button("🗑️ Eliminar" if _bt else "🗑️", use_container_width=True, key="btn_del_q",
                       help="Eliminar esta pregunta"):
             st.session_state[_del_key] = not st.session_state.get(_del_key, False)
         if st.session_state.get(_del_key, False):
@@ -909,13 +968,14 @@ with tab_man:
             col_table, col_preview = st.columns([3, 2], gap="medium")
 
         with col_table:
-            # Toggle modo selección múltiple
-            _multi_mode = st.toggle(
-                "☑️ Modo selección múltiple",
-                value=st.session_state.get("man_multi_mode", False),
-                key="man_multi_mode",
-                help="Activa para seleccionar varias filas y borrarlas. Desactiva para navegar pregunta a pregunta.",
-            )
+            # Toggle modo selección múltiple (en Bitácora está en la fila de estado)
+            if not _bit:
+                _multi_mode = st.toggle(
+                    "☑️ Modo selección múltiple",
+                    value=st.session_state.get("man_multi_mode", False),
+                    key="man_multi_mode",
+                    help="Activa para seleccionar varias filas y borrarlas. Desactiva para navegar pregunta a pregunta.",
+                )
 
             display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad",
                                    "usada", "solucion", "enunciado"]].copy()
@@ -936,12 +996,12 @@ with tab_man:
                 key="man_df_sel" if not _man_nonce else f"man_df_sel_{_man_nonce}",
                 height=400,
                 column_config={
-                    "ID":        st.column_config.TextColumn("ID", width=115),
-                    "Bloque":    st.column_config.TextColumn("Bloque", width=115),
-                    "T":         st.column_config.TextColumn("T", width=32),
-                    "Dif.":      st.column_config.TextColumn("Dif.", width=55),
-                    "Usado":     st.column_config.TextColumn("Usado", width=80),
-                    "Sol.":      st.column_config.TextColumn("Sol.", width=40),
+                    "ID":        st.column_config.TextColumn("ID", width=150 if _bit else 115),
+                    "Bloque":    st.column_config.TextColumn("Bloque", width=100 if _bit else 115),
+                    "T":         st.column_config.TextColumn("Tema" if _bit else "T", width=56 if _bit else 32),
+                    "Dif.":      st.column_config.TextColumn("Dificultad" if _bit else "Dif.", width=88 if _bit else 55),
+                    "Usado":     st.column_config.TextColumn("Último uso" if _bit else "Usado", width=104 if _bit else 80),
+                    "Sol.":      st.column_config.TextColumn("Solución" if _bit else "Sol.", width=76 if _bit else 40),
                     "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
                 },
             )

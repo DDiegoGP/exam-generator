@@ -45,7 +45,7 @@ _T_BITACORA_LIGHT = {
     "border": "#dde2ea", "border2": "#d5dbe5", "track": "#e4e8ef",
     "text": "#1a2233", "text2": "#3d4556", "muted": "#5b6475", "faint": "#7d8596",
     "primary": "#1d4a94", "primary-hover": "#163a75", "primary-soft": "#e6edf8", "primary-ink": "#ffffff",
-    "chip": "#141a26", "chip-ink": "#ffffff",
+    "chip": "#141a26", "chip-ink": "#ffffff", "btn": "#1d4a94",
     "ok": "#1e6b3c", "ok-bg": "#e3f1e8",
     "warn": "#7a4f00", "warn-bg": "#fdf0d5",
     "err": "#a3261a", "err-bg": "#fbe7e4",
@@ -57,7 +57,7 @@ _T_BITACORA_DARK = {
     "border": "#2a3443", "border2": "#344052", "track": "#2a3443",
     "text": "#e6eaf2", "text2": "#c3cad6", "muted": "#9aa4b5", "faint": "#7d889b",
     "primary": "#8fb2f5", "primary-hover": "#b3cbf8", "primary-soft": "#1f2f4d", "primary-ink": "#ffffff",
-    "chip": "#e6eaf2", "chip-ink": "#10151f",
+    "chip": "#e6eaf2", "chip-ink": "#10151f", "btn": "#4f80dd",
     "ok": "#7fd19b", "ok-bg": "#16321f",
     "warn": "#f0c674", "warn-bg": "#3a2e12",
     "err": "#f19a8e", "err-bg": "#3d1b17",
@@ -196,6 +196,56 @@ def kpi_html(items: list) -> str:
         cards.append(f'<div class="kpi"><div class="kpi-lbl">{label}</div>'
                      f'<div class="{val_cls}">{value}</div>{sub_html}</div>')
     return f'<div class="kpi-grid">{"".join(cards)}</div>'
+
+
+def _txt(v) -> str:
+    v = str(v if v is not None else "").strip()
+    return "" if v in ("nan", "None", "NaT") else v
+
+
+def question_detail_html(row: dict) -> str:
+    """Cabecera de una pregunta (ventana del Gestor, estilo Bitácora):
+    ID + bloque·tema + etiquetas, enunciado, opciones y cuatro recuadros."""
+    import json
+    from app_utils import nombre_bloque, nombre_tema, nombre_objetivo  # import diferido (ciclo)
+
+    pid  = _txt(row.get("ID_Pregunta"))
+    dif  = _txt(row.get("dificultad")) or "Media"
+    dl   = dif.lower().replace("á", "a").replace("í", "i")
+    tag  = {"facil": "tag-f", "media": "tag-m", "dificil": "tag-d"}.get(dl, "tag-m")
+    uso  = _txt(row.get("usada"))
+    sol  = bool(_txt(row.get("solucion")))
+    obj  = _txt(row.get("objetivo"))
+    com  = _txt(row.get("comentario"))
+    ops  = row.get("opciones_list", []) or []
+    if isinstance(ops, str):
+        try:
+            ops = json.loads(ops)
+        except Exception:
+            ops = []
+    corr = {"A": 0, "B": 1, "C": 2, "D": 3}.get(_txt(row.get("letra_correcta")).upper(), 0)
+
+    tags = (f'<span class="tag {tag}">{dif}</span>'
+            + (f'<span class="tag tag-u">Usada {uso}</span>' if uso else '<span class="tag tag-n">Nueva</span>')
+            + ('<span class="tag tag-f">Con solución</span>' if sol else '<span class="tag qd-pend">Sin solución</span>'))
+    opts = "".join(
+        f'<div class="qd-opt{" ok" if i == corr else ""}">{l}) {ops[i] if i < len(ops) else ""}'
+        f'{" ✓" if i == corr else ""}</div>'
+        for i, l in enumerate("abcd")
+    )
+
+    def tile(lbl, val, cls=""):
+        return f'<div class="qd-tile"><div class="qd-tl">{lbl}</div><div class="qd-tv {cls}">{val}</div></div>'
+
+    tiles = (tile("Último uso", uso or "nunca", "mono" if uso else "muted")
+             + tile("Objetivo", nombre_objetivo(obj) if obj else "sin asignar", "" if obj else "muted")
+             + tile("Etiqueta", com or "sin etiqueta", "" if com else "muted")
+             + tile("Solución", "disponible" if sol else "pendiente", "okc" if sol else "pend"))
+    meta = f'{nombre_bloque(_txt(row.get("bloque")))} · {nombre_tema(_txt(row.get("Tema")))}'
+    return (f'<div class="qd-card"><div class="qd-head"><div><span class="qd-id">{pid}</span>'
+            f'<span class="qd-meta">{meta}</span></div><div>{tags}</div></div>'
+            f'<div class="qd-enun">{_txt(row.get("enunciado"))}</div>{opts}</div>'
+            f'<div class="qd-tiles">{tiles}</div>')
 
 
 def bar_html(pct: float) -> str:
@@ -388,6 +438,45 @@ hr { border-color: var(--border) !important; }
 .q-enun-cell { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .filter-section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; }
+
+/* ── Detalle de pregunta (ventana del Gestor) ── */
+.qd-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; background: var(--card); color: var(--text); }
+.qd-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.qd-id { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; margin-right: 10px; }
+.qd-meta { color: var(--muted); }
+.qd-enun { font-weight: 600; font-size: 1rem; line-height: 1.5; margin-bottom: 10px; }
+.qd-opt { color: var(--text2); margin: 5px 0; }
+.qd-opt.ok { color: var(--ok); font-weight: 600; }
+.tag.qd-pend { background: var(--warn-bg); color: var(--warn); }
+.qd-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 14px 0 6px; }
+.qd-tile { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; background: var(--card); }
+.qd-tl { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.qd-tv { font-size: 1.05rem; font-weight: 600; margin-top: 6px; color: var(--text); }
+.qd-tv.muted { color: var(--muted); }
+.qd-tv.okc { color: var(--ok); }
+.qd-tv.pend { color: var(--warn); }
+.st-key-btn_del_q button { color: var(--err) !important; border-color: var(--err-bg) !important; }
+
+/* ── Radios con forma de píldora (uso) y de botones unidos (dificultad) ── */
+.st-key-man_uso_box [role="radiogroup"], .st-key-man_dif_box [role="radiogroup"] { flex-wrap: wrap; }
+.st-key-man_uso_box [role="radiogroup"] { gap: 8px !important; }
+.st-key-man_dif_box [role="radiogroup"] { gap: 0 !important; }
+.st-key-man_uso_box label[data-baseweb="radio"], .st-key-man_dif_box label[data-baseweb="radio"] {
+  margin: 0 !important; padding: 5px 13px !important; background: var(--card);
+  border: 1px solid var(--border2); cursor: pointer; }
+.st-key-man_uso_box label[data-baseweb="radio"] { border-radius: 999px; }
+.st-key-man_dif_box label[data-baseweb="radio"] { border-radius: 0; margin-left: -1px !important; }
+.st-key-man_dif_box label[data-baseweb="radio"]:first-child { border-radius: 9px 0 0 9px; margin-left: 0 !important; }
+.st-key-man_dif_box label[data-baseweb="radio"]:last-child { border-radius: 0 9px 9px 0; }
+.st-key-man_uso_box label[data-baseweb="radio"] > div:first-child,
+.st-key-man_dif_box label[data-baseweb="radio"] > div:first-child { display: none; }
+.st-key-man_uso_box label[data-baseweb="radio"] > div:last-child,
+.st-key-man_dif_box label[data-baseweb="radio"] > div:last-child { padding-left: 0 !important; margin-left: 0 !important; }
+.st-key-man_uso_box label[data-baseweb="radio"] p, .st-key-man_dif_box label[data-baseweb="radio"] p { margin: 0; font-size: 0.9rem; }
+.st-key-man_uso_box label[data-baseweb="radio"]:has(input:checked) { background: var(--chip); border-color: var(--chip); }
+.st-key-man_uso_box label[data-baseweb="radio"]:has(input:checked) p { color: var(--chip-ink) !important; font-weight: 600; }
+.st-key-man_dif_box label[data-baseweb="radio"]:has(input:checked) { background: var(--btn); border-color: var(--btn); position: relative; }
+.st-key-man_dif_box label[data-baseweb="radio"]:has(input:checked) p { color: #ffffff !important; font-weight: 600; }
 """
 
 # Retoques del estilo Clásico sobre el CSS original (APP_CSS)
