@@ -25,7 +25,6 @@ borderColor = "#d5dbe5"
 dataframeBorderColor = "#e4e8ef"
 dataframeHeaderBackgroundColor = "#f5f7fa"
 codeBackgroundColor = "#f5f7fa"
-chartCategoricalColors = ["#1d4a94", "#e07b39", "#2f8f5b", "#8fb0e6", "#b23a48", "#7a5cc7", "#c9a227", "#5b6475"]
 
 [theme.light.sidebar]
 backgroundColor = "#ffffff"
@@ -42,7 +41,6 @@ borderColor = "#344052"
 dataframeBorderColor = "#2a3443"
 dataframeHeaderBackgroundColor = "#1d2635"
 codeBackgroundColor = "#1d2635"
-chartCategoricalColors = ["#7ea6f2", "#f0a066", "#6cc893", "#3b6fd1", "#ee7d8a", "#a98ef0", "#e3c45c", "#9aa4b5"]
 
 [theme.dark.sidebar]
 backgroundColor = "#141a25"

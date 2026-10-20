@@ -188,15 +188,15 @@ def _dialog_solucion(pid: str, row: dict):
     ops     = row.get("opciones_list", []) or []
 
     st.markdown(
-        f"<div style='background:#f0f4ff;border-left:4px solid #3498db;"
+        f"<div style='background:var(--primary-soft, #f0f4ff);border-left:4px solid var(--primary, #3498db);"
         f"border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:10px'>"
-        f"<div style='font-size:0.75em;color:#666;margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap'>"
-        f"<b style='color:#2c3e50'>{pid}</b>"
+        f"<div style='font-size:0.75em;color:var(--muted, #666);margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap'>"
+        f"<b style='color:var(--text, #2c3e50)'>{pid}</b>"
         f"<span style='background:{dif_col};color:#fff;border-radius:8px;"
         f"padding:1px 8px;font-size:0.9em'>{dif}</span>"
         f"<span style='background:{corr_col};color:#fff;border-radius:8px;"
         f"padding:1px 8px;font-size:0.9em'>Resp. correcta: {corr}</span></div>"
-        f"<div style='font-size:1.0em;color:#1a252f;line-height:1.6;font-weight:500'>"
+        f"<div style='font-size:1.0em;color:var(--text, #1a252f);line-height:1.6;font-weight:500'>"
         f"{row.get('enunciado','')}</div></div>",
         unsafe_allow_html=True,
     )
@@ -222,7 +222,7 @@ def _dialog_solucion(pid: str, row: dict):
 
     # ── Plantillas de inicio ──────────────────────────────────────────────────
     _sol_key = f"dlg_sol_txt_{pid}"
-    st.markdown("<span style='font-size:0.82em;color:#888;font-weight:600'>PLANTILLA RÁPIDA</span>",
+    st.markdown("<span style='font-size:0.82em;color:var(--muted, #888);font-weight:600'>PLANTILLA RÁPIDA</span>",
                 unsafe_allow_html=True)
     tp1, tp2, tp3 = st.columns(3)
     if tp1.button("📝 Razonamiento", key=f"tpl_razon_{pid}", use_container_width=True):
@@ -267,8 +267,8 @@ def _dialog_solucion(pid: str, row: dict):
         if nueva_sol.strip():
             sol_html = (
                 "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
-                "color:#2c3e50;padding:14px;background:#f0f9ff;"
-                "border-left:3px solid #3498db;border-radius:0 8px 8px 0;line-height:1.65'>"
+                "color:var(--text, #2c3e50);padding:14px;background:var(--primary-soft, #f0f9ff);"
+                "border-left:3px solid var(--primary, #3498db);border-radius:0 8px 8px 0;line-height:1.65'>"
                 f"{nueva_sol}</div>"
             )
             stcomponents.html(mathjax_html(sol_html), height=280, scrolling=True)
@@ -558,9 +558,9 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
 
         # Cabecera
         h0, h2, h3, h4 = st.columns([0.5, 8, 0.8, 0.7])
-        h0.markdown("<span style='font-size:0.8em;color:#888'>✓</span>", unsafe_allow_html=True)
-        h2.markdown("<span style='font-size:0.8em;color:#888'>Enunciado</span>", unsafe_allow_html=True)
-        h3.markdown("<span style='font-size:0.8em;color:#888'>Resp.</span>", unsafe_allow_html=True)
+        h0.markdown("<span style='font-size:0.8em;color:var(--muted, #888)'>✓</span>", unsafe_allow_html=True)
+        h2.markdown("<span style='font-size:0.8em;color:var(--muted, #888)'>Enunciado</span>", unsafe_allow_html=True)
+        h3.markdown("<span style='font-size:0.8em;color:var(--muted, #888)'>Resp.</span>", unsafe_allow_html=True)
         st.markdown("<hr style='margin:4px 0'>", unsafe_allow_html=True)
 
         _BADGE = {"A": "#27ae60", "B": "#2980b9", "C": "#8e44ad", "D": "#c0392b"}
@@ -571,11 +571,11 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                            key=f"stg_sel_{i}", label_visibility="collapsed")
 
             warns      = q.get("_warnings", [])
-            warn_icon  = " <span style='color:#e67e22'>⚠</span>" if warns else ""
+            warn_icon  = " <span style='color:var(--ui-warn, #e67e22)'>⚠</span>" if warns else ""
             enun_short = q["enunciado"][:85] + ("…" if len(q["enunciado"]) > 85 else "")
             c_enun.markdown(
                 f"<span style='font-size:0.85em;line-height:1.3'>"
-                f"<b style='color:#999;font-size:0.8em'>{i+1}.</b> {enun_short}{warn_icon}</span>",
+                f"<b style='color:var(--muted, #999);font-size:0.8em'>{i+1}.</b> {enun_short}{warn_icon}</span>",
                 unsafe_allow_html=True
             )
 
@@ -748,14 +748,14 @@ with tab_man:
     n_filt   = len(df_filt)
     pct_filt = int(n_filt / len(df_total) * 100) if len(df_total) else 0
     _gbadge  = (
-        "  ·  <span style='background:#dbeafe;color:#1e40af;border-radius:8px;"
+        "  ·  <span style='background:var(--primary-soft, #dbeafe);color:var(--primary, #1e40af);border-radius:8px;"
         "padding:1px 8px;font-size:0.9em;font-weight:600'>🌐 búsqueda global</span>"
         if f_global and f_search else ""
     )
     st.markdown(
-        f"<div style='font-size:0.82em;color:#666;margin-bottom:6px'>"
-        f"Mostrando <b style='color:#2c3e50'>{n_filt}</b> de {len(df_total)} preguntas"
-        f"{'  ·  <b style=\"color:#3498db\">' + str(pct_filt) + '%</b>' if pct_filt < 100 else ''}"
+        f"<div style='font-size:0.82em;color:var(--muted, #666);margin-bottom:6px'>"
+        f"Mostrando <b style='color:var(--text, #2c3e50)'>{n_filt}</b> de {len(df_total)} preguntas"
+        f"{'  ·  <b style=\"color:var(--primary, #3498db)\">' + str(pct_filt) + '%</b>' if pct_filt < 100 else ''}"
         f"{_gbadge}</div>",
         unsafe_allow_html=True,
     )
@@ -868,11 +868,11 @@ with tab_man:
             # ══ MULTI-SELECT: N > 1 ══════════════════════════════════════════
             if n_sel > 1:
                 st.markdown(
-                    f"<div style='background:#fff3cd;border-left:4px solid #f39c12;"
+                    f"<div style='background:var(--note-bg, #fff3cd);border-left:4px solid var(--ui-warn, #f39c12);"
                     f"border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px'>"
-                    f"<div style='font-size:1.05em;font-weight:700;color:#856404'>"
+                    f"<div style='font-size:1.05em;font-weight:700;color:var(--note-text, #856404)'>"
                     f"📋 {n_sel} preguntas seleccionadas</div>"
-                    f"<div style='font-size:0.82em;color:#78350f;margin-top:4px'>"
+                    f"<div style='font-size:0.82em;color:var(--note-text, #78350f);margin-top:4px'>"
                     f"IDs: {', '.join(sel_pids_multi[:6])}"
                     f"{'…' if len(sel_pids_multi) > 6 else ''}</div></div>",
                     unsafe_allow_html=True,
@@ -914,10 +914,10 @@ with tab_man:
                 # 2. Notas
                 if notas_txt:
                     notas_html = (
-                        "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
+                        "<div style='background:var(--note-bg, #fefce8);border-left:3px solid var(--ui-warn, #f59e0b);"
                         "border-radius:0 8px 8px 0;padding:8px 14px;margin-top:4px;"
-                        "font-size:0.875em;color:#78350f;line-height:1.5'>"
-                        "<b style='color:#92400e'>📝 Notas:</b> "
+                        "font-size:0.875em;color:var(--note-text, #78350f);line-height:1.5'>"
+                        "<b style='color:var(--note-text, #92400e)'>📝 Notas:</b> "
                         f"{notas_txt}</div>"
                     )
                     st.markdown(notas_html, unsafe_allow_html=True)
@@ -1000,8 +1000,8 @@ with tab_man:
                 if sol_txt:
                     with st.expander("📖 Ver solución", expanded=False):
                         _sol_prev_html = (
-                            "<div style='font-size:13px;color:#2c3e50;padding:10px;"
-                            "background:#f0f9ff;border-left:3px solid #3498db;"
+                            "<div style='font-size:13px;color:var(--text, #2c3e50);padding:10px;"
+                            "background:var(--primary-soft, #f0f9ff);border-left:3px solid var(--primary, #3498db);"
                             "border-radius:0 6px 6px 0;line-height:1.6'>"
                             f"{sol_txt}</div>"
                         )
@@ -1018,8 +1018,8 @@ with tab_man:
             # ══ NADA SELECCIONADO ═════════════════════════════════════════════
             else:
                 st.markdown(
-                    "<div style='text-align:center;padding:40px 20px;color:#888;"
-                    "border:2px dashed #dee2e6;border-radius:10px;margin-top:10px'>"
+                    "<div style='text-align:center;padding:40px 20px;color:var(--muted, #888);"
+                    "border:2px dashed var(--ui-border, #dee2e6);border-radius:10px;margin-top:10px'>"
                     "<div style='font-size:2em;margin-bottom:8px'>👆</div>"
                     "<div style='font-weight:600'>Haz clic en una fila para previsualizarla</div>"
                     "<div style='font-size:0.85em;margin-top:4px'>"
@@ -1127,11 +1127,11 @@ with tab_stat:
             f"<div class='stat-label'>📚 Total</div></div>",
             unsafe_allow_html=True)
         mc2.markdown(
-            f"<div class='stat-card ok'><div class='stat-num' style='color:#27ae60'>{usadas}</div>"
+            f"<div class='stat-card ok'><div class='stat-num' style='color:var(--ui-ok, #27ae60)'>{usadas}</div>"
             f"<div class='stat-label'>✅ Usadas</div></div>",
             unsafe_allow_html=True)
         mc3.markdown(
-            f"<div class='stat-card warn'><div class='stat-num' style='color:#f39c12'>{nunca}</div>"
+            f"<div class='stat-card warn'><div class='stat-num' style='color:var(--ui-warn, #f39c12)'>{nunca}</div>"
             f"<div class='stat-label'>🆕 Sin usar</div></div>",
             unsafe_allow_html=True)
         mc4.markdown(
@@ -1139,7 +1139,7 @@ with tab_stat:
             f"<div class='stat-label'>📦 Bloques</div></div>",
             unsafe_allow_html=True)
         mc5.markdown(
-            f"<div class='stat-card used'><div class='stat-num' style='color:#8e44ad'>{pct_uso}%</div>"
+            f"<div class='stat-card used'><div class='stat-num' style='color:var(--ui-used, #8e44ad)'>{pct_uso}%</div>"
             f"<div class='stat-label'>🎯 Cobertura</div></div>",
             unsafe_allow_html=True)
         _sol_cls = "ok" if pct_sol >= 60 else "warn"
@@ -1304,11 +1304,11 @@ with tab_stat:
                 f"<div class='stat-label'>📚 Total</div></div>",
                 unsafe_allow_html=True)
             bc2.markdown(
-                f"<div class='stat-card ok'><div class='stat-num' style='color:#27ae60'>{n_us_b}</div>"
+                f"<div class='stat-card ok'><div class='stat-num' style='color:var(--ui-ok, #27ae60)'>{n_us_b}</div>"
                 f"<div class='stat-label'>✅ Usadas</div></div>",
                 unsafe_allow_html=True)
             bc3.markdown(
-                f"<div class='stat-card warn'><div class='stat-num' style='color:#f39c12'>{n_nu_b}</div>"
+                f"<div class='stat-card warn'><div class='stat-num' style='color:var(--ui-warn, #f39c12)'>{n_nu_b}</div>"
                 f"<div class='stat-label'>🆕 Sin usar</div></div>",
                 unsafe_allow_html=True)
             bc4.markdown(
@@ -1461,15 +1461,15 @@ with tab_sol:
 
     sm1, sm2, sm3 = st.columns(3)
     sm1.markdown(
-        f"<div class='stat-card ok'><div class='stat-num' style='color:#27ae60'>{n_sol_con}</div>"
+        f"<div class='stat-card ok'><div class='stat-num' style='color:var(--ui-ok, #27ae60)'>{n_sol_con}</div>"
         f"<div class='stat-label'>📖 Con solución</div></div>",
         unsafe_allow_html=True)
     sm2.markdown(
-        f"<div class='stat-card warn'><div class='stat-num' style='color:#f39c12'>{n_sol_sin}</div>"
+        f"<div class='stat-card warn'><div class='stat-num' style='color:var(--ui-warn, #f39c12)'>{n_sol_sin}</div>"
         f"<div class='stat-label'>⬜ Sin solución</div></div>",
         unsafe_allow_html=True)
     sm3.markdown(
-        f"<div class='stat-card'><div class='stat-num' style='color:#3498db'>{pct_sol}%</div>"
+        f"<div class='stat-card'><div class='stat-num' style='color:var(--primary, #3498db)'>{pct_sol}%</div>"
         f"<div class='stat-label'>✅ Completado</div></div>",
         unsafe_allow_html=True)
 
@@ -1478,9 +1478,9 @@ with tab_sol:
     bar_r = 100 - bar_w
     st.markdown(
         f"<div style='margin:12px 0 4px 0'>"
-        f"<div style='display:flex;justify-content:space-between;font-size:0.78em;color:#666;margin-bottom:3px'>"
+        f"<div style='display:flex;justify-content:space-between;font-size:0.78em;color:var(--muted, #666);margin-bottom:3px'>"
         f"<span>Progreso global de soluciones</span><span style='font-weight:700'>{n_sol_con}/{n_sol_total}</span></div>"
-        f"<div style='background:#e9ecef;border-radius:6px;height:12px;overflow:hidden'>"
+        f"<div style='background:var(--track, #e9ecef);border-radius:6px;height:12px;overflow:hidden'>"
         f"<div style='background:#27ae60;width:{bar_w}%;height:12px;border-radius:6px;"
         f"transition:width 0.4s'></div></div></div>",
         unsafe_allow_html=True
@@ -1525,7 +1525,7 @@ with tab_sol:
         # Caption de progreso local
         n_en_filtro = len(df_work)
         st.markdown(
-            f"<div style='font-size:0.82em;color:#555;margin-bottom:6px'>"
+            f"<div style='font-size:0.82em;color:var(--text2, #555);margin-bottom:6px'>"
             f"Pregunta <b>{sol_idx + 1}</b> de <b>{n_en_filtro}</b> · "
             f"(Progreso global: {n_sol_con}/{n_sol_total} con solución)</div>",
             unsafe_allow_html=True
@@ -1538,17 +1538,17 @@ with tab_sol:
         notas_s = str(row_s.get("notas", "") or "").strip()
         if notas_s:
             st.markdown(
-                "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
+                "<div style='background:var(--note-bg, #fefce8);border-left:3px solid var(--ui-warn, #f59e0b);"
                 "border-radius:0 8px 8px 0;padding:8px 12px;margin-top:4px;"
-                "font-size:0.85em;color:#78350f'>"
-                f"<b style='color:#92400e'>📝 Notas:</b> {notas_s}</div>",
+                "font-size:0.85em;color:var(--note-text, #78350f)'>"
+                f"<b style='color:var(--note-text, #92400e)'>📝 Notas:</b> {notas_s}</div>",
                 unsafe_allow_html=True
             )
 
         # ── Plantillas de inicio ──────────────────────────────────────────────
         sol_key_b = f"sol_batch_txt_{pid_s}"
         st.markdown(
-            "<span style='font-size:0.82em;color:#888;font-weight:600'>PLANTILLA RÁPIDA</span>",
+            "<span style='font-size:0.82em;color:var(--muted, #888);font-weight:600'>PLANTILLA RÁPIDA</span>",
             unsafe_allow_html=True
         )
         btp1, btp2, btp3 = st.columns(3)
@@ -1595,8 +1595,8 @@ with tab_sol:
         if _rend_on and nueva_sol_b.strip():
             _sol_rhtml = (
                 "<div style='font-family:-apple-system,sans-serif;font-size:13px;"
-                "color:#2c3e50;padding:12px;background:#f0f9ff;"
-                "border-left:3px solid #3498db;border-radius:0 8px 8px 0;line-height:1.65'>"
+                "color:var(--text, #2c3e50);padding:12px;background:var(--primary-soft, #f0f9ff);"
+                "border-left:3px solid var(--primary, #3498db);border-radius:0 8px 8px 0;line-height:1.65'>"
                 f"{nueva_sol_b}</div>"
             )
             stcomponents.html(mathjax_html(_sol_rhtml), height=240, scrolling=True)

@@ -33,6 +33,7 @@ from app_utils import (
     OUTPUT_DIR, _nsort,
     _dialog_editar_pregunta, marcar_preguntas_usadas,
 )
+from app_theme import get_preview_mode
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Generador · Exámenes UCM", page_icon="🎲", layout="wide")
@@ -149,8 +150,8 @@ def _dialog_autofill(n_obj: int):
 
     # Resumen superior
     st.markdown(
-        f"<div style='background:#e8f4fd;border:1px solid #aed6f1;border-radius:8px;"
-        f"padding:10px 16px;margin-bottom:10px;font-size:0.87em;color:#1a5276'>"
+        f"<div style='background:var(--primary-soft, #e8f4fd);border:1px solid var(--border2, #aed6f1);border-radius:8px;"
+        f"padding:10px 16px;margin-bottom:10px;font-size:0.87em;color:var(--primary, #1a5276)'>"
         f"📌 <b>Fijas (manual):</b> {n_manual} &nbsp;·&nbsp; "
         f"<b>Objetivo:</b> {n_obj} &nbsp;·&nbsp; "
         f"<b>Slots auto disponibles:</b> {max(0, n_obj - n_manual)}"
@@ -172,7 +173,7 @@ def _dialog_autofill(n_obj: int):
         n_fix_blq = len(df_blq) - len(df_avail)
 
         st.markdown(
-            f"<span style='color:#555;font-size:0.85em'>"
+            f"<span style='color:var(--text2, #555);font-size:0.85em'>"
             f"{len(df_avail)} disponibles · {n_fix_blq} de este bloque ya son manuales fijas"
             f"</span>",
             unsafe_allow_html=True
@@ -202,11 +203,11 @@ def _dialog_autofill(n_obj: int):
             st.markdown("##### 📌 Por tema específico (acumulativo al anterior):")
             th0, th1, th2, th3 = st.columns([3, 1, 1, 1])
             th0.markdown("<small><b>Tema</b></small>", unsafe_allow_html=True)
-            th1.markdown("<small style='color:#27ae60'><b>🟢 Fácil</b></small>",
+            th1.markdown("<small style='color:var(--ui-ok, #27ae60)'><b>🟢 Fácil</b></small>",
                          unsafe_allow_html=True)
-            th2.markdown("<small style='color:#b7950b'><b>🟡 Media</b></small>",
+            th2.markdown("<small style='color:var(--ui-warn, #b7950b)'><b>🟡 Media</b></small>",
                          unsafe_allow_html=True)
-            th3.markdown("<small style='color:#c0392b'><b>🔴 Difícil</b></small>",
+            th3.markdown("<small style='color:var(--ui-err, #c0392b)'><b>🔴 Difícil</b></small>",
                          unsafe_allow_html=True)
 
             for tema in temas_blq:
@@ -220,7 +221,7 @@ def _dialog_autofill(n_obj: int):
                 tc0, tc1, tc2, tc3 = st.columns([3, 1, 1, 1])
                 tc0.markdown(
                     f"<small><b>Tema {tema}</b> &nbsp;"
-                    f"<span style='color:#888'>🟢{n_ft} 🟡{n_mt} 🔴{n_dt}</span></small>",
+                    f"<span style='color:var(--muted, #888)'>🟢{n_ft} 🟡{n_mt} 🔴{n_dt}</span></small>",
                     unsafe_allow_html=True
                 )
                 tc1.number_input("f", min_value=0, max_value=n_ft,
@@ -244,9 +245,9 @@ def _dialog_autofill(n_obj: int):
             st.markdown("##### 🎯 Por objetivo docente (acumulativo):")
             oh0, oh1, oh2, oh3 = st.columns([3, 1, 1, 1])
             oh0.markdown("<small><b>Objetivo</b></small>", unsafe_allow_html=True)
-            oh1.markdown("<small style='color:#27ae60'><b>🟢 Fácil</b></small>", unsafe_allow_html=True)
-            oh2.markdown("<small style='color:#b7950b'><b>🟡 Media</b></small>", unsafe_allow_html=True)
-            oh3.markdown("<small style='color:#c0392b'><b>🔴 Difícil</b></small>", unsafe_allow_html=True)
+            oh1.markdown("<small style='color:var(--ui-ok, #27ae60)'><b>🟢 Fácil</b></small>", unsafe_allow_html=True)
+            oh2.markdown("<small style='color:var(--ui-warn, #b7950b)'><b>🟡 Media</b></small>", unsafe_allow_html=True)
+            oh3.markdown("<small style='color:var(--ui-err, #c0392b)'><b>🔴 Difícil</b></small>", unsafe_allow_html=True)
             for ocod in objs_blq:
                 df_o = df_avail[df_avail["objetivo"].astype(str) == ocod] if "objetivo" in df_avail.columns else df_avail.iloc[0:0]
                 n_fo = int((df_o["dificultad"].str.lower() == "facil").sum())
@@ -257,7 +258,7 @@ def _dialog_autofill(n_obj: int):
                 oc0, oc1, oc2, oc3 = st.columns([3, 1, 1, 1])
                 oc0.markdown(
                     f"<small><b>{ocod}</b> &nbsp;"
-                    f"<span style='color:#888'>🟢{n_fo} 🟡{n_mo} 🔴{n_do}</span></small>",
+                    f"<span style='color:var(--muted, #888)'>🟢{n_fo} 🟡{n_mo} 🔴{n_do}</span></small>",
                     unsafe_allow_html=True
                 )
                 oc1.number_input("f", min_value=0, max_value=n_fo,
@@ -407,8 +408,8 @@ with tab_sel:
         summary_str = " · ".join(parts[:4]) + (" ···" if len(parts) > 4 else "")
         rc1, rc2 = st.columns([9, 1])
         rc1.markdown(
-            f"<div style='background:#e8f4fd;border:1px solid #aed6f1;border-radius:6px;"
-            f"padding:5px 12px;font-size:0.83em;color:#1a5276'>"
+            f"<div style='background:var(--primary-soft, #e8f4fd);border:1px solid var(--border2, #aed6f1);border-radius:6px;"
+            f"padding:5px 12px;font-size:0.83em;color:var(--primary, #1a5276)'>"
             f"🤖 <b>Receta activa</b> — {total_r} preg. auto  ·  {summary_str}</div>",
             unsafe_allow_html=True
         )
@@ -474,10 +475,128 @@ with tab_sel:
     if f_obj != "Todos" and "objetivo" in df_filt.columns:
         df_filt = df_filt[df_filt["objetivo"].astype(str) == f_obj]
 
+    # ── Vista previa de una pregunta (panel central o ventana) ─────────────────
+    def _render_sel_preview(preview_pid, row_d_prev, in_dialog=False):
+        """Tarjeta + notas + botones de la pregunta. En ventana, los cambios que
+        afectan a la página (añadir/quitar/editar) cierran la ventana con un rerun completo."""
+        _rerun_local = (lambda: st.rerun(scope="fragment")) if in_dialog else st.rerun
+        card_html_prev = render_question_card_html(row_d_prev, show_sol=True, include_notas=False)
+        st.markdown(card_html_prev, unsafe_allow_html=True)
+
+        # Notas debajo de la tarjeta
+        notas_txt_prev  = str(row_d_prev.get("notas", "") or "").strip()
+        notas_html_prev = ""
+        if notas_txt_prev:
+            notas_html_prev = (
+                "<div style='background:var(--note-bg, #fefce8);border-left:3px solid var(--ui-warn, #f59e0b);"
+                "border-radius:0 8px 8px 0;padding:10px 14px;margin-top:4px;"
+                "font-size:0.875em;color:var(--note-text, #78350f);line-height:1.55'>"
+                "<b style='color:var(--note-text, #92400e);display:block;margin-bottom:4px'>📝 Notas</b>"
+                f"{notas_txt_prev}</div>"
+            )
+            st.markdown(notas_html_prev, unsafe_allow_html=True)
+
+        # Badge solución
+        sol_txt_badge = str(row_d_prev.get("solucion", "") or "").strip()
+        if sol_txt_badge:
+            st.markdown(
+                "<div style='margin-top:4px;display:flex;align-items:center;gap:6px'>"
+                "<span style='background:var(--primary-soft, #dbeafe);color:var(--primary, #1e40af);border:1px solid var(--border2, #93c5fd);"
+                "border-radius:12px;padding:2px 10px;font-size:0.78em;font-weight:600;"
+                "letter-spacing:0.02em'>📖 Solución disponible</span></div>",
+                unsafe_allow_html=True,
+            )
+
+        # Botones añadir / quitar + Solución + Editar
+        is_sel = preview_pid in get_sel_ids()
+        pa1, pa2, pa3, pa4 = st.columns(4)
+        if is_sel:
+            if pa1.button("➖ Quitar", key="btn_prev_rem",
+                           use_container_width=True):
+                cur = get_sel_ids()
+                if preview_pid in cur:
+                    cur.remove(preview_pid)
+                set_sel_ids(cur)
+                if in_dialog:
+                    st.session_state["_sel_dlg_nonce"] = st.session_state.get("_sel_dlg_nonce", 0) + 1
+                st.rerun()
+        else:
+            if pa1.button("➕ Añadir", key="btn_prev_add",
+                           use_container_width=True, type="primary"):
+                cur = get_sel_ids()
+                if preview_pid not in cur:
+                    cur.append(preview_pid)
+                set_sel_ids(cur)
+                if in_dialog:
+                    st.session_state["_sel_dlg_nonce"] = st.session_state.get("_sel_dlg_nonce", 0) + 1
+                st.rerun()
+
+        # Botón Solución
+        sol_txt_prev = str(row_d_prev.get("solucion", "") or "").strip()
+        if pa2.button("📖 Sol.", key="btn_prev_sol",
+                       use_container_width=True, disabled=not sol_txt_prev):
+            st.session_state["_gen_sol_pid"] = preview_pid
+            st.session_state["_gen_sol_row"] = row_d_prev
+
+        # Botón MathJax
+        _mjax_key_sel = f"mjax_sel_{preview_pid}"
+        if pa3.button("∑ LaTeX", key=f"mjax_btn_sel_{preview_pid}",
+                       use_container_width=True):
+            st.session_state[_mjax_key_sel] = True
+
+        # Botón Editar (en ventana no se puede abrir otra ventana: se abre al recargar)
+        if pa4.button("✏️ Editar", key=f"btn_edit_prev_{preview_pid}",
+                       use_container_width=True):
+            if in_dialog:
+                st.session_state["_sel_edit_pid"] = preview_pid
+                st.rerun()
+            _dialog_editar_pregunta(preview_pid, row_d_prev)
+        if st.session_state.get(_mjax_key_sel, False):
+            mj1, mj2 = st.columns([1, 4])
+            if mj1.button("✖ Cerrar LaTeX", key=f"mjax_close_sel_{preview_pid}",
+                           use_container_width=True):
+                st.session_state[_mjax_key_sel] = False
+                _rerun_local()
+            stcomponents.html(mathjax_html(card_html_prev + notas_html_prev), height=480, scrolling=True)
+
+        # Mostrar solución inline si se ha pulsado el botón
+        if (st.session_state.get("_gen_sol_pid") == preview_pid
+                and st.session_state.get("_gen_sol_row")):
+            sol_txt = str(st.session_state["_gen_sol_row"].get("solucion", "") or "").strip()
+            if sol_txt:
+                sol_html = (
+                    "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
+                    "color:var(--text, #2c3e50);padding:12px;background:var(--primary-soft, #f0f9ff);"
+                    "border-left:3px solid var(--primary, #3498db);border-radius:0 8px 8px 0;margin-top:6px'>"
+                    "<b style='color:var(--primary, #1a5276);display:block;margin-bottom:6px'>📖 Solución</b>"
+                    f"{sol_txt}</div>"
+                )
+                st.markdown("---")
+                stcomponents.html(mathjax_html(sol_html), height=250, scrolling=True)
+                if st.button("✖ Cerrar solución", key="btn_close_sol_gen"):
+                    st.session_state.pop("_gen_sol_pid", None)
+                    st.session_state.pop("_gen_sol_row", None)
+                    _rerun_local()
+
+    @st.dialog("👁 Vista previa de la pregunta", width="large")
+    def _dialog_sel_preview(preview_pid):
+        row_insp = df_total[df_total["ID_Pregunta"] == preview_pid]
+        if row_insp.empty:
+            st.info("La pregunta ya no está en la base de datos.")
+            return
+        _render_sel_preview(preview_pid, dict(row_insp.iloc[0]), in_dialog=True)
+
     # ═══════════════════════════════════════════════════════════════════════════
-    # LAYOUT 3 COLUMNAS: disponibles | preview | fijas
+    # LAYOUT: disponibles | preview | fijas   (o disponibles | fijas + ventana)
     # ═══════════════════════════════════════════════════════════════════════════
-    col_list, col_prev, col_sel = st.columns([2, 3, 2])
+    _prev_ventana = get_preview_mode() == "ventana"
+    _dlg_nonce    = st.session_state.get("_sel_dlg_nonce", 0)
+    _open_preview = None   # pregunta a abrir en ventana en esta ejecución
+    if _prev_ventana:
+        col_list, col_sel = st.columns([3, 2])
+        col_prev = None
+    else:
+        col_list, col_prev, col_sel = st.columns([2, 3, 2])
 
     # ── Columna izquierda: lista de disponibles ────────────────────────────────
     with col_list:
@@ -504,7 +623,9 @@ with tab_sel:
             hide_index=True,
             selection_mode="single-row",
             on_select="rerun",
-            key="df_avail",
+            # en modo ventana, tras añadir/quitar se renueva la tabla para no
+            # abrir sola la pregunta que ocupa ahora la fila seleccionada
+            key="df_avail" if not _dlg_nonce else f"df_avail_{_dlg_nonce}",
             height=480,
             column_config={
                 "ID":        st.column_config.TextColumn("ID", width=120),
@@ -519,119 +640,36 @@ with tab_sel:
             if new_avail_pid != st.session_state.get("_last_avail_pid"):
                 st.session_state["_last_avail_pid"] = new_avail_pid
                 st.session_state["sel_preview_pid"] = new_avail_pid
+                _open_preview = new_avail_pid
+        elif _prev_ventana:
+            # sin fila seleccionada: volver a pulsar la misma pregunta la reabre
+            st.session_state["_last_avail_pid"] = None
+        if _prev_ventana:
+            st.caption("Pulsa una fila para ver la pregunta completa.")
 
-    # ── Columna central: preview ───────────────────────────────────────────────
-    with col_prev:
-        preview_pid = st.session_state.get("sel_preview_pid")
-        if preview_pid:
-            row_insp = df_total[df_total["ID_Pregunta"] == preview_pid]
-            if not row_insp.empty:
-                row_d_prev = dict(row_insp.iloc[0])
-                card_html_prev = render_question_card_html(row_d_prev, show_sol=True, include_notas=False)
-                st.markdown(card_html_prev, unsafe_allow_html=True)
-
-                # Notas debajo de la tarjeta
-                notas_txt_prev  = str(row_d_prev.get("notas", "") or "").strip()
-                notas_html_prev = ""
-                if notas_txt_prev:
-                    notas_html_prev = (
-                        "<div style='background:#fefce8;border-left:3px solid #f59e0b;"
-                        "border-radius:0 8px 8px 0;padding:10px 14px;margin-top:4px;"
-                        "font-size:0.875em;color:#78350f;line-height:1.55'>"
-                        "<b style='color:#92400e;display:block;margin-bottom:4px'>📝 Notas</b>"
-                        f"{notas_txt_prev}</div>"
-                    )
-                    st.markdown(notas_html_prev, unsafe_allow_html=True)
-
-                # Badge solución
-                sol_txt_badge = str(row_d_prev.get("solucion", "") or "").strip()
-                if sol_txt_badge:
-                    st.markdown(
-                        "<div style='margin-top:4px;display:flex;align-items:center;gap:6px'>"
-                        "<span style='background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;"
-                        "border-radius:12px;padding:2px 10px;font-size:0.78em;font-weight:600;"
-                        "letter-spacing:0.02em'>📖 Solución disponible</span></div>",
-                        unsafe_allow_html=True,
-                    )
-
-                # Botones añadir / quitar + Solución + Editar
-                is_sel = preview_pid in sel_ids_actual
-                pa1, pa2, pa3, pa4 = st.columns(4)
-                if is_sel:
-                    if pa1.button("➖ Quitar", key="btn_prev_rem",
-                                   use_container_width=True):
-                        cur = get_sel_ids()
-                        if preview_pid in cur:
-                            cur.remove(preview_pid)
-                        set_sel_ids(cur)
-                        st.rerun()
+    # ── Columna central: preview (solo en modo panel) ─────────────────────────
+    if col_prev is not None:
+        with col_prev:
+            preview_pid = st.session_state.get("sel_preview_pid")
+            if preview_pid:
+                row_insp = df_total[df_total["ID_Pregunta"] == preview_pid]
+                if not row_insp.empty:
+                    _render_sel_preview(preview_pid, dict(row_insp.iloc[0]))
                 else:
-                    if pa1.button("➕ Añadir", key="btn_prev_add",
-                                   use_container_width=True, type="primary"):
-                        cur = get_sel_ids()
-                        if preview_pid not in cur:
-                            cur.append(preview_pid)
-                        set_sel_ids(cur)
-                        st.rerun()
-
-                # Botón Solución
-                sol_txt_prev = str(row_d_prev.get("solucion", "") or "").strip()
-                if pa2.button("📖 Sol.", key="btn_prev_sol",
-                               use_container_width=True, disabled=not sol_txt_prev):
-                    st.session_state["_gen_sol_pid"] = preview_pid
-                    st.session_state["_gen_sol_row"] = row_d_prev
-
-                # Botón MathJax
-                _mjax_key_sel = f"mjax_sel_{preview_pid}"
-                if pa3.button("∑ LaTeX", key=f"mjax_btn_sel_{preview_pid}",
-                               use_container_width=True):
-                    st.session_state[_mjax_key_sel] = True
-
-                # Botón Editar
-                if pa4.button("✏️ Editar", key=f"btn_edit_prev_{preview_pid}",
-                               use_container_width=True):
-                    _dialog_editar_pregunta(preview_pid, row_d_prev)
-                if st.session_state.get(_mjax_key_sel, False):
-                    mj1, mj2 = st.columns([1, 4])
-                    if mj1.button("✖ Cerrar LaTeX", key=f"mjax_close_sel_{preview_pid}",
-                                   use_container_width=True):
-                        st.session_state[_mjax_key_sel] = False
-                        st.rerun()
-                    stcomponents.html(mathjax_html(card_html_prev + notas_html_prev), height=480, scrolling=True)
-
-                # Mostrar solución inline si se ha pulsado el botón
-                if (st.session_state.get("_gen_sol_pid") == preview_pid
-                        and st.session_state.get("_gen_sol_row")):
-                    sol_txt = str(st.session_state["_gen_sol_row"].get("solucion", "") or "").strip()
-                    if sol_txt:
-                        sol_html = (
-                            "<div style='font-family:-apple-system,sans-serif;font-size:14px;"
-                            "color:#2c3e50;padding:12px;background:#f0f9ff;"
-                            "border-left:3px solid #3498db;border-radius:0 8px 8px 0;margin-top:6px'>"
-                            "<b style='color:#1a5276;display:block;margin-bottom:6px'>📖 Solución</b>"
-                            f"{sol_txt}</div>"
-                        )
-                        st.markdown("---")
-                        stcomponents.html(mathjax_html(sol_html), height=250, scrolling=True)
-                        if st.button("✖ Cerrar solución", key="btn_close_sol_gen"):
-                            st.session_state.pop("_gen_sol_pid", None)
-                            st.session_state.pop("_gen_sol_row", None)
-                            st.rerun()
+                    st.info("Selecciona una pregunta de la lista para previsualizarla.")
             else:
-                st.info("Selecciona una pregunta de la lista para previsualizarla.")
-        else:
-            st.markdown(
-                "<div style='background:#f8f9fa;border:2px dashed #dee2e6;"
-                "border-radius:12px;padding:60px 20px;text-align:center;"
-                "color:#bbb;margin-top:30px'>"
-                "<div style='font-size:2.5em;margin-bottom:12px'>👈</div>"
-                "<div style='font-weight:600;font-size:1em;color:#aaa'>"
-                "Haz clic en una pregunta</div>"
-                "<div style='font-size:0.85em;margin-top:6px;color:#ccc'>"
-                "para previsualizarla aquí</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
+                st.markdown(
+                    "<div style='background:var(--card2, #f8f9fa);border:2px dashed var(--ui-border, #dee2e6);"
+                    "border-radius:12px;padding:60px 20px;text-align:center;"
+                    "color:var(--faint, #bbb);margin-top:30px'>"
+                    "<div style='font-size:2.5em;margin-bottom:12px'>👈</div>"
+                    "<div style='font-weight:600;font-size:1em;color:var(--faint, #aaa)'>"
+                    "Haz clic en una pregunta</div>"
+                    "<div style='font-size:0.85em;margin-top:6px;color:var(--faint, #ccc)'>"
+                    "para previsualizarla aquí</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
     # ── Columna derecha: preguntas fijas ──────────────────────────────────────
     with col_sel:
@@ -642,7 +680,7 @@ with tab_sel:
             f"<b>📌 Fijas</b>"
             f"<span style='float:right;font-size:0.9em;font-weight:700;color:{bar_color}'>"
             f"{n_sel} / {n_obj}</span></div>"
-            f"<div style='background:#e9ecef;border-radius:4px;height:6px;margin-bottom:8px'>"
+            f"<div style='background:var(--track, #e9ecef);border-radius:4px;height:6px;margin-bottom:8px'>"
             f"<div style='width:{pct_obj}%;height:6px;border-radius:4px;"
             f"background:{bar_color}'></div></div>",
             unsafe_allow_html=True,
@@ -675,14 +713,21 @@ with tab_sel:
             right_sel_rows = sel_right.selection.rows if sel_right.selection else []
             right_sel_pid = (df_sel.iloc[right_sel_rows[0]]["ID_Pregunta"]
                              if right_sel_rows else None)
-            # Clic en fijas → actualizar preview (sólo si cambió)
+            # Clic en fijas → actualizar preview (sólo si cambió). En modo ventana
+            # no se abre sola (se selecciona para reordenar): botón «Ver».
             if right_sel_pid:
                 if right_sel_pid != st.session_state.get("_last_sel_pid"):
                     st.session_state["_last_sel_pid"] = right_sel_pid
                     st.session_state["sel_preview_pid"] = right_sel_pid
 
             # Botones de reordenar / quitar
-            sb1, sb2, sb3 = st.columns(3)
+            if _prev_ventana:
+                sb1, sb2, sb3, sb4 = st.columns(4)
+                if sb4.button("👁", key="btn_view_sel", disabled=(right_sel_pid is None),
+                              use_container_width=True, help="Ver la pregunta"):
+                    _open_preview = right_sel_pid
+            else:
+                sb1, sb2, sb3 = st.columns(3)
             if sb1.button("⬆️", key="btn_up", disabled=(right_sel_pid is None),
                           use_container_width=True, help="Subir"):
                 cur = get_sel_ids()
@@ -713,15 +758,25 @@ with tab_sel:
                 st.rerun()
         else:
             st.markdown(
-                "<div style='background:#f8f9fa;border:2px dashed #dee2e6;"
+                "<div style='background:var(--card2, #f8f9fa);border:2px dashed var(--ui-border, #dee2e6);"
                 "border-radius:10px;padding:30px 12px;text-align:center;"
-                "color:#aaa;font-size:0.85em;margin-top:4px'>"
+                "color:var(--faint, #aaa);font-size:0.85em;margin-top:4px'>"
                 "📭 Sin preguntas fijas<br>"
                 "<span style='font-size:0.85em'>"
                 "Añade desde el preview o usa 🤖</span>"
                 "</div>",
                 unsafe_allow_html=True,
             )
+
+    # ── Ventanas (solo una por ejecución) ─────────────────────────────────────
+    if _prev_ventana:
+        _edit_pid = st.session_state.pop("_sel_edit_pid", None)
+        if _edit_pid:
+            _row_edit = df_total[df_total["ID_Pregunta"] == _edit_pid]
+            if not _row_edit.empty:
+                _dialog_editar_pregunta(_edit_pid, dict(_row_edit.iloc[0]))
+        elif _open_preview:
+            _dialog_sel_preview(_open_preview)
 
     # ── Panel de estadísticas de selección (tiempo real) ─────────────────────
     if sel_ids_actual:
@@ -1043,7 +1098,7 @@ with tab_dev:
             with _tab_enun:
                 # Barra texto
                 st.markdown(
-                    "<div style='font-size:.72em;color:#7d3c98;font-weight:700;"
+                    "<div style='font-size:.72em;color:var(--ui-used, #7d3c98);font-weight:700;"
                     "letter-spacing:.06em;margin:6px 0 3px'>✏️ TEXTO</div>",
                     unsafe_allow_html=True,
                 )
@@ -1056,7 +1111,7 @@ with tab_dev:
                 _tc_math, _tc_phys = st.columns([9, 8])
                 with _tc_math:
                     st.markdown(
-                        "<div style='font-size:.72em;color:#1a6b3a;font-weight:700;"
+                        "<div style='font-size:.72em;color:var(--ui-ok, #1a6b3a);font-weight:700;"
                         "letter-spacing:.06em;margin:4px 0 3px'>📐 MATEMÁTICAS</div>",
                         unsafe_allow_html=True,
                     )
@@ -1068,7 +1123,7 @@ with tab_dev:
                             st.rerun()
                 with _tc_phys:
                     st.markdown(
-                        "<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
+                        "<div style='font-size:.72em;color:var(--primary, #1a3a5c);font-weight:700;"
                         "letter-spacing:.06em;margin:4px 0 3px'>🔬 FÍSICA MÉDICA</div>",
                         unsafe_allow_html=True,
                     )
@@ -1166,12 +1221,12 @@ with tab_dev:
                 if not subapts:
                     st.divider()
                     st.markdown(
-                        "<div style='font-size:.8em;color:#27ae60;font-weight:700;"
+                        "<div style='font-size:.8em;color:var(--ui-ok, #27ae60);font-weight:700;"
                         "margin:6px 0 4px'>📖 Solución modelo</div>",
                         unsafe_allow_html=True,
                     )
                     st.markdown(
-                        "<div style='font-size:.72em;color:#7d3c98;font-weight:700;"
+                        "<div style='font-size:.72em;color:var(--ui-used, #7d3c98);font-weight:700;"
                         "letter-spacing:.06em;margin:4px 0 3px'>✏️ TEXTO</div>",
                         unsafe_allow_html=True,
                     )
@@ -1184,7 +1239,7 @@ with tab_dev:
                     _stc_m, _stc_p = st.columns([9, 8])
                     with _stc_m:
                         st.markdown(
-                            "<div style='font-size:.72em;color:#1a6b3a;font-weight:700;"
+                            "<div style='font-size:.72em;color:var(--ui-ok, #1a6b3a);font-weight:700;"
                             "letter-spacing:.06em;margin:4px 0 3px'>📐 MATEMÁTICAS</div>",
                             unsafe_allow_html=True,
                         )
@@ -1196,7 +1251,7 @@ with tab_dev:
                                 st.rerun()
                     with _stc_p:
                         st.markdown(
-                            "<div style='font-size:.72em;color:#1a3a5c;font-weight:700;"
+                            "<div style='font-size:.72em;color:var(--primary, #1a3a5c);font-weight:700;"
                             "letter-spacing:.06em;margin:4px 0 3px'>🔬 FÍSICA MÉDICA</div>",
                             unsafe_allow_html=True,
                         )
@@ -1222,10 +1277,10 @@ with tab_dev:
                             _sbody = _dev_md_to_html(_sol_cur)
                             stcomponents.html(mathjax_html(
                                 f"""<div style="font-family:Calibri,sans-serif;font-size:10.5pt;
-                                    line-height:1.7;padding:16px 22px;background:#f6fff6;
-                                    border:1px solid #c8e6c9;border-radius:8px;color:#1a1a2e">
-                                  <div style="color:#27ae60;font-size:8pt;text-transform:uppercase;
-                                      letter-spacing:.1em;font-weight:700;border-bottom:2px solid #c8e6c9;
+                                    line-height:1.7;padding:16px 22px;background:var(--ok-bg, #f6fff6);
+                                    border:1px solid var(--ui-border, #c8e6c9);border-radius:8px;color:var(--text, #1a1a2e)">
+                                  <div style="color:var(--ui-ok, #27ae60);font-size:8pt;text-transform:uppercase;
+                                      letter-spacing:.1em;font-weight:700;border-bottom:2px solid var(--ui-border, #c8e6c9);
                                       padding-bottom:6px;margin-bottom:14px">Solución modelo</div>
                                   {_sbody}</div>"""
                             ), height=280, scrolling=True)
@@ -1317,7 +1372,7 @@ with tab_dev:
 
                         # Solución del apartado
                         st.markdown(
-                            "<div style='font-size:.72em;color:#27ae60;font-weight:700;"
+                            "<div style='font-size:.72em;color:var(--ui-ok, #27ae60);font-weight:700;"
                             "letter-spacing:.06em;margin:6px 0 3px'>📖 SOLUCIÓN (snippets)</div>",
                             unsafe_allow_html=True,
                         )
@@ -1347,16 +1402,16 @@ with tab_dev:
                             _apt_sol_html  = _dev_md_to_html(apt.get("solucion",""))
                             _apt_html = (
                                 f"<div style='font-family:Calibri,sans-serif;font-size:10.5pt;"
-                                f"line-height:1.7;padding:14px 18px;background:#f8f9fa;"
-                                f"border:1px solid #dee2e6;border-radius:6px;color:#1a1a2e'>"
-                                f"<div style='font-weight:700;color:#7d3c98;margin-bottom:8px'>"
+                                f"line-height:1.7;padding:14px 18px;background:var(--card2, #f8f9fa);"
+                                f"border:1px solid var(--ui-border, #dee2e6);border-radius:6px;color:var(--text, #1a1a2e)'>"
+                                f"<div style='font-weight:700;color:var(--ui-used, #7d3c98);margin-bottom:8px'>"
                                 f"Apartado {ai+1}</div>{_apt_enun_html}"
                             )
                             if apt.get("solucion","").strip():
                                 _apt_html += (
                                     f"<div style='margin-top:10px;padding:8px 12px;"
-                                    f"background:#f0fff0;border-left:3px solid #27ae60;"
-                                    f"border-radius:4px'><small style='color:#27ae60;"
+                                    f"background:var(--ok-bg, #f0fff0);border-left:3px solid var(--ui-ok, #27ae60);"
+                                    f"border-radius:4px'><small style='color:var(--ui-ok, #27ae60);"
                                     f"font-weight:700'>Solución:</small><br>{_apt_sol_html}</div>"
                                 )
                             _apt_html += "</div>"
@@ -1400,9 +1455,9 @@ with tab_dev:
                 st.caption("Criterios de evaluación: descripción, puntos máximos e incremento.")
                 criterios = list(q.get("criterios", []))
                 _rh1, _rh2, _rh3, _rh4 = st.columns([5, 1.2, 1.2, 0.8])
-                _rh1.markdown("<small style='color:#888'>Criterio</small>", unsafe_allow_html=True)
-                _rh2.markdown("<small style='color:#888'>Pts máx</small>", unsafe_allow_html=True)
-                _rh3.markdown("<small style='color:#888'>Incremento</small>", unsafe_allow_html=True)
+                _rh1.markdown("<small style='color:var(--muted, #888)'>Criterio</small>", unsafe_allow_html=True)
+                _rh2.markdown("<small style='color:var(--muted, #888)'>Pts máx</small>", unsafe_allow_html=True)
+                _rh3.markdown("<small style='color:var(--muted, #888)'>Incremento</small>", unsafe_allow_html=True)
                 to_del_crit = []
                 for ci, crit in enumerate(criterios):
                     rc1, rc2, rc3, rc4 = st.columns([5, 1.2, 1.2, 0.8])
@@ -1500,10 +1555,10 @@ with tab_dev:
                     _qh_main   = _dev_md_to_html(q.get("txt",""))
                     _qhtml = (
                         f"<div style='font-family:Calibri,sans-serif;font-size:11pt;"
-                        f"line-height:1.75;padding:20px 26px;background:#fdfaff;"
-                        f"border:1px solid #ede7f6;border-radius:8px;color:#1a1a2e'>"
-                        f"<div style='color:#7d3c98;font-size:8pt;text-transform:uppercase;"
-                        f"letter-spacing:.1em;font-weight:700;border-bottom:2px solid #ede7f6;"
+                        f"line-height:1.75;padding:20px 26px;background:var(--used-bg, #fdfaff);"
+                        f"border:1px solid var(--ui-border, #ede7f6);border-radius:8px;color:var(--text, #1a1a2e)'>"
+                        f"<div style='color:var(--ui-used, #7d3c98);font-size:8pt;text-transform:uppercase;"
+                        f"letter-spacing:.1em;font-weight:700;border-bottom:2px solid var(--ui-border, #ede7f6);"
                         f"padding-bottom:6px;margin-bottom:16px'>"
                         f"Pregunta {i+1} · {'Soluciones' if _show_sol else 'Alumno'}</div>"
                         f"<p style='font-weight:700;margin-bottom:10px'>({_pts_disp:g} pts)</p>"
@@ -1524,21 +1579,21 @@ with tab_dev:
                             _qhtml += (
                                 f"<li style='margin-bottom:10px'>"
                                 f"<span style='font-weight:600'>({_lab2})</span> "
-                                f"<em style='color:#888'>({_apt_pts2:g} pt)</em> {_apt_e2}"
+                                f"<em style='color:var(--muted, #888)'>({_apt_pts2:g} pt)</em> {_apt_e2}"
                             )
                             if _show_sol and apt2.get("solucion","").strip():
                                 _qhtml += (
                                     f"<div style='margin:6px 0 0 16px;padding:6px 10px;"
-                                    f"background:#f0fff0;border-left:3px solid #27ae60;"
-                                    f"border-radius:3px'><small style='color:#27ae60;"
+                                    f"background:var(--ok-bg, #f0fff0);border-left:3px solid var(--ui-ok, #27ae60);"
+                                    f"border-radius:3px'><small style='color:var(--ui-ok, #27ae60);"
                                     f"font-weight:700'>Sol:</small> "
                                     f"{_dev_md_to_html(apt2.get('solucion',''))}</div>"
                                 )
                             elif not _show_sol:
                                 _qhtml += (
                                     f"<div style='margin:6px 0 0 16px;height:40px;"
-                                    f"border:1px dashed #ccc;border-radius:3px;"
-                                    f"background:#fafafa'></div>"
+                                    f"border:1px dashed var(--ui-border, #ccc);border-radius:3px;"
+                                    f"background:var(--card2, #fafafa)'></div>"
                                 )
                             _qhtml += "</li>"
                         _qhtml += "</ol>"
@@ -1547,18 +1602,18 @@ with tab_dev:
                         if _show_sol and _sol_txt:
                             _qhtml += (
                                 f"<div style='margin-top:14px;padding:10px 14px;"
-                                f"background:#f0fff0;border-left:4px solid #27ae60;"
+                                f"background:var(--ok-bg, #f0fff0);border-left:4px solid var(--ui-ok, #27ae60);"
                                 f"border-radius:4px'>"
-                                f"<small style='color:#27ae60;font-weight:700'>"
+                                f"<small style='color:var(--ui-ok, #27ae60);font-weight:700'>"
                                 f"Solución modelo</small><br>"
                                 f"{_dev_md_to_html(_sol_txt)}</div>"
                             )
                         else:
                             _qhtml += (
                                 "<div style='margin-top:14px;height:80px;"
-                                "border:1px dashed #bdc3c7;border-radius:4px;"
-                                "background:#fafafa;display:flex;align-items:center;"
-                                "justify-content:center;color:#aaa'>"
+                                "border:1px dashed var(--border2, #bdc3c7);border-radius:4px;"
+                                "background:var(--card2, #fafafa);display:flex;align-items:center;"
+                                "justify-content:center;color:var(--faint, #aaa)'>"
                                 "[ Espacio de respuesta ]</div>"
                             )
                     _qhtml += "</div>"
@@ -1746,7 +1801,7 @@ with tab_prev:
 
         # ── Cabecera del examen ───────────────────────────────────────────────
         st.markdown(
-            f"<div style='background:linear-gradient(90deg,#2c3e50,#1a252f);color:white;"
+            f"<div style='background:linear-gradient(90deg,var(--chip, #2c3e50),var(--chip, #1a252f));color:var(--chip-ink, white);"
             f"padding:14px 18px;border-radius:8px;margin-bottom:16px'>"
             f"<h3 style='margin:0;font-size:1.1em'>{inst} · {asig}</h3>"
             f"<p style='margin:4px 0 0 0;opacity:0.75;font-size:0.85em'>"
@@ -1766,11 +1821,11 @@ with tab_prev:
             dev_qs = st.session_state.dev_questions
             html_body = ""
             if dev_qs:
-                html_body += "<h4 style='color:#2c3e50'>PARTE I — DESARROLLO</h4>"
+                html_body += "<h4 style='color:var(--text, #2c3e50)'>PARTE I — DESARROLLO</h4>"
                 for i, q in enumerate(dev_qs):
                     html_body += f"<p><b>{i+1}. {q['txt']}</b> ({q['pts']} pts)</p>"
                 html_body += "<hr style='margin:12px 0'>"
-            html_body += f"<h4 style='color:#2c3e50'>PARTE II — TEST ({len(cache)} preguntas)</h4>"
+            html_body += f"<h4 style='color:var(--text, #2c3e50)'>PARTE II — TEST ({len(cache)} preguntas)</h4>"
             q_num = 0
             prev_blq = None
             for p in cache:
@@ -1793,24 +1848,24 @@ with tab_prev:
             dev_qs = st.session_state.dev_questions
             if dev_qs:
                 st.markdown(
-                    "<div style='background:#eaf4fb;border-left:4px solid #3498db;"
+                    "<div style='background:var(--primary-soft, #eaf4fb);border-left:4px solid var(--primary, #3498db);"
                     "border-radius:5px;padding:10px 14px;margin-bottom:12px'>"
-                    "<b style='color:#2c3e50'>PARTE I — DESARROLLO</b></div>",
+                    "<b style='color:var(--text, #2c3e50)'>PARTE I — DESARROLLO</b></div>",
                     unsafe_allow_html=True
                 )
                 for i, q in enumerate(dev_qs):
                     st.markdown(
-                        f"<div style='padding:6px 14px;margin-bottom:4px;border-left:3px solid #3498db'>"
-                        f"<b>{i+1}.</b> {q['txt']} <span style='color:#888;font-size:0.85em'>({q['pts']} pts · {q['espacio']})</span>"
+                        f"<div style='padding:6px 14px;margin-bottom:4px;border-left:3px solid var(--primary, #3498db)'>"
+                        f"<b>{i+1}.</b> {q['txt']} <span style='color:var(--muted, #888);font-size:0.85em'>({q['pts']} pts · {q['espacio']})</span>"
                         f"</div>",
                         unsafe_allow_html=True
                     )
 
             st.markdown(
-                f"<div style='background:#eaf4fb;border-left:4px solid #3498db;"
+                f"<div style='background:var(--primary-soft, #eaf4fb);border-left:4px solid var(--primary, #3498db);"
                 f"border-radius:5px;padding:10px 14px;margin-bottom:12px'>"
-                f"<b style='color:#2c3e50'>PARTE II — TEST</b>"
-                f"<span style='margin-left:10px;color:#666;font-size:0.85em'>{len(cache)} preguntas</span></div>",
+                f"<b style='color:var(--text, #2c3e50)'>PARTE II — TEST</b>"
+                f"<span style='margin-left:10px;color:var(--muted, #666);font-size:0.85em'>{len(cache)} preguntas</span></div>",
                 unsafe_allow_html=True
             )
 
@@ -2198,29 +2253,29 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
     _sol_css_color = _SOL_COLOR_CSS.get(cfg.get("sol_color", ""), "#1a7a2e")
     html = []
     html.append(f"""<style>
-.ep-wrap {{ max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:#111; background:#fff; padding:24px 32px; border:1px solid #ccc; border-radius:6px; }}
-.ep-header {{ text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:14px; }}
+.ep-wrap {{ max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:var(--text, #111); background:var(--card, #fff); padding:24px 32px; border:1px solid var(--ui-border, #ccc); border-radius:6px; }}
+.ep-header {{ text-align:center; border-bottom:2px solid var(--border2, #333); padding-bottom:10px; margin-bottom:14px; }}
 .ep-inst {{ font-size:12pt; font-weight:bold; }}
 .ep-title {{ font-size:15pt; font-weight:bold; margin:4px 0; }}
 .ep-subtitle {{ font-size:12pt; }}
-.ep-meta {{ font-size:9.5pt; color:#444; margin-top:4px; }}
-.ep-scoring {{ font-size:9.5pt; color:#1a5276; background:#eaf4fb; border:1px solid #aed6f1; border-radius:4px; padding:3px 10px; margin-top:6px; display:inline-block; }}
-.ep-campos {{ border-top:1px solid #aaa; padding-top:10px; margin:12px 0 6px 0; display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; font-size:11pt; }}
+.ep-meta {{ font-size:9.5pt; color:var(--text2, #444); margin-top:4px; }}
+.ep-scoring {{ font-size:9.5pt; color:var(--primary, #1a5276); background:var(--primary-soft, #eaf4fb); border:1px solid var(--border2, #aed6f1); border-radius:4px; padding:3px 10px; margin-top:6px; display:inline-block; }}
+.ep-campos {{ border-top:1px solid var(--ui-border, #aaa); padding-top:10px; margin:12px 0 6px 0; display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; font-size:11pt; }}
 .ep-campo {{ display:flex; align-items:baseline; gap:4px; }}
 .ep-campo b {{ white-space:nowrap; }}
-.ep-campo .ep-underline {{ min-width:80px; flex:1; border-bottom:1px solid #555; min-height:18px; display:inline-block; }}
-.ep-campo .ep-underline-xs {{ width:100px; border-bottom:1px solid #555; min-height:18px; display:inline-block; }}
-.ep-instr {{ background:#f7f7f7; border:1px solid #bbb; border-radius:4px; padding:8px 12px; font-size:10pt; font-style:italic; margin:10px 0 14px 0; }}
-.ep-part {{ font-size:12pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:5px 12px; margin:16px 0 8px 0; border-radius:4px; }}
-.ep-part-info {{ font-size:10pt; font-style:italic; color:#444; margin-bottom:8px; }}
-.ep-bloque-sep {{ font-size:10pt; font-weight:bold; color:#2c3e50; border-bottom:1px solid #adb5bd; margin:10px 0 4px 0; padding-bottom:2px; }}
+.ep-campo .ep-underline {{ min-width:80px; flex:1; border-bottom:1px solid var(--border2, #555); min-height:18px; display:inline-block; }}
+.ep-campo .ep-underline-xs {{ width:100px; border-bottom:1px solid var(--border2, #555); min-height:18px; display:inline-block; }}
+.ep-instr {{ background:var(--card2, #f7f7f7); border:1px solid var(--ui-border, #bbb); border-radius:4px; padding:8px 12px; font-size:10pt; font-style:italic; margin:10px 0 14px 0; }}
+.ep-part {{ font-size:12pt; font-weight:bold; text-align:center; background:var(--chip, #2c3e50); color:var(--chip-ink, #fff); padding:5px 12px; margin:16px 0 8px 0; border-radius:4px; }}
+.ep-part-info {{ font-size:10pt; font-style:italic; color:var(--text2, #444); margin-bottom:8px; }}
+.ep-bloque-sep {{ font-size:10pt; font-weight:bold; color:var(--text, #2c3e50); border-bottom:1px solid var(--ui-border, #adb5bd); margin:10px 0 4px 0; padding-bottom:2px; }}
 .ep-q {{ margin-bottom:10px; page-break-inside:avoid; }}
 .ep-q-stem {{ margin:0 0 5px 0; }}
 .ep-q-num {{ font-weight:bold; }}
 .ep-options {{ margin:3px 0 3px 22px; font-size:10.5pt; }}
 .ep-opt {{ display:block; padding:1px 4px; }}
 .ep-opt.correct {{ font-weight:bold; color:{_sol_css_color}; }}
-.ep-space-box {{ border:1px solid #999; margin:5px 0 12px 22px; border-radius:3px; background:#fafafa; }}
+.ep-space-box {{ border:1px solid var(--ui-border, #999); margin:5px 0 12px 22px; border-radius:3px; background:var(--card2, #fafafa); }}
 </style>""")
 
     html.append('<div class="ep-wrap">')
@@ -2308,7 +2363,7 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
             _img_html = (
                 f'<div style="text-align:center;margin:6px 0">'
                 f'<img src="data:image/{_img_ext};base64,{_b64.b64encode(img_bytes).decode()}" '
-                f'style="max-width:85%;border:1px solid #ccc;border-radius:3px"></div>'
+                f'style="max-width:85%;border:1px solid var(--ui-border, #ccc);border-radius:3px"></div>'
             ) if img_bytes else ""
 
             html.append('<div class="ep-q">')
@@ -2317,7 +2372,7 @@ def _build_exam_preview_html(cfg, pool_p, dev_qs, show_sol=False, modelo="A"):
             html.append(
                 f'<div class="ep-q-stem">'
                 f'<span class="ep-q-num">{i+1}.</span>'
-                f' <em style="font-size:9.5pt;color:#555">({pts} pt{"s" if float(pts) != 1 else ""})</em>'
+                f' <em style="font-size:9.5pt;color:var(--text2, #555)">({pts} pt{"s" if float(pts) != 1 else ""})</em>'
                 f'<span style="margin-left:6px">{txt}</span>'
                 f'</div>'
             )
@@ -2381,16 +2436,16 @@ def _build_solucionario_html(cfg, pool_p, dev_qs):
     """Genera HTML del solucionario: enunciado + respuesta correcta + texto de solución."""
     _sol_css_color = _SOL_COLOR_CSS.get(cfg.get("sol_color", ""), "#1a7a2e")
     html = [f"""<style>
-.sol-wrap {{ max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:#111; background:#fff; padding:24px 32px; border:1px solid #ccc; border-radius:6px; }}
-.sol-title {{ font-size:14pt; font-weight:bold; text-align:center; background:#2c3e50; color:#fff; padding:8px 16px; border-radius:6px; margin-bottom:18px; }}
-.sol-q {{ border:1px solid #dee2e6; border-radius:6px; padding:12px 16px; margin-bottom:14px; page-break-inside:avoid; }}
-.sol-q-num {{ font-weight:bold; color:#2c3e50; font-size:10.5pt; }}
-.sol-stem {{ margin:4px 0 8px 0; font-size:10.5pt; color:#333; }}
+.sol-wrap {{ max-width:760px; margin:0 auto; font-family:'Times New Roman',serif; font-size:11pt; color:var(--text, #111); background:var(--card, #fff); padding:24px 32px; border:1px solid var(--ui-border, #ccc); border-radius:6px; }}
+.sol-title {{ font-size:14pt; font-weight:bold; text-align:center; background:var(--chip, #2c3e50); color:var(--chip-ink, #fff); padding:8px 16px; border-radius:6px; margin-bottom:18px; }}
+.sol-q {{ border:1px solid var(--ui-border, #dee2e6); border-radius:6px; padding:12px 16px; margin-bottom:14px; page-break-inside:avoid; }}
+.sol-q-num {{ font-weight:bold; color:var(--text, #2c3e50); font-size:10.5pt; }}
+.sol-stem {{ margin:4px 0 8px 0; font-size:10.5pt; color:var(--text, #333); }}
 .sol-resp {{ font-size:10pt; font-weight:bold; color:{_sol_css_color}; margin-bottom:6px; }}
-.sol-text {{ background:#f8f9fa; border-left:3px solid {_sol_css_color}; padding:8px 12px; font-size:10.5pt; line-height:1.6; border-radius:0 4px 4px 0; }}
-.sol-no-sol {{ font-size:9.5pt; color:#aaa; font-style:italic; }}
-.sol-dev {{ background:#fff8e1; border:1px solid #f0c040; border-radius:6px; padding:12px 16px; margin-bottom:14px; }}
-.sol-dev-title {{ font-size:10.5pt; font-weight:bold; color:#7a5500; margin-bottom:6px; }}
+.sol-text {{ background:var(--card2, #f8f9fa); border-left:3px solid {_sol_css_color}; padding:8px 12px; font-size:10.5pt; line-height:1.6; border-radius:0 4px 4px 0; }}
+.sol-no-sol {{ font-size:9.5pt; color:var(--faint, #aaa); font-style:italic; }}
+.sol-dev {{ background:var(--note-bg, #fff8e1); border:1px solid var(--ui-warn, #f0c040); border-radius:6px; padding:12px 16px; margin-bottom:14px; }}
+.sol-dev-title {{ font-size:10.5pt; font-weight:bold; color:var(--note-text, #7a5500); margin-bottom:6px; }}
 </style>"""]
     html.append('<div class="sol-wrap">')
     tit_sol = cfg.get("titulo_solucionario", "Solucionario")
@@ -2398,7 +2453,7 @@ def _build_solucionario_html(cfg, pool_p, dev_qs):
 
     # ── Preguntas de desarrollo ──────────────────────────────────────────────
     if dev_qs:
-        html.append('<div class="sol-q" style="border-color:#f0c040">')
+        html.append('<div class="sol-q" style="border-color:var(--ui-warn, #f0c040)">')
         html.append('<div class="sol-q-num">PREGUNTAS DE DESARROLLO</div>')
         for i, q in enumerate(dev_qs):
             sol_mod = q.get("solucion_modelo", "").strip()
@@ -3190,7 +3245,7 @@ with tab_exp:
         if exp_tex:  _tpl_rows += f'<div style="opacity:0.8">📎 LaTeX: {_tpl_t}</div>'
 
         st.markdown(
-            f"""<div style="background:linear-gradient(135deg,#1a252f,#2c3e50);color:white;
+            f"""<div style="background:linear-gradient(135deg,var(--chip, #1a252f),var(--chip, #2c3e50));color:var(--chip-ink, white);
             border-radius:12px;padding:18px 20px;margin-bottom:12px;font-size:0.87em;line-height:1.75">
             <div style="font-size:1.05em;font-weight:800;margin-bottom:2px">{asig or '—'} · {tipo or '—'}</div>
             <div style="opacity:0.65;font-size:0.82em;margin-bottom:10px">
@@ -3466,9 +3521,9 @@ with tab_hist:
                     _pct_d = round(n_d / _dif_total * 100)
                     st.markdown(
                         f"<div style='font-size:0.85em'>"
-                        f"<span style='color:#27ae60'>⬤ Fácil: {n_f} ({_pct_f}%)</span> &nbsp; "
-                        f"<span style='color:#f39c12'>⬤ Media: {n_m} ({_pct_m}%)</span> &nbsp; "
-                        f"<span style='color:#c0392b'>⬤ Difícil: {n_d} ({_pct_d}%)</span>"
+                        f"<span style='color:var(--ui-ok, #27ae60)'>⬤ Fácil: {n_f} ({_pct_f}%)</span> &nbsp; "
+                        f"<span style='color:var(--ui-warn, #f39c12)'>⬤ Media: {n_m} ({_pct_m}%)</span> &nbsp; "
+                        f"<span style='color:var(--ui-err, #c0392b)'>⬤ Difícil: {n_d} ({_pct_d}%)</span>"
                         f"</div>"
                         f"<div style='display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:4px'>"
                         f"<div style='width:{_pct_f}%;background:#27ae60'></div>"

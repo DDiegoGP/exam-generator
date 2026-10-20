@@ -15,7 +15,7 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
-from app_theme import apply_theme, get_estilo  # noqa: F401  (apply_theme se reexporta a las páginas)
+from app_theme import apply_theme, get_estilo, render_estilo_quick  # noqa: F401  (apply_theme se reexporta a las páginas)
 
 # ── Archivos persistentes ────────────────────────────────────────────────────
 PRESETS_FILE = os.path.join(PROJECT_DIR, "presets_examen.json")
@@ -726,8 +726,8 @@ def render_sidebar():
         )
         if get_estilo() == "clasico":
             st.markdown(
-                "<div style='background:linear-gradient(135deg,#1a252f,#2c3e50);"
-                "border-radius:10px;padding:12px 16px;margin-bottom:14px;color:white'>"
+                "<div style='background:linear-gradient(135deg,var(--chip, #1a252f),var(--chip, #2c3e50));"
+                "border-radius:10px;padding:12px 16px;margin-bottom:14px;color:var(--chip-ink, white)'>"
                 "<div style='font-size:1.15em;font-weight:800;letter-spacing:-.01em'>📝 ExamGen UCM</div>"
                 f"<div style='font-size:0.78em;opacity:0.85;margin-top:3px;font-weight:600'>{_sub}</div>"
                 f"{_inst_line}"
@@ -792,16 +792,16 @@ def render_sidebar():
         _univ_sb  = _cg.get("universidad", "") or ""
         if any([_asig_sb, _grado_sb, _dept_sb, _univ_sb]):
             _lines = []
-            if _asig_sb:  _lines.append(f"<b style='color:var(--text)'>{_asig_sb}</b>")
-            if _grado_sb: _lines.append(f"<span style='color:var(--text2)'>{_grado_sb}</span>")
-            if _anio_sb:  _lines.append(f"<span style='color:var(--muted);font-size:0.85em'>{_anio_sb}</span>")
-            if _dept_sb:  _lines.append(f"<span style='color:var(--muted);font-size:0.82em'>{_dept_sb}</span>")
-            if _univ_sb:  _lines.append(f"<span style='color:var(--muted);font-size:0.82em'>{_univ_sb}</span>")
+            if _asig_sb:  _lines.append(f"<b style='color:var(--text, #2c3e50)'>{_asig_sb}</b>")
+            if _grado_sb: _lines.append(f"<span style='color:var(--text2, #555)'>{_grado_sb}</span>")
+            if _anio_sb:  _lines.append(f"<span style='color:var(--muted, #777);font-size:0.85em'>{_anio_sb}</span>")
+            if _dept_sb:  _lines.append(f"<span style='color:var(--muted, #888);font-size:0.82em'>{_dept_sb}</span>")
+            if _univ_sb:  _lines.append(f"<span style='color:var(--muted, #888);font-size:0.82em'>{_univ_sb}</span>")
             st.markdown(
-                "<div style='background:var(--primary-soft);border:1px solid var(--border);border-radius:10px;"
-                "padding:9px 13px;margin-bottom:10px;line-height:1.6'>"
+                "<div style='background:var(--primary-soft, #f0f7ff);border:1px solid var(--ui-border, #c8dff8);"
+                "border-radius:8px;padding:9px 13px;margin-bottom:10px;line-height:1.6'>"
                 + "<br>".join(_lines) +
-                "<div style='font-size:0.7em;color:var(--muted);margin-top:4px'>Configuración → General</div>"
+                "<div style='font-size:0.7em;color:var(--faint, #aaa);margin-top:4px'>📋 Configuración → General</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -814,7 +814,7 @@ def render_sidebar():
             df = st.session_state.df_preguntas
             st.markdown(
                 f'<span class="conn-ok">✅ Conectado</span> '
-                f'<small style="color:#555">{fname}</small>',
+                f'<small style="color:var(--text2, #555)">{fname}</small>',
                 unsafe_allow_html=True,
             )
             st.caption(f"{len(df)} preguntas · {len(st.session_state.bloques)} bloques")
@@ -854,9 +854,10 @@ def render_sidebar():
             st.caption("Sube un archivo Excel arriba para empezar.")
 
         st.divider()
+        render_estilo_quick()
         st.caption("ExamGen UCM · Unidad de Física Médica")
         st.markdown(
-            "<div style='font-size:0.72em;color:#aaa;text-align:center;line-height:1.5'>"
+            "<div style='font-size:0.72em;color:var(--faint, #aaa);text-align:center;line-height:1.5'>"
             "Desarrollado por <b>Diego García Pinto</b><br>"
             "UCM · Física Médica"
             "</div>",
@@ -963,21 +964,21 @@ def mathjax_html(contenido: str) -> str:
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <style>
 *{{box-sizing:border-box}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#2c3e50;padding:10px 12px;margin:0;background:#f8f9fa}}
-.q-card{{border-left:4px solid #bdc3c7;border-radius:6px;padding:10px 14px;margin-bottom:8px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:0.9em;line-height:1.5}}
-.q-card.dif-facil{{border-left-color:#27ae60;background:#f0faf4}}
-.q-card.dif-media{{border-left-color:#f39c12;background:#fffdf0}}
-.q-card.dif-dificil{{border-left-color:#c0392b;background:#fdf5f5}}
-.q-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:0.78em;color:#666}}
-.q-num{{font-weight:700;color:#2c3e50;font-size:1em}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text, #2c3e50);padding:10px 12px;margin:0;background:var(--card2, #f8f9fa)}}
+.q-card{{border-left:4px solid var(--border2, #bdc3c7);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--card, #fff);box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:0.9em;line-height:1.5}}
+.q-card.dif-facil{{border-left-color:var(--ui-ok, #27ae60);background:var(--ok-bg, #f0faf4)}}
+.q-card.dif-media{{border-left-color:var(--ui-warn, #f39c12);background:var(--note-bg, #fffdf0)}}
+.q-card.dif-dificil{{border-left-color:var(--ui-err, #c0392b);background:var(--err-bg, #fdf5f5)}}
+.q-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:0.78em;color:var(--muted, #666)}}
+.q-num{{font-weight:700;color:var(--text, #2c3e50);font-size:1em}}
 .q-enun{{font-weight:600;margin-bottom:7px}}
 .q-opts{{padding-left:8px}}
-.q-opt{{margin:2px 0;color:#444}}
-.q-opt.correct{{color:#1e8449;font-weight:700}}
+.q-opt{{margin:2px 0;color:var(--text2, #444)}}
+.q-opt.correct{{color:var(--ui-ok, #1e8449);font-weight:700}}
 .tag{{display:inline-block;border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:600;margin-left:4px}}
-.tag-f{{background:#d5f5e3;color:#1e8449}}.tag-m{{background:#fef9e7;color:#b7950b}}
-.tag-d{{background:#fadbd8;color:#922b21}}.tag-u{{background:#e8daef;color:#6c3483}}.tag-n{{background:#eaecee;color:#626567}}
-.bloque-hdr{{background:linear-gradient(90deg,#2c3e50,#34495e);color:#fff;padding:7px 12px;border-radius:5px;margin:14px 0 6px 0;font-weight:700;font-size:0.92em;display:flex;justify-content:space-between}}
+.tag-f{{background:var(--ok-bg, #d5f5e3);color:var(--ui-ok, #1e8449)}}.tag-m{{background:var(--note-bg, #fef9e7);color:var(--ui-warn, #b7950b)}}
+.tag-d{{background:var(--err-bg, #fadbd8);color:var(--ui-err, #922b21)}}.tag-u{{background:var(--used-bg, #e8daef);color:var(--ui-used, #6c3483)}}.tag-n{{background:var(--card2, #eaecee);color:var(--muted, #626567)}}
+.bloque-hdr{{background:linear-gradient(90deg,var(--chip, #2c3e50),var(--chip, #34495e));color:var(--chip-ink, #fff);padding:7px 12px;border-radius:5px;margin:14px 0 6px 0;font-weight:700;font-size:0.92em;display:flex;justify-content:space-between}}
 </style>
 </head><body>{contenido}</body></html>"""
 
@@ -1013,7 +1014,7 @@ def render_question_card_html(row, show_sol: bool = True, num: int = None, inclu
     notas = str(row.get("notas", "") or "").strip()
     nota_html = ""
     if include_notas and notas:
-        nota_html = (f'<div style="margin-top:5px;padding:3px 8px;background:#fef3cd;'
+        nota_html = (f'<div style="margin-top:5px;padding:3px 8px;background:var(--note-bg, #fef3cd);'
                      f'border-radius:3px;font-size:0.8em">📝 {notas}</div>')
 
     def _trunc(s: str, n: int = 32) -> str:
@@ -1025,7 +1026,7 @@ def render_question_card_html(row, show_sol: bool = True, num: int = None, inclu
     return (
         f'<div class="q-card {cls_card}">'
         f'<div class="q-head">'
-        f'<span class="q-num">{num_s} &nbsp;<small style="font-weight:400;color:#888">{row.get("ID_Pregunta","")}</small></span>'
+        f'<span class="q-num">{num_s} &nbsp;<small style="font-weight:400;color:var(--muted, #888)">{row.get("ID_Pregunta","")}</small></span>'
         f'<span title="{nombre_bloque(str(row.get("bloque","")))} · {nombre_tema(str(row.get("Tema","")))}">'
         f'{_blq_label} · {_tem_label} '
         f'<span class="tag {cls_tag}">{dif}</span>'

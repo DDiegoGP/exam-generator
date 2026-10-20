@@ -15,7 +15,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from app_utils import init_session_state, render_sidebar, handle_oauth_callback, apply_theme
+from app_utils import (init_session_state, render_sidebar, handle_oauth_callback, apply_theme,
+                       nombre_bloque, _nsort)
+from app_theme import get_estilo, kpi_html, bar_html
 import os
 
 # ── Inicializar estado ────────────────────────────────────────────────────────
@@ -31,11 +33,11 @@ st.markdown("""
 
 /* ── Hero ─────────────────────────────────────────────────── */
 .home-hero {
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 45%, #1d4ed8 100%);
+  background: linear-gradient(135deg, var(--chip, #0f172a) 0%, var(--chip, #1e3a5f) 45%, #1d4ed8 100%);
   border-radius: 18px;
   padding: 36px 48px;
   margin-bottom: 24px;
-  color: white;
+  color: var(--chip-ink, white);
   position: relative;
   overflow: hidden;
   box-shadow: 0 10px 40px rgba(29,78,216,.30);
@@ -96,11 +98,11 @@ st.markdown("""
 
 /* ── Tarjetas de métricas ──────────────────────────────────── */
 .stat-hero {
-  background: white;
+  background: var(--card, white);
   border-radius: 14px;
   padding: 16px 20px;
   box-shadow: 0 2px 12px rgba(0,0,0,.07);
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--ui-border, #f1f5f9);
   text-align: center;
   position: relative;
   overflow: hidden;
@@ -117,23 +119,23 @@ st.markdown("""
 .stat-hero.warn{ --accent: #f59e0b; }
 .stat-hero.pur { --accent: #8b5cf6; }
 .stat-hero.red { --accent: #ef4444; }
-.stat-hero-num { font-size: 2em; font-weight: 800; color: #0f172a; line-height: 1; }
-.stat-hero-lbl { font-size: 0.72em; color: #94a3b8; margin-top: 5px; font-weight: 600; letter-spacing:.06em; text-transform:uppercase; }
+.stat-hero-num { font-size: 2em; font-weight: 800; color: var(--text, #0f172a); line-height: 1; }
+.stat-hero-lbl { font-size: 0.72em; color: var(--muted, #94a3b8); margin-top: 5px; font-weight: 600; letter-spacing:.06em; text-transform:uppercase; }
 
 /* ── Módulos ────────────────────────────────────────────────── */
 .mod-card {
-  background: white;
+  background: var(--card, white);
   border-radius: 16px;
   padding: 24px 26px;
   box-shadow: 0 2px 14px rgba(0,0,0,.07);
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--ui-border, #f1f5f9);
   height: 100%;
   transition: box-shadow .25s, transform .2s, border-color .2s;
 }
 .mod-card:hover {
   box-shadow: 0 14px 36px rgba(0,0,0,.13);
   transform: translateY(-3px);
-  border-color: #e2e8f0;
+  border-color: var(--ui-border, #e2e8f0);
 }
 .mod-icon-wrap {
   width: 50px; height: 50px;
@@ -142,44 +144,44 @@ st.markdown("""
   font-size: 1.5em;
   margin-bottom: 14px;
 }
-.mod-icon-wrap.blue   { background: #eff6ff; }
-.mod-icon-wrap.indigo { background: #eef2ff; }
-.mod-icon-wrap.green  { background: #f0fdf4; }
-.mod-icon-wrap.amber  { background: #fffbeb; }
-.mod-icon-wrap.rose   { background: #fff1f2; }
-.mod-icon-wrap.teal   { background: #f0fdfa; }
-.mod-title { font-size: 1.05em; font-weight: 700; color: #0f172a; margin: 0 0 8px 0; }
-.mod-desc  { font-size: 0.84em; color: #64748b; line-height: 1.6; margin-bottom: 14px; }
+.mod-icon-wrap.blue   { background: var(--primary-soft, #eff6ff); }
+.mod-icon-wrap.indigo { background: var(--primary-soft, #eef2ff); }
+.mod-icon-wrap.green  { background: var(--ok-bg, #f0fdf4); }
+.mod-icon-wrap.amber  { background: var(--note-bg, #fffbeb); }
+.mod-icon-wrap.rose   { background: var(--err-bg, #fff1f2); }
+.mod-icon-wrap.teal   { background: var(--ok-bg, #f0fdfa); }
+.mod-title { font-size: 1.05em; font-weight: 700; color: var(--text, #0f172a); margin: 0 0 8px 0; }
+.mod-desc  { font-size: 0.84em; color: var(--muted, #64748b); line-height: 1.6; margin-bottom: 14px; }
 .mod-feat  { margin: 0; padding: 0; list-style: none; }
 .mod-feat li {
-  font-size: 0.79em; color: #475569;
+  font-size: 0.79em; color: var(--text2, #475569);
   padding: 2px 0; display: flex; align-items: flex-start; gap: 7px;
 }
 .mod-feat li::before {
-  content: "✓"; color: #3b82f6; font-weight: 700; font-size: 0.95em; margin-top:1px; flex-shrink:0;
+  content: "✓"; color: var(--primary, #3b82f6); font-weight: 700; font-size: 0.95em; margin-top:1px; flex-shrink:0;
 }
 
 /* ── Actividad reciente ─────────────────────────────────────── */
 .activity-wrap {
-  background: white;
+  background: var(--card, white);
   border-radius: 14px;
   padding: 18px 22px;
   box-shadow: 0 2px 10px rgba(0,0,0,.06);
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--ui-border, #f1f5f9);
 }
 .activity-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 9px 0;
-  border-bottom: 1px solid #f8fafc;
+  border-bottom: 1px solid var(--ui-border, #f8fafc);
   font-size: 0.84em;
 }
 .activity-row:last-child { border-bottom: none; }
-.act-title { font-weight: 600; color: #1e293b; flex: 1; }
-.act-meta  { color: #94a3b8; font-size: 0.9em; white-space: nowrap; margin-left: 12px; }
+.act-title { font-weight: 600; color: var(--text, #1e293b); flex: 1; }
+.act-meta  { color: var(--muted, #94a3b8); font-size: 0.9em; white-space: nowrap; margin-left: 12px; }
 .act-badge {
-  background: #eff6ff; color: #1d4ed8;
+  background: var(--primary-soft, #eff6ff); color: var(--primary, #1d4ed8);
   border-radius: 6px;
   padding: 2px 8px; font-size: 0.82em; font-weight: 600; margin-left: 8px;
 }
@@ -187,17 +189,17 @@ st.markdown("""
 /* ── Section label ──────────────────────────────────────────── */
 .section-label {
   font-size: 0.72em; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-  color: #94a3b8; margin-bottom: 12px; display: block;
+  color: var(--muted, #94a3b8); margin-bottom: 12px; display: block;
 }
 
 /* ── No-DB banner ───────────────────────────────────────────── */
 .no-db-banner {
-  background: linear-gradient(90deg, #fff7ed, #fffbeb);
-  border: 1px solid #fed7aa;
+  background: linear-gradient(90deg, var(--note-bg, #fff7ed), var(--note-bg, #fffbeb));
+  border: 1px solid var(--note-border, #fed7aa);
   border-radius: 12px;
   padding: 14px 20px;
   font-size: .9em;
-  color: #92400e;
+  color: var(--note-text, #92400e);
   margin-bottom: 20px;
 }
 </style>
@@ -205,6 +207,115 @@ st.markdown("""
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 render_sidebar()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INICIO · ESTILO BITÁCORA  (el estilo Clásico sigue más abajo, sin cambios)
+# ═══════════════════════════════════════════════════════════════════════════════
+_DIAS  = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+_MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+          "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _home_bitacora():
+    ss    = st.session_state
+    hoy   = datetime.date.today()
+    fecha = f"{_DIAS[hoy.weekday()]} {hoy.day} de {_MESES[hoy.month - 1]}"
+    n_sel = len(ss.get("sel_ids", []))
+
+    if ss.db_connected:
+        sub = (f"{n_sel} preguntas seleccionadas en el Generador" if n_sel
+               else "Ninguna pregunta seleccionada todavía")
+    else:
+        sub = "Base de datos no conectada"
+    st.markdown(f'<div class="pg-head"><div class="pg-title">{fecha}</div>'
+                f'<div class="pg-sub">{sub}</div></div>', unsafe_allow_html=True)
+
+    if ss.db_connected:
+        df     = ss.df_preguntas
+        nunca  = int((df["usada"] == "").sum())
+        usadas = len(df) - nunca
+        pct    = int(usadas / len(df) * 100) if len(df) else 0
+        n_bloq = df["bloque"].nunique() if "bloque" in df.columns else 0
+        st.markdown(kpi_html([
+            ("Total preguntas",     len(df), f"en {n_bloq} bloques", False),
+            ("Usadas en exámenes",  usadas,  bar_html(pct), False),
+            ("Sin usar",            nunca,   "nunca han salido en un examen", False),
+            ("Cobertura",           f"{pct} %", "preguntas usadas alguna vez", False),
+            ("Seleccionadas ahora", n_sel,   "en el Generador", True),
+        ]), unsafe_allow_html=True)
+    else:
+        st.warning("**Base de datos no conectada.** Sube tu archivo Excel desde la barra lateral para empezar.")
+
+    col_l, col_r = st.columns([3, 2], gap="medium")
+    with col_l:
+        if ss.db_connected and "bloque" in ss.df_preguntas.columns:
+            df = ss.df_preguntas
+            rows = ""
+            for blq in sorted(df["bloque"].dropna().unique().tolist(), key=_nsort):
+                d_b   = df[df["bloque"] == blq]
+                tot   = len(d_b)
+                usa   = int((d_b["usada"] != "").sum())
+                rows += (f'<div class="cov-row"><span class="cov-name" title="{nombre_bloque(str(blq))}">'
+                         f'{nombre_bloque(str(blq))}</span>{bar_html(usa / tot * 100 if tot else 0)}'
+                         f'<span class="cov-num">{usa}/{tot}</span></div>')
+            st.markdown('<div class="card"><div class="sec-title">Cobertura por bloque'
+                        '<span class="sec-meta">usadas / total</span></div>'
+                        f'{rows}</div>', unsafe_allow_html=True)
+
+        # Módulos (mismos botones que en el estilo Clásico)
+        st.markdown('<div class="sec-title" style="margin-top:4px">Módulos</div>', unsafe_allow_html=True)
+        _mods = [
+            ("Gestor DB", "Añadir, importar, editar y analizar el banco de preguntas.",
+             "Abrir Gestor DB →", "btn_home_gestor", "pages/1_Gestor_DB.py", "primary"),
+            ("Generador", "Seleccionar preguntas o auto-rellenar y exportar a Word / LaTeX.",
+             "Abrir Generador →", "btn_home_gen", "pages/2_Generador.py", "primary"),
+            ("Configuración", "Bloques, temas, objetivos, datos de la asignatura y apariencia.",
+             "Abrir Configuración →", "btn_home_cfg", "pages/3_Configuracion.py", "secondary"),
+            ("Manual de uso", "Guía paso a paso, formatos de exportación y preguntas frecuentes.",
+             "Ver Manual →", "btn_home_help", "pages/4_Ayuda.py", "secondary"),
+        ]
+        m_cols = st.columns(2, gap="small")
+        for i, (tit, desc, lbl, key, page, kind) in enumerate(_mods):
+            with m_cols[i % 2]:
+                with st.container(border=True, key=f"home_mod_{i}"):
+                    st.markdown(f"**{tit}**")
+                    st.caption(desc)
+                    if st.button(lbl, use_container_width=True, type=kind, key=key):
+                        st.switch_page(page)
+
+    with col_r:
+        historial = ss.historial
+        if historial:
+            rows = ""
+            for entry in reversed(historial[-6:]):
+                rows += (f'<div class="list-row"><span class="list-date">{entry.get("fecha", "")}</span>'
+                         f'<span class="list-title">{entry.get("titulo", "Sin título")}</span>'
+                         f'<span class="list-meta">{entry.get("n_preguntas", "?")} preg · '
+                         f'{entry.get("n_modelos", "?")} mod.</span></div>')
+            st.markdown(f'<div class="card"><div class="sec-title">Últimos exámenes generados</div>{rows}</div>',
+                        unsafe_allow_html=True)
+        pasos = [
+            ("Conecta tu base de datos Excel", "Barra lateral"),
+            ("Configura bloques, temas y objetivos", "Configuración"),
+            ("Añade o importa preguntas", "Gestor DB"),
+            ("Selecciona preguntas o usa Auto-relleno", "Generador"),
+            ("Exporta a Word / LaTeX", "Generador"),
+        ]
+        rows = "".join(f'<div class="list-row"><span class="step-n">{i}</span>'
+                       f'<span class="list-title" style="white-space:normal">{t}</span><span class="pill">{d}</span></div>'
+                       for i, (t, d) in enumerate(pasos, 1))
+        st.markdown(f'<div class="card"><div class="sec-title">Inicio rápido</div>{rows}</div>',
+                    unsafe_allow_html=True)
+
+    st.caption(
+        f"Generador Exámenes · Unidad de Física Médica · Facultad de Medicina · UCM · {hoy.year}"
+        "  —  Desarrollado por Diego García Pinto"
+    )
+
+
+if get_estilo() == "bitacora":
+    _home_bitacora()
+    st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HERO BANNER
@@ -246,19 +357,19 @@ if db.db_connected:
         f"<div class='stat-hero-lbl'>Total preguntas</div></div>",
         unsafe_allow_html=True)
     sm2.markdown(
-        f"<div class='stat-hero ok'><div class='stat-hero-num' style='color:#16a34a'>{usadas}</div>"
+        f"<div class='stat-hero ok'><div class='stat-hero-num' style='color:var(--ui-ok, #16a34a)'>{usadas}</div>"
         f"<div class='stat-hero-lbl'>Usadas en exámenes</div></div>",
         unsafe_allow_html=True)
     sm3.markdown(
-        f"<div class='stat-hero warn'><div class='stat-hero-num' style='color:#d97706'>{nunca}</div>"
+        f"<div class='stat-hero warn'><div class='stat-hero-num' style='color:var(--ui-warn, #d97706)'>{nunca}</div>"
         f"<div class='stat-hero-lbl'>Sin usar</div></div>",
         unsafe_allow_html=True)
     sm4.markdown(
-        f"<div class='stat-hero pur'><div class='stat-hero-num' style='color:#7c3aed'>{pct}%</div>"
+        f"<div class='stat-hero pur'><div class='stat-hero-num' style='color:var(--ui-used, #7c3aed)'>{pct}%</div>"
         f"<div class='stat-hero-lbl'>Cobertura</div></div>",
         unsafe_allow_html=True)
     sm5.markdown(
-        f"<div class='stat-hero red'><div class='stat-hero-num' style='color:#dc2626'>{n_sel}</div>"
+        f"<div class='stat-hero red'><div class='stat-hero-num' style='color:var(--ui-err, #dc2626)'>{n_sel}</div>"
         f"<div class='stat-hero-lbl'>Seleccionadas ahora</div></div>",
         unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)

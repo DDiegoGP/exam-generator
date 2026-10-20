@@ -6,16 +6,27 @@ app_theme.py  –  Estilos visuales de la app (Bitácora / Clásico) y barra sup
 - El estilo (Bitácora o Clásico) se guarda en Cfg_General → clave `ui_estilo`.
 - Todo el CSS usa variables (--bg, --card, --text, --primary…); el modo oscuro
   solo redefine esas variables bajo :root[data-ui-mode="dark"].
+- Los colores en línea de las páginas se escriben como var(--token, #original):
+  en Clásico no se definen las variables, así que se usa el color original.
 """
+import functools
 import os
+import re
 
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 
 ESTILOS = {
     "bitacora": "Bitácora",
     "clasico":  "Clásico",
 }
 ESTILO_DEFAULT = "bitacora"
+
+PREVIEWS = {
+    "ventana": "Ventana",
+    "panel":   "Panel central (3 columnas)",
+}
+PREVIEW_DEFAULT = "ventana"
 
 # Páginas de la barra superior: (slug, ruta, etiqueta)
 NAV_PAGES = [
@@ -32,7 +43,7 @@ MONO = "'JetBrains Mono', ui-monospace, Consolas, monospace"
 _T_BITACORA_LIGHT = {
     "bg": "#eef1f6", "card": "#ffffff", "card2": "#f5f7fa",
     "border": "#dde2ea", "border2": "#d5dbe5", "track": "#e4e8ef",
-    "text": "#1a2233", "text2": "#3d4556", "muted": "#5b6475",
+    "text": "#1a2233", "text2": "#3d4556", "muted": "#5b6475", "faint": "#7d8596",
     "primary": "#1d4a94", "primary-hover": "#163a75", "primary-soft": "#e6edf8", "primary-ink": "#ffffff",
     "chip": "#141a26", "chip-ink": "#ffffff",
     "ok": "#1e6b3c", "ok-bg": "#e3f1e8",
@@ -44,7 +55,7 @@ _T_BITACORA_LIGHT = {
 _T_BITACORA_DARK = {
     "bg": "#10151f", "card": "#18202d", "card2": "#1d2635",
     "border": "#2a3443", "border2": "#344052", "track": "#2a3443",
-    "text": "#e6eaf2", "text2": "#c3cad6", "muted": "#9aa4b5",
+    "text": "#e6eaf2", "text2": "#c3cad6", "muted": "#9aa4b5", "faint": "#7d889b",
     "primary": "#8fb2f5", "primary-hover": "#b3cbf8", "primary-soft": "#1f2f4d", "primary-ink": "#ffffff",
     "chip": "#e6eaf2", "chip-ink": "#10151f",
     "ok": "#7fd19b", "ok-bg": "#16321f",
@@ -53,37 +64,143 @@ _T_BITACORA_DARK = {
     "used": "#c3a8f0", "used-bg": "#2c2240",
     "note-bg": "#2e2814", "note-border": "#5a4b20", "note-text": "#f0e2b8",
 }
-# Clásico: la paleta original de la app (#2c3e50 / #3498db). Solo modo claro.
-_T_CLASICO = {
-    "bg": "#ffffff", "card": "#ffffff", "card2": "#f8f9fa",
-    "border": "#dee2e6", "border2": "#bdc3c7", "track": "#e9ecef",
-    "text": "#2c3e50", "text2": "#444444", "muted": "#666666",
-    "primary": "#3498db", "primary-hover": "#2e86c1", "primary-soft": "#e8f4fd", "primary-ink": "#ffffff",
-    "chip": "#2c3e50", "chip-ink": "#ffffff",
-    "ok": "#1e8449", "ok-bg": "#d5f5e3",
-    "warn": "#9a7a00", "warn-bg": "#fef9e7",
-    "err": "#922b21", "err-bg": "#fadbd8",
-    "used": "#6c3483", "used-bg": "#e8daef",
-    "note-bg": "#fef3cd", "note-border": "#f5dfa0", "note-text": "#78350f",
-}
 
 
 def _vars(tokens: dict) -> str:
     return "".join(f"--{k}:{v};" for k, v in tokens.items())
 
 
-# ── Estilo activo ─────────────────────────────────────────────────────────────
+# ── Preferencias activas ──────────────────────────────────────────────────────
+def _pref(key: str, valid: dict, default: str) -> str:
+    """Elección de esta sesión > Cfg_General[key] > valor por defecto."""
+    val = st.session_state.get(key)
+    if not val:
+        val = st.session_state.get("cfg_general", {}).get(key, "")
+    return val if val in valid else default
+
+
 def get_estilo() -> str:
-    """Estilo activo: elección de esta sesión > Cfg_General.ui_estilo > Bitácora."""
-    est = st.session_state.get("ui_estilo")
-    if not est:
-        est = st.session_state.get("cfg_general", {}).get("ui_estilo", "")
-    return est if est in ESTILOS else ESTILO_DEFAULT
+    return _pref("ui_estilo", ESTILOS, ESTILO_DEFAULT)
 
 
 def set_estilo(estilo: str):
     if estilo in ESTILOS:
         st.session_state["ui_estilo"] = estilo
+
+
+def get_preview_mode() -> str:
+    """Cómo se abre la vista previa de una pregunta en Generador → Selección."""
+    return _pref("ui_preview", PREVIEWS, PREVIEW_DEFAULT)
+
+
+def set_preview_mode(modo: str):
+    if modo in PREVIEWS:
+        st.session_state["ui_preview"] = modo
+
+
+def render_estilo_quick():
+    """Selector rápido de estilo (barra lateral). Sincronizado con Configuración → Apariencia."""
+    # Botones en vez de un radio: un radio en la barra lateral puede verse con la
+    # opción equivocada al cambiar de página; un botón no guarda estado en el navegador.
+    estilo = get_estilo()
+    st.caption("Estilo")
+    cols = st.columns(len(ESTILOS))
+    for col, (clave, nombre) in zip(cols, ESTILOS.items()):
+        activo = clave == estilo
+        if col.button(nombre, key=f"btn_sb_estilo_{clave}", type="primary" if activo else "secondary",
+                      use_container_width=True) and not activo:
+            set_estilo(clave)
+            st.rerun()
+
+
+# ── Etiquetas sin emojis (solo Bitácora) ──────────────────────────────────────
+_EMOJI = ("[\U0001F000-\U0001FAFF☀-➿⬀-⯿⌀-⏿"
+          "←-⇿■-◿ℹ™️‍⃣]")
+_LEAD = re.compile(rf"^\s*(?:{_EMOJI}+\s*\+?\s*)+")
+_MD_LEAD = re.compile(rf"^(\s*(?:\*\*|#{{1,6}}\s+))\s*(?:{_EMOJI}+\s*)+")
+
+
+def clean_label(s):
+    """Quita los emojis iniciales de una etiqueta; si no queda texto, la deja igual."""
+    if not isinstance(s, str):
+        return s
+    t = _LEAD.sub("", s)
+    return t if t.strip() else s
+
+
+def _clean_md(s):
+    if not isinstance(s, str):
+        return s
+    return _MD_LEAD.sub(r"\1", s)
+
+
+_LABEL_METHODS = [
+    "button", "download_button", "form_submit_button", "expander", "popover",
+    "selectbox", "multiselect", "radio", "checkbox", "toggle", "text_input",
+    "text_area", "number_input", "date_input", "file_uploader", "slider",
+    "segmented_control", "pills", "subheader", "header",
+]
+
+
+def _install_label_filter():
+    """Envuelve los widgets de Streamlit para limpiar la etiqueta en el estilo Bitácora.
+
+    Solo cambia el texto mostrado (primer argumento); opciones, claves y valores no se tocan.
+    """
+    if getattr(DeltaGenerator, "_ui_label_filter", False):
+        return
+
+    def wrap(fn, cleaner, kw_names):
+        @functools.wraps(fn)
+        def inner(self, *args, **kwargs):
+            if get_estilo() == "bitacora":
+                if args:
+                    args = (cleaner(args[0]),) + args[1:]
+                else:
+                    for k in kw_names:
+                        if k in kwargs:
+                            kwargs[k] = cleaner(kwargs[k])
+                            break
+            return fn(self, *args, **kwargs)
+        return inner
+
+    names = list(_LABEL_METHODS) + ["tabs", "markdown"]
+    for n in _LABEL_METHODS:
+        setattr(DeltaGenerator, n, wrap(getattr(DeltaGenerator, n), clean_label, ("label", "body")))
+    setattr(DeltaGenerator, "tabs",
+            wrap(DeltaGenerator.tabs, lambda xs: [clean_label(x) for x in xs], ("tabs",)))
+    setattr(DeltaGenerator, "markdown", wrap(DeltaGenerator.markdown, _clean_md, ("body",)))
+    # st.button, st.tabs… son métodos ya ligados al contenedor principal: re-ligarlos
+    for n in names:
+        setattr(st, n, getattr(st._main, n))
+
+    _orig_dialog = st.dialog
+
+    @functools.wraps(_orig_dialog)
+    def dialog(title, *args, **kwargs):
+        if get_estilo() == "bitacora":
+            title = clean_label(title)
+        return _orig_dialog(title, *args, **kwargs)
+
+    st.dialog = dialog
+    DeltaGenerator._ui_label_filter = True
+
+
+# ── Componentes HTML ──────────────────────────────────────────────────────────
+def kpi_html(items: list) -> str:
+    """Fila de indicadores. items = [(etiqueta, valor, subtítulo, acento_bool), …]"""
+    cards = []
+    for label, value, sub, accent in items:
+        val_cls = "kpi-val acc" if accent else "kpi-val"
+        sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
+        cards.append(f'<div class="kpi"><div class="kpi-lbl">{label}</div>'
+                     f'<div class="{val_cls}">{value}</div>{sub_html}</div>')
+    return f'<div class="kpi-grid">{"".join(cards)}</div>'
+
+
+def bar_html(pct: float) -> str:
+    pct = max(0, min(100, pct))
+    return f'<div class="bar"><div style="width:{pct:.0f}%"></div></div>'
 
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -113,22 +230,21 @@ _MODE_SCRIPT = """
 </script>
 """
 
+# Común a los dos estilos (con colores de reserva para Clásico, que no define variables)
 _BASE_CSS = """
-/* Ocultar el contenedor del script de modo */
 .stElementContainer:has(.ui-mode-probe) { display: none !important; }
-.mono { font-family: var(--mono) !important; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono, Consolas, monospace) !important; font-variant-numeric: tabular-nums; }
 
-/* Barra superior: navegación */
-.st-key-topnav { gap: 2px !important; border-bottom: 1px solid var(--border2); margin: 2px 0 18px 0; flex-wrap: wrap; }
+.st-key-topnav { gap: 2px !important; border-bottom: 1px solid var(--border2, #dee2e6); margin: 2px 0 18px 0; flex-wrap: wrap; }
 .st-key-topnav [data-testid="stPageLink-NavLink"] {
   background: transparent !important; border-radius: 0 !important;
   padding: 8px 16px !important; margin-bottom: -1px;
   border-bottom: 2px solid transparent;
 }
-.st-key-topnav [data-testid="stPageLink-NavLink"] * { color: var(--muted) !important; font-weight: 500 !important; }
-.st-key-topnav [data-testid="stPageLink-NavLink"]:hover * { color: var(--text) !important; }
-.st-key-nav_active [data-testid="stPageLink-NavLink"] { border-bottom-color: var(--primary); }
-.st-key-nav_active [data-testid="stPageLink-NavLink"] * { color: var(--text) !important; font-weight: 600 !important; }
+.st-key-topnav [data-testid="stPageLink-NavLink"] * { color: var(--muted, #666) !important; font-weight: 500 !important; }
+.st-key-topnav [data-testid="stPageLink-NavLink"]:hover * { color: var(--text, #2c3e50) !important; }
+.st-key-nav_active [data-testid="stPageLink-NavLink"] { border-bottom-color: var(--primary, #3498db); }
+.st-key-nav_active [data-testid="stPageLink-NavLink"] * { color: var(--text, #2c3e50) !important; font-weight: 600 !important; }
 """
 
 _BITACORA_CSS = """
@@ -151,6 +267,42 @@ h1, h2, h3, h4, h5 { letter-spacing: -0.01em; }
 .pg-head { margin: 4px 0 14px 0; }
 .pg-title { font-size: 1.75rem; font-weight: 700; color: var(--text); line-height: 1.2; letter-spacing: -0.01em; }
 .pg-sub { color: var(--muted); font-size: 1rem; margin-top: 4px; }
+.sec-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin: 0 0 10px 0; }
+.sec-meta { font-size: 0.85rem; color: var(--muted); font-weight: 400; margin-left: 6px; }
+
+/* ── Indicadores y barras ── */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 4px 0 18px 0; }
+.kpi { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.kpi-lbl { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.kpi-val { font-size: 2rem; font-weight: 700; color: var(--text); line-height: 1.15; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi-val.acc { color: var(--primary); }
+.kpi-sub { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.bar { height: 7px; background: var(--track); border-radius: 4px; overflow: hidden; }
+.bar > div { height: 100%; background: var(--primary); border-radius: 4px; }
+
+/* ── Tarjeta genérica y listas (Inicio) ── */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px; margin-bottom: 16px; }
+.cov-row { display: grid; grid-template-columns: minmax(90px, 1.2fr) minmax(0, 3fr) 70px; gap: 14px; align-items: center; padding: 7px 0; }
+.cov-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cov-num { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); text-align: right; }
+.list-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--border); }
+.list-row:last-child { border-bottom: none; }
+.list-date { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; color: var(--text); }
+.list-title { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-meta { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+.step-n { font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.pill { display: inline-block; font-size: 0.76rem; font-weight: 600; border-radius: 999px; padding: 2px 10px;
+  background: var(--primary-soft); color: var(--primary); }
+[class*="st-key-home_mod_"] { background: var(--card); border-color: var(--border) !important; border-radius: 12px !important; }
+.empty-box { background: var(--card); border: 1px dashed var(--border2); border-radius: 12px; padding: 34px 18px;
+  text-align: center; color: var(--muted); }
+
+/* ── Portada de Ayuda ── */
+.help-hero { background: var(--card) !important; border: 1px solid var(--border); box-shadow: none !important;
+  color: var(--text) !important; padding: 26px 30px !important; }
+.help-hero h2 { color: var(--text) !important; }
+.help-hero p { color: var(--muted) !important; opacity: 1 !important; }
 
 /* ── Pestañas: la de primer nivel es una tarjeta ── */
 [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--border); }
@@ -207,7 +359,7 @@ hr { border-color: var(--border) !important; }
   display: flex; justify-content: space-between; align-items: center; }
 .bloque-stats { font-size: 0.85em; font-weight: 400; color: var(--muted); }
 
-/* ── Indicadores ── */
+/* ── Indicadores antiguos ── */
 .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; text-align: left; }
 .stat-num { font-size: 2em; font-weight: 700; color: var(--text); line-height: 1.15; }
 .stat-label { font-size: 0.72em; color: var(--muted); margin-top: 4px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -244,18 +396,21 @@ _CLASICO_CSS = """
 .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5 {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
+/* deja sitio a la cabecera fija de Streamlit para que no tape la navegación */
+[data-testid="stMainBlockContainer"] { padding-top: 3.6rem !important; }
 [data-testid="stBaseButton-primary"] { background: #3498db !important; border-color: #3498db !important; }
 """
 
 
-def _tokens_css(estilo: str) -> str:
-    if estilo == "clasico":
-        return f":root{{{_vars(_T_CLASICO)}--mono:Consolas,'Courier New',monospace;}}"
+def _tokens_css() -> str:
     return (
         f":root{{{_vars(_T_BITACORA_LIGHT)}--mono:{MONO};"
         # alias de las variables antiguas, por si algún HTML en línea las usa
         "--p:var(--text);--p-light:var(--text2);--acc:var(--primary);"
-        "--unused:var(--muted);--bg-light:var(--card2);}"
+        "--unused:var(--muted);--bg-light:var(--card2);"
+        # nombres propios para el HTML de las páginas (APP_CSS de Clásico ya usa --ok, --border…)
+        "--ui-ok:var(--ok);--ui-warn:var(--warn);--ui-err:var(--err);"
+        "--ui-border:var(--border);--ui-used:var(--used);}"
         f":root[data-ui-mode=\"dark\"]{{{_vars(_T_BITACORA_DARK)}}}"
     )
 
@@ -266,14 +421,14 @@ def apply_theme(page: str = ""):
     Llamar en cada página justo después de init_session_state()/handle_oauth_callback().
     `page` es el slug de NAV_PAGES de la página actual (marca la pestaña activa).
     """
+    _install_label_filter()
     estilo = get_estilo()
     if estilo == "clasico":
         from app_utils import APP_CSS  # import diferido: app_utils importa este módulo
-        # Las variables nuevas van antes para que las de APP_CSS (--ok, --border…) prevalezcan
-        css = (f"<style>{_tokens_css(estilo)}</style>" + APP_CSS
-               + f"<style>{_BASE_CSS}{_CLASICO_CSS}</style>")
+        # Sin variables: cada var(--x, #original) usa su color original
+        css = APP_CSS + f"<style>{_BASE_CSS}{_CLASICO_CSS}</style>"
     else:
-        css = f"<style>{_tokens_css(estilo)}{_BASE_CSS}{_BITACORA_CSS}</style>"
+        css = f"<style>{_tokens_css()}{_BASE_CSS}{_BITACORA_CSS}</style>"
     st.html(css + _MODE_SCRIPT, unsafe_allow_javascript=True)
     render_topbar(page, estilo)
 

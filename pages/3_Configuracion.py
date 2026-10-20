@@ -23,7 +23,7 @@ from app_utils import (
     apply_theme, page_header, _load_cfg, _nsort,
     sync_bloques_gsheets, sync_hoja_gsheets, reload_db,
 )
-from app_theme import ESTILOS, get_estilo, set_estilo
+from app_theme import ESTILOS, PREVIEWS, get_estilo, set_estilo, get_preview_mode, set_preview_mode
 
 st.set_page_config(page_title="Configuración · Exámenes UCM", page_icon="⚙️", layout="wide")
 init_session_state()
@@ -121,7 +121,7 @@ with tab_gen:
         if univ:  header_lines.append(univ)
         if anio:  header_lines.append(f"Año académico: {anio}")
         st.markdown(
-            "<div style='background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;"
+            "<div style='background:var(--card2, #f8f9fa);border:1px solid var(--ui-border, #dee2e6);border-radius:8px;"
             "padding:14px 20px;font-size:0.9em;line-height:1.8'>"
             + "<br>".join(header_lines) +
             "</div>",
@@ -546,22 +546,21 @@ with tab_ui:
         "No cambia el aspecto de los exámenes exportados."
     )
 
-    def _on_estilo_change():
-        set_estilo(st.session_state["cfg_ui_estilo"])
-
-    _est_keys = list(ESTILOS)
+    # Clave con el valor activo: el control se recrea con la opción correcta
+    # (sincronizado con el selector de la barra lateral)
+    _est_key = f"cfg_ui_estilo_{get_estilo()}"
     st.radio(
         "Estilo",
-        _est_keys,
-        index=_est_keys.index(get_estilo()),
+        list(ESTILOS),
+        index=list(ESTILOS).index(get_estilo()),
         format_func=ESTILOS.get,
         captions=[
             "Tarjetas blancas sobre gris azulado, azul marino y cifras en monoespaciada. "
             "Disponible en claro y oscuro.",
             "El aspecto original de la aplicación (solo modo claro).",
         ],
-        key="cfg_ui_estilo",
-        on_change=_on_estilo_change,
+        key=_est_key,
+        on_change=lambda: set_estilo(st.session_state[_est_key]),
     )
 
     st.info(
@@ -570,11 +569,33 @@ with tab_ui:
         "Se recuerda en este navegador."
     )
 
-    _est_guardado = st.session_state.get("cfg_general", {}).get("ui_estilo", "")
+    st.markdown("#### Vista previa de preguntas")
+    st.caption("Al pulsar una pregunta en Generador → Selección.")
+
+    _prv_key = f"cfg_ui_preview_{get_preview_mode()}"
+    st.radio(
+        "Vista previa",
+        list(PREVIEWS),
+        index=list(PREVIEWS).index(get_preview_mode()),
+        format_func=PREVIEWS.get,
+        captions=[
+            "Se abre en una ventana sobre la página; la lista de preguntas ocupa más espacio.",
+            "Disponibles · vista previa · fijas, una al lado de otra (como antes).",
+        ],
+        key=_prv_key,
+        on_change=lambda: set_preview_mode(st.session_state[_prv_key]),
+        label_visibility="collapsed",
+    )
+
+    _cfg_g_ui     = st.session_state.get("cfg_general", {})
+    _est_guardado = _cfg_g_ui.get("ui_estilo", "")
     _est_activo   = get_estilo()
-    if st.button("💾 Guardar como estilo predeterminado", type="primary", key="btn_save_ui",
-                 disabled=(_est_guardado == _est_activo)):
-        cfg_g_new = {**st.session_state.get("cfg_general", {}), "ui_estilo": _est_activo}
+    _prv_guardado = _cfg_g_ui.get("ui_preview", "")
+    _prv_activo   = get_preview_mode()
+    _ui_guardado  = (_est_guardado == _est_activo and _prv_guardado == _prv_activo)
+    if st.button("💾 Guardar como predeterminado", type="primary", key="btn_save_ui",
+                 disabled=_ui_guardado):
+        cfg_g_new = {**_cfg_g_ui, "ui_estilo": _est_activo, "ui_preview": _prv_activo}
         dfs = lib.save_cfg_general(st.session_state.excel_dfs, cfg_g_new)
         dfs = _load_cfg(dfs)
         st.session_state.excel_dfs   = dfs
@@ -583,7 +604,7 @@ with tab_ui:
         if path:
             lib.guardar_excel_local(path, dfs)
         sync_hoja_gsheets(lib.CFG_GENERAL_SHEET)
-        st.success(f"✅ Estilo «{ESTILOS[_est_activo]}» guardado.")
         st.rerun()
-    if _est_guardado == _est_activo:
-        st.caption(f"Estilo guardado en la base de datos: {ESTILOS.get(_est_guardado, _est_guardado)}")
+    if _ui_guardado:
+        st.caption(f"Guardado en la base de datos: estilo {ESTILOS.get(_est_guardado)} · "
+                   f"vista previa en {PREVIEWS.get(_prv_guardado, '').lower()}")

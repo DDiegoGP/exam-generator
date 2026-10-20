@@ -21,6 +21,7 @@ Leyenda: **[V]** = el rediseño cambia su aspecto · **[C]** = cambia su comport
   - [ ] **Salir** (borra token y datos de sesión)
   - [ ] Sincronización automática de cada bloque modificado con Google Sheets
 - [ ] Guardado en Excel local (no-op en cloud)
+- [ ] **Nuevo:** botones de estilo Bitácora / Clásico al pie de la barra lateral
 
 ### Navegación **[C]**
 - [ ] Las 5 páginas accesibles: Inicio · Gestor DB · Generador · Configuración · Ayuda (pasan a la barra superior)
@@ -110,7 +111,8 @@ Leyenda: **[V]** = el rediseño cambia su aspecto · **[C]** = cambia su comport
   - [ ] Tarjeta con solución marcada, Notas, distintivo «Solución disponible»
   - [ ] Añadir / Quitar · Sol. · ∑ LaTeX · Editar · Cerrar LaTeX / Cerrar solución
   - [ ] El render LaTeX persiste tras editar
-- [ ] Fijas: lista ordenada con ⬆️ ⬇️ 🗑️ y **Limpiar todo** **[V]**
+- [ ] Fijas: lista ordenada con ⬆️ ⬇️ 🗑️ y **Limpiar todo** **[V]** (en modo ventana, botón 👁 para ver la fija seleccionada)
+- [ ] Desde la ventana: Añadir/Quitar cierra la ventana; Editar abre el editor; Sol. y ∑ LaTeX se muestran dentro
 - [ ] Estadísticas de la selección en tiempo real: gráfico de dificultad, bloques cubiertos, métricas (seleccionadas vs objetivo, % del banco, F/M/D) **[V]**
 
 ### 3.2 Desarrollo
@@ -166,7 +168,7 @@ Leyenda: **[V]** = el rediseño cambia su aspecto · **[C]** = cambia su comport
 - [ ] Temas: filtro por bloque, «solo sin nombre», recuento por tema → **Guardar nombres de temas**
 - [ ] Objetivos → **Guardar objetivos**
 - [ ] Copia de configuración: exportar JSON (descarga) / importar JSON
-- [ ] **Nueva:** Apariencia — estilo (Bitácora · Bitácora oscuro · Clásico) y vista previa en ventana / 3 columnas
+- [ ] **Nueva:** Apariencia — estilo (Bitácora · Clásico; claro/oscuro desde ⋮ → Settings) y vista previa en ventana / 3 columnas, con «Guardar como predeterminado»
 
 ---
 

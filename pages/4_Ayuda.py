@@ -11,26 +11,26 @@ apply_theme("ayuda")
 st.markdown("""
 <style>
 .help-hero {
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #1d4ed8 100%);
-  border-radius: 16px; padding: 32px 40px; margin-bottom: 24px; color: white;
+  background: linear-gradient(135deg, var(--chip, #0f172a) 0%, var(--chip, #1e3a5f) 60%, #1d4ed8 100%);
+  border-radius: 16px; padding: 32px 40px; margin-bottom: 24px; color: var(--chip-ink, white);
   box-shadow: 0 8px 28px rgba(29,78,216,.2);
 }
 .help-hero h2 { font-size: 1.8em; font-weight: 800; margin: 0 0 6px 0; letter-spacing:-.02em; }
 .help-hero p  { opacity: .7; margin: 0; font-size: .95em; }
 
 .help-card {
-  background: white; border-radius: 14px; padding: 22px 26px;
-  box-shadow: 0 2px 10px rgba(0,0,0,.07); border: 1px solid #f1f5f9;
+  background: var(--card, white); border-radius: 14px; padding: 22px 26px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.07); border: 1px solid var(--ui-border, #f1f5f9);
   margin-bottom: 16px;
 }
-.help-card h4 { font-size: 1em; font-weight: 700; color: #0f172a; margin: 0 0 10px 0; }
+.help-card h4 { font-size: 1em; font-weight: 700; color: var(--text, #0f172a); margin: 0 0 10px 0; }
 .help-card p, .help-card li {
-  font-size: 0.875em; color: #475569; line-height: 1.65; margin: 4px 0;
+  font-size: 0.875em; color: var(--text2, #475569); line-height: 1.65; margin: 4px 0;
 }
 .help-card ul { padding-left: 18px; margin: 6px 0; }
 .help-step {
   display: flex; gap: 14px; align-items: flex-start;
-  padding: 10px 0; border-bottom: 1px solid #f8fafc;
+  padding: 10px 0; border-bottom: 1px solid var(--ui-border, #f8fafc);
 }
 .help-step:last-child { border-bottom: none; }
 .step-num {
@@ -40,26 +40,26 @@ st.markdown("""
   font-size: 0.8em; font-weight: 700; flex-shrink: 0; margin-top: 1px;
 }
 .step-body { flex: 1; }
-.step-title { font-weight: 600; color: #0f172a; font-size: .88em; }
-.step-desc  { color: #64748b; font-size: .82em; margin-top: 2px; line-height: 1.5; }
+.step-title { font-weight: 600; color: var(--text, #0f172a); font-size: .88em; }
+.step-desc  { color: var(--muted, #64748b); font-size: .82em; margin-top: 2px; line-height: 1.5; }
 
 .tip-box {
-  background: #eff6ff; border-left: 3px solid #3b82f6;
+  background: var(--primary-soft, #eff6ff); border-left: 3px solid var(--primary, #3b82f6);
   border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 10px 0;
-  font-size: 0.855em; color: #1e40af; line-height: 1.55;
+  font-size: 0.855em; color: var(--primary, #1e40af); line-height: 1.55;
 }
 .warn-box {
-  background: #fffbeb; border-left: 3px solid #f59e0b;
+  background: var(--note-bg, #fffbeb); border-left: 3px solid var(--ui-warn, #f59e0b);
   border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 10px 0;
-  font-size: 0.855em; color: #92400e; line-height: 1.55;
+  font-size: 0.855em; color: var(--note-text, #92400e); line-height: 1.55;
 }
 .kbd {
-  background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 5px;
-  padding: 2px 7px; font-family: monospace; font-size: .85em; color: #334155;
+  background: var(--card2, #f1f5f9); border: 1px solid var(--ui-border, #cbd5e1); border-radius: 5px;
+  padding: 2px 7px; font-family: monospace; font-size: .85em; color: var(--text, #334155);
 }
 .section-label {
   font-size: 0.72em; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-  color: #94a3b8; margin: 20px 0 10px 0; display: block;
+  color: var(--muted, #94a3b8); margin: 20px 0 10px 0; display: block;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -463,7 +463,7 @@ with tab_faq:
 
     for q, a in faqs:
         with st.expander(f"❓ {q}"):
-            st.markdown(f"<div style='font-size:.875em;color:#475569;line-height:1.65'>{a}</div>",
+            st.markdown(f"<div style='font-size:.875em;color:var(--text2, #475569);line-height:1.65'>{a}</div>",
                         unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
