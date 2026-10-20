@@ -24,7 +24,7 @@ ESTILO_DEFAULT = "bitacora"
 
 PREVIEWS = {
     "ventana": "Ventana",
-    "panel":   "Panel central (3 columnas)",
+    "panel":   "Panel junto a la tabla",
 }
 PREVIEW_DEFAULT = "ventana"
 

@@ -570,7 +570,7 @@ with tab_ui:
     )
 
     st.markdown("#### Vista previa de preguntas")
-    st.caption("Al pulsar una pregunta en Generador → Selección.")
+    st.caption("Al marcar una pregunta en Gestor DB → Gestionar y en Generador → Selección.")
 
     _prv_key = f"cfg_ui_preview_{get_preview_mode()}"
     st.radio(
@@ -579,8 +579,8 @@ with tab_ui:
         index=list(PREVIEWS).index(get_preview_mode()),
         format_func=PREVIEWS.get,
         captions=[
-            "Se abre en una ventana sobre la página; la lista de preguntas ocupa más espacio.",
-            "Disponibles · vista previa · fijas, una al lado de otra (como antes).",
+            "Se abre en una ventana sobre la página; la tabla de preguntas ocupa todo el ancho.",
+            "La pregunta se muestra en un panel junto a la tabla (como antes).",
         ],
         key=_prv_key,
         on_change=lambda: set_preview_mode(st.session_state[_prv_key]),

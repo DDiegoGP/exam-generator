@@ -22,6 +22,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
+from app_theme import get_preview_mode
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
     connect_db, reload_db,
@@ -760,11 +761,152 @@ with tab_man:
         unsafe_allow_html=True,
     )
 
+    # ── Vista previa de una pregunta (panel derecho o ventana) ────────────────
+    def _render_gest_preview(sel_pid, row_d, in_dialog=False):
+        """Tarjeta + acciones. En ventana, editar/solución se abren al recargar la página
+        y borrar/duplicar renuevan la tabla para no abrir sola otra pregunta."""
+        _rerun_local = (lambda: st.rerun(scope="fragment")) if in_dialog else st.rerun
+
+        def _renovar_tabla():
+            if in_dialog:
+                st.session_state["_man_dlg_nonce"] = st.session_state.get("_man_dlg_nonce", 0) + 1
+
+        card_html = render_question_card_html(row_d, show_sol=True, include_notas=False)
+        sol_txt   = str(row_d.get("solucion", "") or "").strip()
+        notas_txt = str(row_d.get("notas",    "") or "").strip()
+        notas_html = ""
+
+        # 1. Tarjeta principal
+        st.markdown(card_html, unsafe_allow_html=True)
+
+        # 2. Notas
+        if notas_txt:
+            notas_html = (
+                "<div style='background:var(--note-bg, #fefce8);border-left:3px solid var(--ui-warn, #f59e0b);"
+                "border-radius:0 8px 8px 0;padding:8px 14px;margin-top:4px;"
+                "font-size:0.875em;color:var(--note-text, #78350f);line-height:1.5'>"
+                "<b style='color:var(--note-text, #92400e)'>📝 Notas:</b> "
+                f"{notas_txt}</div>"
+            )
+            st.markdown(notas_html, unsafe_allow_html=True)
+
+        # 3. Render LaTeX toggle (tarjeta + notas)
+        _mjax_key = f"mjax_gest_{sel_pid}"
+        _rend_on  = st.session_state.get(_mjax_key, False)
+        if st.button(
+            "✖ Cerrar LaTeX" if _rend_on else "∑ Renderizar LaTeX",
+            key=f"mjax_btn_{sel_pid}",
+            use_container_width=True,
+        ):
+            st.session_state[_mjax_key] = not _rend_on
+            _rerun_local()
+        if _rend_on:
+            stcomponents.html(
+                mathjax_html(card_html + notas_html),
+                height=480, scrolling=True,
+            )
+
+        # 4. Botones de acción — solo icono, misma anchura, tooltip descriptivo
+        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+        ba1, ba2, ba3, ba4 = st.columns(4)
+        if ba1.button("✏️", use_container_width=True, type="primary",
+                      key="btn_edit_q", help="Editar pregunta"):
+            if in_dialog:   # no se puede abrir una ventana dentro de otra
+                st.session_state["_man_open"] = ("edit", sel_pid); st.rerun()
+            _dialog_editar_pregunta(sel_pid, row_d)
+        if ba2.button("📖", use_container_width=True, key="btn_sol_q",
+                      help="Sin solución aún" if not sol_txt else "Ver / editar solución"):
+            if in_dialog:
+                st.session_state["_man_open"] = ("sol", sel_pid); st.rerun()
+            _dialog_solucion(sel_pid, row_d)
+        if ba3.button("📋", use_container_width=True, key="btn_dup_q",
+                      help="Duplicar pregunta"):
+            blk    = row_d["bloque"]
+            tema_d = str(row_d.get("Tema", "1"))
+            nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
+            blk_df = st.session_state.excel_dfs.get(blk)
+            if blk_df is not None:
+                new_row_dup = _fill_row(blk_df, {
+                    "tema": tema_d,
+                    "dificultad": row_d.get("dificultad", "Media"),
+                    "letra_correcta": row_d.get("letra_correcta", "A"),
+                    "enunciado": str(row_d.get("enunciado", "")) + " (COPIA)",
+                    "opciones_list": row_d.get("opciones_list", []) or [],
+                    "usada": "",
+                    "notas": row_d.get("notas", "") or "",
+                    "solucion": "",
+                }, nid)
+                st.session_state.excel_dfs[blk] = pd.concat(
+                    [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
+                lib.guardar_excel_local(st.session_state.excel_path,
+                                        st.session_state.excel_dfs)
+                st.success(f"✅ Duplicada como **{nid}**")
+                _renovar_tabla(); sync_bloques_gsheets([blk]); reload_db(); st.rerun()
+
+        # Borrar con confirmación inline
+        _del_key = f"del_confirm_{sel_pid}"
+        if ba4.button("🗑️", use_container_width=True, key="btn_del_q",
+                      help="Eliminar esta pregunta"):
+            st.session_state[_del_key] = not st.session_state.get(_del_key, False)
+        if st.session_state.get(_del_key, False):
+            st.warning(f"¿Eliminar **{sel_pid}** de forma permanente?")
+            cd1, cd2 = st.columns(2)
+            if cd1.button("✅ Sí, eliminar", type="primary",
+                          use_container_width=True, key="btn_del_confirm"):
+                ok, msg = lib.eliminar_preguntas_excel_local(
+                    st.session_state.excel_path,
+                    st.session_state.excel_dfs,
+                    [sel_pid],
+                )
+                if ok:
+                    sync_bloques_gsheets([row_d["bloque"]])
+                    st.session_state.pop(_del_key, None)
+                    _renovar_tabla(); reload_db(); st.rerun()
+                else:
+                    st.error(msg)
+            if cd2.button("✖ Cancelar", use_container_width=True, key="btn_del_cancel"):
+                st.session_state.pop(_del_key, None)
+                _rerun_local()
+
+        # 5. Solución expandible — debajo de los botones
+        if sol_txt:
+            with st.expander("📖 Ver solución", expanded=False):
+                _sol_prev_html = (
+                    "<div style='font-size:13px;color:var(--text, #2c3e50);padding:10px;"
+                    "background:var(--primary-soft, #f0f9ff);border-left:3px solid var(--primary, #3498db);"
+                    "border-radius:0 6px 6px 0;line-height:1.6'>"
+                    f"{sol_txt}</div>"
+                )
+                _mjax_exp = f"mjax_exp_{sel_pid}"
+                if st.session_state.get(_mjax_exp, False):
+                    stcomponents.html(mathjax_html(_sol_prev_html), height=200, scrolling=True)
+                else:
+                    st.markdown(_sol_prev_html, unsafe_allow_html=True)
+                if st.button("∑ Renderizar LaTeX", key=f"mjax_exp_btn_{sel_pid}",
+                             use_container_width=True):
+                    st.session_state[_mjax_exp] = not st.session_state.get(_mjax_exp, False)
+                    _rerun_local()
+
+
+    @st.dialog("👁 Pregunta", width="large")
+    def _dialog_gest_preview(pid):
+        _r = df_total[df_total["ID_Pregunta"] == pid]
+        if _r.empty:
+            st.info("La pregunta ya no está en la base de datos.")
+            return
+        _render_gest_preview(pid, dict(_r.iloc[0]), in_dialog=True)
+
     # ── Layout 2 columnas: tabla + panel derecho ──────────────────────────────
     if df_filt.empty:
         st.info("No hay preguntas que coincidan con los filtros.")
     else:
-        col_table, col_preview = st.columns([3, 2], gap="medium")
+        _gest_ventana = get_preview_mode() == "ventana"
+        _man_nonce    = st.session_state.get("_man_dlg_nonce", 0)
+        _man_open_pid = None   # pregunta a abrir en ventana en esta ejecución
+        if _gest_ventana:      # tabla a todo el ancho; acciones debajo
+            col_table, col_preview = st.container(), st.container()
+        else:
+            col_table, col_preview = st.columns([3, 2], gap="medium")
 
         with col_table:
             # Toggle modo selección múltiple
@@ -791,7 +933,7 @@ with tab_man:
                 hide_index=True,
                 selection_mode="multi-row" if _multi_mode else "single-row",
                 on_select="rerun",
-                key="man_df_sel",
+                key="man_df_sel" if not _man_nonce else f"man_df_sel_{_man_nonce}",
                 height=400,
                 column_config={
                     "ID":        st.column_config.TextColumn("ID", width=115),
@@ -810,6 +952,10 @@ with tab_man:
                         if n_sel == 1 else None)
             sel_pids_multi = ([df_filt.iloc[r]["ID_Pregunta"] for r in sel_rows]
                               if n_sel > 1 else [])
+            if _gest_ventana:   # abrir solo cuando cambia la fila elegida
+                if sel_pid and sel_pid != st.session_state.get("_man_last_pid"):
+                    _man_open_pid = sel_pid
+                st.session_state["_man_last_pid"] = sel_pid
 
             # ── Operaciones masivas (solo texto/dificultad, no borrado) ────────
             with st.expander(f"⚙️ Operaciones sobre las {n_filt} preguntas filtradas",
@@ -900,122 +1046,18 @@ with tab_man:
                     else:
                         st.error(msg)
 
-            # ══ SINGLE-SELECT: preview completo ══════════════════════════════
+            # ══ SINGLE-SELECT: preview completo (panel) o botón para reabrir la ventana ══
             elif sel_pid:
-                row_d     = dict(df_total[df_total["ID_Pregunta"] == sel_pid].iloc[0])
-                card_html = render_question_card_html(row_d, show_sol=True, include_notas=False)
-                sol_txt   = str(row_d.get("solucion", "") or "").strip()
-                notas_txt = str(row_d.get("notas",    "") or "").strip()
-                notas_html = ""
-
-                # 1. Tarjeta principal
-                st.markdown(card_html, unsafe_allow_html=True)
-
-                # 2. Notas
-                if notas_txt:
-                    notas_html = (
-                        "<div style='background:var(--note-bg, #fefce8);border-left:3px solid var(--ui-warn, #f59e0b);"
-                        "border-radius:0 8px 8px 0;padding:8px 14px;margin-top:4px;"
-                        "font-size:0.875em;color:var(--note-text, #78350f);line-height:1.5'>"
-                        "<b style='color:var(--note-text, #92400e)'>📝 Notas:</b> "
-                        f"{notas_txt}</div>"
-                    )
-                    st.markdown(notas_html, unsafe_allow_html=True)
-
-                # 3. Render LaTeX toggle (tarjeta + notas)
-                _mjax_key = f"mjax_gest_{sel_pid}"
-                _rend_on  = st.session_state.get(_mjax_key, False)
-                if st.button(
-                    "✖ Cerrar LaTeX" if _rend_on else "∑ Renderizar LaTeX",
-                    key=f"mjax_btn_{sel_pid}",
-                    use_container_width=True,
-                ):
-                    st.session_state[_mjax_key] = not _rend_on
-                    st.rerun()
-                if _rend_on:
-                    stcomponents.html(
-                        mathjax_html(card_html + notas_html),
-                        height=480, scrolling=True,
-                    )
-
-                # 4. Botones de acción — solo icono, misma anchura, tooltip descriptivo
-                st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-                ba1, ba2, ba3, ba4 = st.columns(4)
-                if ba1.button("✏️", use_container_width=True, type="primary",
-                              key="btn_edit_q", help="Editar pregunta"):
-                    _dialog_editar_pregunta(sel_pid, row_d)
-                if ba2.button("📖", use_container_width=True, key="btn_sol_q",
-                              help="Sin solución aún" if not sol_txt else "Ver / editar solución"):
-                    _dialog_solucion(sel_pid, row_d)
-                if ba3.button("📋", use_container_width=True, key="btn_dup_q",
-                              help="Duplicar pregunta"):
-                    blk    = row_d["bloque"]
-                    tema_d = str(row_d.get("Tema", "1"))
-                    nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
-                    blk_df = st.session_state.excel_dfs.get(blk)
-                    if blk_df is not None:
-                        new_row_dup = _fill_row(blk_df, {
-                            "tema": tema_d,
-                            "dificultad": row_d.get("dificultad", "Media"),
-                            "letra_correcta": row_d.get("letra_correcta", "A"),
-                            "enunciado": str(row_d.get("enunciado", "")) + " (COPIA)",
-                            "opciones_list": row_d.get("opciones_list", []) or [],
-                            "usada": "",
-                            "notas": row_d.get("notas", "") or "",
-                            "solucion": "",
-                        }, nid)
-                        st.session_state.excel_dfs[blk] = pd.concat(
-                            [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
-                        lib.guardar_excel_local(st.session_state.excel_path,
-                                                st.session_state.excel_dfs)
-                        st.success(f"✅ Duplicada como **{nid}**")
-                        sync_bloques_gsheets([blk]); reload_db(); st.rerun()
-
-                # Borrar con confirmación inline
-                _del_key = f"del_confirm_{sel_pid}"
-                if ba4.button("🗑️", use_container_width=True, key="btn_del_q",
-                              help="Eliminar esta pregunta"):
-                    st.session_state[_del_key] = not st.session_state.get(_del_key, False)
-                if st.session_state.get(_del_key, False):
-                    st.warning(f"¿Eliminar **{sel_pid}** de forma permanente?")
-                    cd1, cd2 = st.columns(2)
-                    if cd1.button("✅ Sí, eliminar", type="primary",
-                                  use_container_width=True, key="btn_del_confirm"):
-                        ok, msg = lib.eliminar_preguntas_excel_local(
-                            st.session_state.excel_path,
-                            st.session_state.excel_dfs,
-                            [sel_pid],
-                        )
-                        if ok:
-                            sync_bloques_gsheets([row_d["bloque"]])
-                            st.session_state.pop(_del_key, None)
-                            reload_db(); st.rerun()
-                        else:
-                            st.error(msg)
-                    if cd2.button("✖ Cancelar", use_container_width=True, key="btn_del_cancel"):
-                        st.session_state.pop(_del_key, None)
-                        st.rerun()
-
-                # 5. Solución expandible — debajo de los botones
-                if sol_txt:
-                    with st.expander("📖 Ver solución", expanded=False):
-                        _sol_prev_html = (
-                            "<div style='font-size:13px;color:var(--text, #2c3e50);padding:10px;"
-                            "background:var(--primary-soft, #f0f9ff);border-left:3px solid var(--primary, #3498db);"
-                            "border-radius:0 6px 6px 0;line-height:1.6'>"
-                            f"{sol_txt}</div>"
-                        )
-                        _mjax_exp = f"mjax_exp_{sel_pid}"
-                        if st.session_state.get(_mjax_exp, False):
-                            stcomponents.html(mathjax_html(_sol_prev_html), height=200, scrolling=True)
-                        else:
-                            st.markdown(_sol_prev_html, unsafe_allow_html=True)
-                        if st.button("∑ Renderizar LaTeX", key=f"mjax_exp_btn_{sel_pid}",
-                                     use_container_width=True):
-                            st.session_state[_mjax_exp] = not st.session_state.get(_mjax_exp, False)
-                            st.rerun()
+                if _gest_ventana:
+                    if st.button(f"👁 Ver {sel_pid}", key="btn_man_view"):
+                        _man_open_pid = sel_pid
+                else:
+                    _render_gest_preview(sel_pid, dict(df_total[df_total["ID_Pregunta"] == sel_pid].iloc[0]))
 
             # ══ NADA SELECCIONADO ═════════════════════════════════════════════
+            elif _gest_ventana:
+                st.caption("Marca la casilla de una fila para abrir la pregunta en una ventana. "
+                           "Con «Modo selección múltiple» puedes borrar varias a la vez.")
             else:
                 st.markdown(
                     "<div style='text-align:center;padding:40px 20px;color:var(--muted, #888);"
@@ -1027,6 +1069,17 @@ with tab_man:
                     "</div>",
                     unsafe_allow_html=True,
                 )
+
+        # ── Ventanas (solo una por ejecución) ──────────────────────────────
+        if _gest_ventana:
+            _pend = st.session_state.pop("_man_open", None)
+            if _pend:
+                _kind, _pid = _pend
+                _r = df_total[df_total["ID_Pregunta"] == _pid]
+                if not _r.empty:
+                    (_dialog_editar_pregunta if _kind == "edit" else _dialog_solucion)(_pid, dict(_r.iloc[0]))
+            elif _man_open_pid:
+                _dialog_gest_preview(_man_open_pid)
 
     # ── Export/Import JSON ───────────────────────────────────────────────────
     sel_ids_for_json = [sel_pid] if sel_pid else []
