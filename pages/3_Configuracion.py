@@ -20,14 +20,15 @@ sys.path.insert(0, PROJECT_DIR)
 import examen_lib_latex as lib
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback,
-    APP_CSS, page_header, _load_cfg, _nsort,
+    apply_theme, page_header, _load_cfg, _nsort,
     sync_bloques_gsheets, sync_hoja_gsheets, reload_db,
 )
+from app_theme import ESTILOS, get_estilo, set_estilo
 
 st.set_page_config(page_title="Configuración · Exámenes UCM", page_icon="⚙️", layout="wide")
 init_session_state()
 handle_oauth_callback()
-st.markdown(APP_CSS, unsafe_allow_html=True)
+apply_theme("configuracion")
 render_sidebar()
 
 page_header("⚙️", "Configuración", "Nombres de bloques, temas, objetivos y datos de la asignatura", color="#475569")
@@ -44,8 +45,8 @@ st.session_state.excel_dfs = dfs
 bloques_list  = st.session_state.bloques
 df_preguntas  = st.session_state.df_preguntas
 
-tab_gen, tab_bloques, tab_temas, tab_obj, tab_backup = st.tabs(
-    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos", "💾 Backup config"]
+tab_gen, tab_bloques, tab_temas, tab_obj, tab_backup, tab_ui = st.tabs(
+    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos", "💾 Backup config", "🎨 Apariencia"]
 )
 
 
@@ -533,3 +534,56 @@ with tab_backup:
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error al importar: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 · APARIENCIA
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_ui:
+    st.markdown("#### Estilo de la aplicación")
+    st.caption(
+        "Se aplica a todas las páginas y se guarda en la hoja Cfg_General de tu base de datos. "
+        "No cambia el aspecto de los exámenes exportados."
+    )
+
+    def _on_estilo_change():
+        set_estilo(st.session_state["cfg_ui_estilo"])
+
+    _est_keys = list(ESTILOS)
+    st.radio(
+        "Estilo",
+        _est_keys,
+        index=_est_keys.index(get_estilo()),
+        format_func=ESTILOS.get,
+        captions=[
+            "Tarjetas blancas sobre gris azulado, azul marino y cifras en monoespaciada. "
+            "Disponible en claro y oscuro.",
+            "El aspecto original de la aplicación (solo modo claro).",
+        ],
+        key="cfg_ui_estilo",
+        on_change=_on_estilo_change,
+    )
+
+    st.info(
+        "**Claro / oscuro:** menú **⋮** (arriba a la derecha) → **Settings** → "
+        "*Choose app theme* (Light, Dark o System, que sigue al sistema operativo). "
+        "Se recuerda en este navegador."
+    )
+
+    _est_guardado = st.session_state.get("cfg_general", {}).get("ui_estilo", "")
+    _est_activo   = get_estilo()
+    if st.button("💾 Guardar como estilo predeterminado", type="primary", key="btn_save_ui",
+                 disabled=(_est_guardado == _est_activo)):
+        cfg_g_new = {**st.session_state.get("cfg_general", {}), "ui_estilo": _est_activo}
+        dfs = lib.save_cfg_general(st.session_state.excel_dfs, cfg_g_new)
+        dfs = _load_cfg(dfs)
+        st.session_state.excel_dfs   = dfs
+        st.session_state.excel_bytes = lib.generar_excel_bytes(dfs)
+        path = st.session_state.get("excel_path", "")
+        if path:
+            lib.guardar_excel_local(path, dfs)
+        sync_hoja_gsheets(lib.CFG_GENERAL_SHEET)
+        st.success(f"✅ Estilo «{ESTILOS[_est_activo]}» guardado.")
+        st.rerun()
+    if _est_guardado == _est_activo:
+        st.caption(f"Estilo guardado en la base de datos: {ESTILOS.get(_est_guardado, _est_guardado)}")

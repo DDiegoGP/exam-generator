@@ -25,7 +25,7 @@ sys.path.insert(0, PROJECT_DIR)
 import streamlit.components.v1 as stcomponents
 import examen_lib_latex as lib
 from app_utils import (
-    init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
+    init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
     reload_db, bloques_disponibles, temas_de_bloque, objetivos_de_tema,
     es_uso_antiguo, render_question_card_html, mathjax_html,
     append_historial, save_preset, delete_preset,
@@ -38,7 +38,7 @@ from app_utils import (
 st.set_page_config(page_title="Generador · Exámenes UCM", page_icon="🎲", layout="wide")
 init_session_state()
 handle_oauth_callback()
-st.markdown(APP_CSS, unsafe_allow_html=True)
+apply_theme("generador")
 render_sidebar()
 
 _n_sel = len(st.session_state.sel_ids)

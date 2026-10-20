@@ -1,13 +1,52 @@
 [server]
 maxUploadSize = 50
 
+[client]
+# La navegación entre páginas se dibuja arriba (app_theme.render_topbar)
+showSidebarNavigation = false
+
+# ── Tema base (común a claro y oscuro) ────────────────────────────────────────
 [theme]
-base = "light"
-primaryColor = "#3498db"
+font = "Figtree:https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+baseRadius = "0.55rem"
+buttonRadius = "0.55rem"
+showWidgetBorder = true
+showSidebarBorder = true
+
+# ── Bitácora claro ────────────────────────────────────────────────────────────
+[theme.light]
+primaryColor = "#1d4a94"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f8f9fa"
-textColor = "#2c3e50"
-font = "sans serif"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1a2233"
+linkColor = "#1d4a94"
+borderColor = "#d5dbe5"
+dataframeBorderColor = "#e4e8ef"
+dataframeHeaderBackgroundColor = "#f5f7fa"
+codeBackgroundColor = "#f5f7fa"
+chartCategoricalColors = ["#1d4a94", "#e07b39", "#2f8f5b", "#8fb0e6", "#b23a48", "#7a5cc7", "#c9a227", "#5b6475"]
+
+[theme.light.sidebar]
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#ffffff"
+
+# ── Bitácora oscuro ───────────────────────────────────────────────────────────
+[theme.dark]
+primaryColor = "#4f80dd"
+backgroundColor = "#18202d"
+secondaryBackgroundColor = "#1d2635"
+textColor = "#e6eaf2"
+linkColor = "#8fb2f5"
+borderColor = "#344052"
+dataframeBorderColor = "#2a3443"
+dataframeHeaderBackgroundColor = "#1d2635"
+codeBackgroundColor = "#1d2635"
+chartCategoricalColors = ["#7ea6f2", "#f0a066", "#6cc893", "#3b6fd1", "#ee7d8a", "#a98ef0", "#e3c45c", "#9aa4b5"]
+
+[theme.dark.sidebar]
+backgroundColor = "#141a25"
+secondaryBackgroundColor = "#18202d"
 
 [browser]
 gatherUsageStats = false

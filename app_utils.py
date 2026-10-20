@@ -15,6 +15,7 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
+from app_theme import apply_theme, get_estilo  # noqa: F401  (apply_theme se reexporta a las páginas)
 
 # ── Archivos persistentes ────────────────────────────────────────────────────
 PRESETS_FILE = os.path.join(PROJECT_DIR, "presets_examen.json")
@@ -715,20 +716,29 @@ def render_sidebar():
             f"<div style='font-size:0.7em;opacity:0.55;margin-top:1px'>{inst}</div>"
             if inst else ""
         )
-        st.markdown(
-            "<div style='background:linear-gradient(135deg,#1a252f,#2c3e50);"
-            "border-radius:10px;padding:12px 16px;margin-bottom:14px;color:white'>"
-            "<div style='font-size:1.15em;font-weight:800;letter-spacing:-.01em'>📝 ExamGen UCM</div>"
-            f"<div style='font-size:0.78em;opacity:0.85;margin-top:3px;font-weight:600'>{_sub}</div>"
-            f"{_inst_line}"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        if get_estilo() == "clasico":
+            st.markdown(
+                "<div style='background:linear-gradient(135deg,#1a252f,#2c3e50);"
+                "border-radius:10px;padding:12px 16px;margin-bottom:14px;color:white'>"
+                "<div style='font-size:1.15em;font-weight:800;letter-spacing:-.01em'>📝 ExamGen UCM</div>"
+                f"<div style='font-size:0.78em;opacity:0.85;margin-top:3px;font-weight:600'>{_sub}</div>"
+                f"{_inst_line}"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<div style='font-size:0.75rem;font-weight:600;letter-spacing:.08em;"
+                "text-transform:uppercase;color:var(--muted);margin:2px 0 10px 0'>"
+                "Base de datos</div>",
+                unsafe_allow_html=True,
+            )
 
         # ── Google Sheets OAuth (si está configurado) ─────────────────────────
         _render_gsheets_oauth()
 
-        st.markdown("**📚 Base de Datos Excel**")
+        if get_estilo() == "clasico":
+            st.markdown("**📚 Base de Datos Excel**")
 
         # ── Upload de Excel (funciona local Y en Cloud) ───────────────────────
         uploaded = st.file_uploader(
@@ -774,16 +784,16 @@ def render_sidebar():
         _univ_sb  = _cg.get("universidad", "") or ""
         if any([_asig_sb, _grado_sb, _dept_sb, _univ_sb]):
             _lines = []
-            if _asig_sb:  _lines.append(f"<b style='color:#2c3e50'>{_asig_sb}</b>")
-            if _grado_sb: _lines.append(f"<span style='color:#555'>{_grado_sb}</span>")
-            if _anio_sb:  _lines.append(f"<span style='color:#777;font-size:0.85em'>{_anio_sb}</span>")
-            if _dept_sb:  _lines.append(f"<span style='color:#888;font-size:0.82em'>{_dept_sb}</span>")
-            if _univ_sb:  _lines.append(f"<span style='color:#888;font-size:0.82em'>{_univ_sb}</span>")
+            if _asig_sb:  _lines.append(f"<b style='color:var(--text)'>{_asig_sb}</b>")
+            if _grado_sb: _lines.append(f"<span style='color:var(--text2)'>{_grado_sb}</span>")
+            if _anio_sb:  _lines.append(f"<span style='color:var(--muted);font-size:0.85em'>{_anio_sb}</span>")
+            if _dept_sb:  _lines.append(f"<span style='color:var(--muted);font-size:0.82em'>{_dept_sb}</span>")
+            if _univ_sb:  _lines.append(f"<span style='color:var(--muted);font-size:0.82em'>{_univ_sb}</span>")
             st.markdown(
-                "<div style='background:#f0f7ff;border:1px solid #c8dff8;border-radius:8px;"
+                "<div style='background:var(--primary-soft);border:1px solid var(--border);border-radius:10px;"
                 "padding:9px 13px;margin-bottom:10px;line-height:1.6'>"
                 + "<br>".join(_lines) +
-                "<div style='font-size:0.7em;color:#aaa;margin-top:4px'>📋 Configuración → General</div>"
+                "<div style='font-size:0.7em;color:var(--muted);margin-top:4px'>Configuración → General</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -847,6 +857,11 @@ def render_sidebar():
 
 # ── Page header helper ────────────────────────────────────────────────────────
 def page_header(icon: str, title: str, subtitle: str = "", color: str = "#2c3e50"):
+    if get_estilo() != "clasico":
+        sub_html = f'<div class="pg-sub">{subtitle}</div>' if subtitle else ""
+        st.markdown(f'<div class="pg-head"><div class="pg-title">{title}</div>{sub_html}</div>',
+                    unsafe_allow_html=True)
+        return
     sub_html = (f'<div style="font-size:.85em;opacity:.75;margin-top:5px;font-weight:400">{subtitle}</div>'
                 if subtitle else "")
     # Spacer: evita que el primer elemento quede tapado por la barra fija de Streamlit

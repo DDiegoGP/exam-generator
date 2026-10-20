@@ -23,7 +23,7 @@ sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
 from app_utils import (
-    init_session_state, render_sidebar, handle_oauth_callback, APP_CSS, page_header,
+    init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
     connect_db, reload_db,
     bloques_disponibles, temas_de_bloque, temas_en_db, objetivos_de_tema,
     nombre_bloque, nombre_tema, nombre_objetivo,
@@ -36,7 +36,7 @@ from app_utils import (
 st.set_page_config(page_title="Gestor DB · Exámenes UCM", page_icon="🗄️", layout="wide")
 init_session_state()
 handle_oauth_callback()
-st.markdown(APP_CSS, unsafe_allow_html=True)
+apply_theme("gestor")
 render_sidebar()
 
 # ── Dialog: selector de constantes físicas ────────────────────────────────────
