@@ -33,7 +33,7 @@ from app_utils import (
     OUTPUT_DIR, _nsort,
     _dialog_editar_pregunta, marcar_preguntas_usadas,
 )
-from app_theme import get_preview_mode
+from app_theme import get_preview_mode, get_estilo
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Generador · Exámenes UCM", page_icon="🎲", layout="wide")
@@ -2692,461 +2692,484 @@ with tab_exp:
     n_total    = n_pregs + n_recipe
     cfg        = st.session_state.get("exam_cfg", {})
 
+    _bit_exp = get_estilo() == "bitacora"
     col_cfg, col_res = st.columns([3, 2], gap="large")
 
     with col_cfg:
+        # Bitácora: los bloques se agrupan en 4 subpestañas; Clásico: uno debajo de otro
+        if _bit_exp:
+            _g_exam, _g_fmt, _g_extra, _g_tpl = st.tabs(
+                ["Examen", "Formato", "Documentos extra", "Plantillas y presets"])
+        else:
+            _g_exam = _g_fmt = _g_extra = _g_tpl = st.container()
 
-        # ── 1. Configuración del examen ────────────────────────────────────────
-        with st.expander("📋 Configuración del examen", expanded=True):
-            _cg = st.session_state.get("cfg_general", {})
 
-            # Sincronizar desde cfg_general (flag pattern)
-            if st.session_state.pop("_sync_from_cfg_general", False):
-                st.session_state["exp_inst"]  = _cg.get("universidad") or _cg.get("departamento") or ""
-                st.session_state["exp_asig"]  = _cg.get("asignatura") or ""
+        with _g_exam:
+            # ── 1. Configuración del examen ────────────────────────────────────────
+            with st.expander("📋 Configuración del examen", expanded=(_bit_exp or True)):
+                _cg = st.session_state.get("cfg_general", {})
 
-            # Inicializar desde cfg_general si el widget aún no existe en session_state
-            if "exp_inst" not in st.session_state:
-                st.session_state["exp_inst"] = cfg.get("inst") or _cg.get("universidad") or _cg.get("departamento") or ""
-            if "exp_asig" not in st.session_state:
-                st.session_state["exp_asig"] = cfg.get("asig") or _cg.get("asignatura") or ""
+                # Sincronizar desde cfg_general (flag pattern)
+                if st.session_state.pop("_sync_from_cfg_general", False):
+                    st.session_state["exp_inst"]  = _cg.get("universidad") or _cg.get("departamento") or ""
+                    st.session_state["exp_asig"]  = _cg.get("asignatura") or ""
 
-            _sync_col, _ = st.columns([2, 4])
-            if _sync_col.button("↺ Rellenar desde Configuración", key="btn_sync_cfg",
-                                help="Sobreescribe Institución y Asignatura con los datos de ⚙️ Configuración"):
-                st.session_state["_sync_from_cfg_general"] = True
-                st.rerun()
+                # Inicializar desde cfg_general si el widget aún no existe en session_state
+                if "exp_inst" not in st.session_state:
+                    st.session_state["exp_inst"] = cfg.get("inst") or _cg.get("universidad") or _cg.get("departamento") or ""
+                if "exp_asig" not in st.session_state:
+                    st.session_state["exp_asig"] = cfg.get("asig") or _cg.get("asignatura") or ""
 
-            e1, e2, e3 = st.columns(3)
-            inst  = e1.text_input("Institución",    key="exp_inst")
-            asig  = e2.text_input("Asignatura",     key="exp_asig")
-            tipo  = e3.text_input("Tipo de examen", value=cfg.get("tipo", "EXAMEN FINAL"),          key="exp_tipo")
-            e4, e5, e6 = st.columns(3)
-            fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
-            tiem          = e5.text_input("Tiempo",         value=cfg.get("tiem",  "90 min"),       key="exp_tiem")
-            nombre_archivo = e6.text_input("Nombre archivo", value=cfg.get("file", f"Examen_{datetime.date.today()}"), key="exp_file")
-            _campos_def   = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
-            _campos_map   = {"nombre": "Nombre", "dni": "DNI/NIU", "grupo": "Grupo", "firma": "Firma"}
-            _campos_sel   = st.multiselect("Campos del alumno en el examen", list(_campos_map.keys()),
-                                           default=_campos_def,
-                                           format_func=lambda x: _campos_map[x], key="exp_campos")
-
-        # ── 2. Generación ─────────────────────────────────────────────────────
-        with st.expander("⚙️ Opciones de generación", expanded=True):
-            oc1, oc2, oc3 = st.columns(3)
-            num_modelos = oc1.selectbox("Nº Modelos", [1, 2, 3, 4],
-                                        index=max(0, cfg.get("vers", 1) - 1), key="exp_vers")
-            _orden_opts = [("Aleatorio por Bloques","bloques"),("Aleatorio por Temas","temas"),
-                           ("Aleatorio Global","global"),
-                           ("Manual (selección)","manual"),("Sin barajar (ID)","secuencial")]
-            _orden_idx  = next((i for i, (_, v) in enumerate(_orden_opts) if v == cfg.get("ord","bloques")), 0)
-            orden_val   = oc2.selectbox("Orden preguntas", _orden_opts, index=_orden_idx,
-                                        format_func=lambda x: x[0], key="exp_ord")
-            orden       = orden_val[1]
-            barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
-
-            st.markdown("**Modo de partes:**")
-            _partes_opts = [
-                ("completo",    "📄 Completo (desarrollo + test juntos)"),
-                ("solo_test",   "📋 Solo Test (MCQ)"),
-                ("solo_dev",    "✍️ Solo Desarrollo (problemas)"),
-                ("separados",   "📑 Separados (dos documentos independientes)"),
-            ]
-            _partes_idx = next((i for i, (v, _) in enumerate(_partes_opts)
-                                if v == cfg.get("partes_modo", "separados")), 3)
-            partes_modo = st.selectbox(
-                "Modo de partes", _partes_opts, index=_partes_idx,
-                format_func=lambda x: x[1], key="exp_partes_modo",
-                label_visibility="collapsed",
-            )[0]
-            if partes_modo == "separados":
-                st.caption("ℹ️ Dos documentos independientes: **_DEV** (desarrollo, A4) y **_TEST** (test, con opción 2-por-hoja).")
-        campos_alumno = _campos_sel
-
-        # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
-        with st.expander("📄 Formatos y marcado de soluciones", expanded=True):
-            st.markdown("**Formatos de exportación:**")
-            fc1, fc2, fc3 = st.columns(3)
-            fc1.markdown("📊 **CSV** (siempre)", help="Clave de respuestas y metadatos — siempre se generan")
-            exp_word = fc2.checkbox("📄 Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
-            exp_tex  = fc3.checkbox("📑 LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
-            if exp_tex:
-                st.caption("ℹ️ LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
-            st.markdown("**Marcado de la versión soluciones:**")
-            sc1, sc2, sc3 = st.columns(3)
-            sol_bold = sc1.checkbox("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
-            _color_opts = {"": "Sin color", "red": "Rojo", "green": "Verde",
-                           "blue": "Azul", "orange": "Naranja", "purple": "Morado"}
-            _color_cur  = cfg.get("sol_color", "red")
-            _color_idx  = list(_color_opts.keys()).index(_color_cur) if _color_cur in _color_opts else 1
-            sol_color = sc2.selectbox("Color respuesta correcta", list(_color_opts.keys()),
-                                      index=_color_idx, format_func=lambda x: _color_opts[x],
-                                      key="exp_sol_color")
-            sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
-            st.markdown("**Estilo bloque solución (desarrollo):**")
-            _esol_opts = {"caja": "📦 Caja tcolorbox", "linea": "📌 Línea lateral", "texto": "🔤 Texto"}
-            _esol_cur  = cfg.get("estilo_sol", "caja")
-            estilo_sol = st.radio("Estilo bloque solución", list(_esol_opts.keys()),
-                                  index=list(_esol_opts.keys()).index(_esol_cur) if _esol_cur in _esol_opts else 0,
-                                  format_func=lambda x: _esol_opts[x], horizontal=True,
-                                  key="exp_estilo_sol")
-            st.markdown("**Marca de agua en versión soluciones:**")
-            wc1, wc2 = st.columns([1, 2])
-            watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
-            watermark_text = wc2.text_input("Texto de la marca", value=cfg.get("watermark_text", "SOLUCIONES"),
-                                            key="exp_wm_text", disabled=not watermark_sol)
-            st.markdown("**Info extra por pregunta en versión soluciones (LaTeX):**")
-            ic1, ic2, ic3 = st.columns(3)
-            sol_info_bloque = ic1.checkbox("Bloque",      value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
-            sol_info_tema   = ic2.checkbox("Tema",        value=cfg.get("sol_info_tema",   False), key="exp_sol_tema")
-            sol_info_dif    = ic3.checkbox("Dificultad",  value=cfg.get("sol_info_dif",    False), key="exp_sol_dif")
-
-        # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
-        with st.expander("📝 Instrucciones y cabeceras", expanded=True):
-            instr     = st.text_area("Instrucciones generales",
-                                     value=cfg.get("ins", "Conteste en la hoja de respuestas."),
-                                     height=70, key="exp_ins")
-            tc1, tc2  = st.columns(2)
-            titulo_fund = tc1.text_input("Título sección desarrollo",
-                                         value=cfg.get("titulo_fund", "PREGUNTAS DE DESARROLLO"),
-                                         key="exp_tit_fund")
-            titulo_test = tc2.text_input("Título sección test",
-                                         value=cfg.get("titulo_test", "PREGUNTAS TEST"),
-                                         key="exp_tit_test")
-            hc1, hc2  = st.columns(2)
-            info_fund = hc1.text_area("Cabecera sección desarrollo", value=cfg.get("h1", ""), height=70, key="exp_h1")
-            info_test = hc2.text_area("Cabecera sección test",       value=cfg.get("h2", ""), height=70, key="exp_h2")
-
-        # ── 4b. Estilo visual ─────────────────────────────────────────────────
-        with st.expander("🎨 Estilo visual", expanded=False):
-            _scheme_opts  = {"azul": "Azul profesional", "ucm": "Colores UCM (granate)", "byn": "Blanco y Negro"}
-            _scheme_cur   = cfg.get("color_scheme", "azul")
-            _scheme_idx   = list(_scheme_opts.keys()).index(_scheme_cur) if _scheme_cur in _scheme_opts else 0
-            sv1, sv2      = st.columns(2)
-            color_scheme  = sv1.selectbox("Esquema de color", list(_scheme_opts.keys()),
-                                          index=_scheme_idx, format_func=lambda x: _scheme_opts[x],
-                                          key="exp_color_scheme")
-            _font_opts    = {"cm": "Computer Modern (LaTeX)", "palatino": "Palatino / Georgia",
-                             "times": "Times New Roman", "libertine": "Linux Libertine",
-                             "helvet": "Helvetica / Arial"}
-            _font_cur     = cfg.get("tipografia", "cm")
-            if _font_cur not in _font_opts:
-                _font_cur = "cm"
-            _font_idx     = list(_font_opts.keys()).index(_font_cur)
-            tipografia    = sv2.selectbox("Tipografía", list(_font_opts.keys()),
-                                          index=_font_idx, format_func=lambda x: _font_opts[x],
-                                          key="exp_tipografia")
-            sv3, sv4      = st.columns(2)
-            _size_opts    = [10, 11, 12]
-            _size_cur     = int(cfg.get("font_size", 12))
-            _size_idx     = _size_opts.index(_size_cur) if _size_cur in _size_opts else 2
-            font_size_val = sv3.selectbox("Tamaño de letra", _size_opts,
-                                          index=_size_idx, format_func=lambda x: f"{x} pt",
-                                          key="exp_font_size")
-            # Espaciado entre preguntas (sustituye al antiguo modo_compacto bool)
-            _esp_opts  = {"normal": "Normal", "compacto": "Compacto", "muy_compacto": "Muy compacto"}
-            _esp_raw   = cfg.get("espaciado", "compacto" if cfg.get("modo_compacto", False) else "normal")
-            if _esp_raw not in _esp_opts:
-                _esp_raw = "normal"
-            espaciado  = sv4.selectbox("Espaciado preguntas", list(_esp_opts.keys()),
-                                       index=list(_esp_opts.keys()).index(_esp_raw),
-                                       format_func=lambda x: _esp_opts[x],
-                                       key="exp_espaciado",
-                                       help="Normal: 1.5em · Compacto: 0.8em · Muy compacto: 0.4em entre preguntas")
-            sv5, sv6  = st.columns(2)
-            _marg_opts = {"normal": "Normal (20 mm)", "reducido": "Reducido (15 mm)", "minimo": "Mínimo (12 mm)"}
-            _marg_cur  = cfg.get("margenes", "normal")
-            if _marg_cur not in _marg_opts:
-                _marg_cur = "normal"
-            margenes   = sv5.selectbox("Márgenes", list(_marg_opts.keys()),
-                                       index=list(_marg_opts.keys()).index(_marg_cur),
-                                       format_func=lambda x: _marg_opts[x],
-                                       key="exp_margenes")
-            _cab_opts  = {"normal": "Normal (completa)", "compacta": "Compacta (una línea)"}
-            _cab_cur   = "compacta" if cfg.get("cabecera_compacta", False) else "normal"
-            _cab_sel   = sv6.selectbox("Cabecera", list(_cab_opts.keys()),
-                                       index=list(_cab_opts.keys()).index(_cab_cur),
-                                       format_func=lambda x: _cab_opts[x],
-                                       key="exp_cabecera")
-            cabecera_compacta = (_cab_sel == "compacta")
-            sv7, sv8  = st.columns(2)
-            sin_recuadro = sv7.checkbox("Ocultar recuadro del alumno",
-                                        value=cfg.get("sin_recuadro", False), key="exp_sin_recuadro",
-                                        help="No genera la caja Nombre/DNI/Firma")
-            _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
-            _cols_opt   = sv8.radio("Disposición opciones test", ["1 columna", "2 columnas"],
-                                    index=_cols_idx, horizontal=True, key="exp_opcols")
-            opciones_cols = 1 if _cols_opt == "1 columna" else 2
-            _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "vacio": "Círculo ○", "numero": "Número 1.", "nada": "Sin estilo"}
-            _enum_cur   = cfg.get("estilo_num", "cuadrado")
-            _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
-            estilo_num  = st.selectbox("Numeración de preguntas (LaTeX)", list(_enum_opts.keys()),
-                                       index=_enum_idx, format_func=lambda x: _enum_opts[x],
-                                       key="exp_estilo_num",
-                                       help="Estilo del número de cada pregunta en el PDF LaTeX")
-            fh1, fh2  = st.columns([1, 2])
-            fancyhdr_on  = fh1.checkbox("Encabezado/pie de página", value=cfg.get("fancyhdr_on", True),
-                                        key="exp_fancyhdr",
-                                        help="Muestra asignatura + versión en cabecera y nº de página en pie")
-            footer_text  = fh2.text_input("Texto extra en pie de página",
-                                          value=cfg.get("footer_text", ""), key="exp_footer",
-                                          placeholder="ej: Prohibido el uso de móvil",
-                                          disabled=not fancyhdr_on)
-            _dph_label = (
-                "2 páginas por hoja en el **Test** (A5 → A4 apaisado)"
-                if partes_modo == "separados" else
-                "2 páginas por hoja (A5 → A4 apaisado)"
-            )
-            _dph_help = (
-                "Solo para el documento _TEST. El documento de desarrollo (_DEV) se genera siempre en A4 normal."
-                if partes_modo == "separados" else
-                "LaTeX: imprime 2 páginas A5 en una hoja A4 apaisada (pgfpages). Word: genera en tamaño A5."
-            )
-            dos_por_hoja = st.checkbox(
-                _dph_label,
-                value=cfg.get("dos_por_hoja", False), key="exp_dos_por_hoja",
-                help=_dph_help,
-            )
-
-        # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
-        with st.expander("📋 Hoja de respuestas", expanded=False):
-            st.caption("Se añade como página final del examen (solo en versión alumno, no en soluciones).")
-            hr1, hr2 = st.columns([1, 2])
-            hoja_respuestas = hr1.checkbox("Generar hoja de respuestas",
-                                           value=cfg.get("hoja_respuestas", False), key="exp_hoja_resp")
-
-        # ── 4b-ter. Solucionario ──────────────────────────────────────────────
-        with st.expander("📖 Solucionario (apéndice)", expanded=False):
-            st.caption("Añade un apéndice al LaTeX de soluciones con las soluciones desarrolladas de cada pregunta.")
-            sl1, sl2 = st.columns([1, 2])
-            incluir_solucionario = sl1.checkbox("Incluir solucionario",
-                                                value=cfg.get("incluir_solucionario", False),
-                                                key="exp_incl_sol")
-            titulo_solucionario = sl2.text_input("Título del apéndice",
-                                                 value=cfg.get("titulo_solucionario", "Solucionario"),
-                                                 key="exp_tit_sol", disabled=not incluir_solucionario)
-            _estilo_hoja_opts = {"omr": "OMR — Burbujas (○ A ○ B ○ C ○ D)", "tabla": "Tabla — Celdas para marcar"}
-            _estilo_hoja_cur  = cfg.get("estilo_hoja", "omr")
-            _estilo_hoja_idx  = list(_estilo_hoja_opts.keys()).index(_estilo_hoja_cur) if _estilo_hoja_cur in _estilo_hoja_opts else 0
-            estilo_hoja = hr2.selectbox("Estilo de la hoja", list(_estilo_hoja_opts.keys()),
-                                        index=_estilo_hoja_idx,
-                                        format_func=lambda x: _estilo_hoja_opts[x],
-                                        key="exp_estilo_hoja", disabled=not hoja_respuestas)
-
-        # ── 4b-cuarto. Guía de corrección (rúbrica) ──────────────────────────
-        _dev_qs_now  = st.session_state.get("dev_questions", [])
-        _has_rubrica = any(q.get("criterios") or q.get("solucion_modelo","").strip()
-                           for q in _dev_qs_now)
-        with st.expander("📐 Guía de corrección (rúbrica)", expanded=_has_rubrica):
-            st.caption(
-                "Genera un documento separado con la rúbrica y soluciones modelo "
-                "de las preguntas de desarrollo. Se incluye en el ZIP."
-            )
-            rb1, rb2, rb3 = st.columns(3)
-            incl_rubrica = rb1.checkbox("Incluir guía de corrección",
-                                        value=cfg.get("incl_rubrica", _has_rubrica),
-                                        key="exp_incl_rubrica",
-                                        disabled=not _has_rubrica)
-            if not _has_rubrica:
-                rb1.caption("⚠️ Define rúbrica/solución en Tab ✍️ Desarrollo")
-            fmt_rubrica_word = rb2.checkbox("Formato Word (.docx)", value=cfg.get("fmt_rubrica_word", True),
-                                             key="exp_rubrica_word", disabled=not incl_rubrica)
-            fmt_rubrica_tex  = rb3.checkbox("Formato LaTeX (.tex)",  value=cfg.get("fmt_rubrica_tex",  True),
-                                             key="exp_rubrica_tex",  disabled=not incl_rubrica)
-            tit_rubrica = st.text_input("Título del documento",
-                                        value=cfg.get("tit_rubrica", "Guía de Corrección"),
-                                        key="exp_tit_rubrica", disabled=not incl_rubrica)
-            rubrica_cajas = st.checkbox(
-                "☑ Cajas de puntuación para corrector (columna derecha en criterios)",
-                value=cfg.get("rubrica_cajas", False),
-                key="exp_rubrica_cajas",
-                disabled=not incl_rubrica,
-                help="Añade una caja [ ___ ] a la derecha de cada criterio para que el corrector anote la nota directamente en el PDF impreso.",
-            )
-
-        # ── 4b-quinto. Formulario / Hoja de fórmulas ─────────────────────────
-        _form_stored = bool(st.session_state.get("_formulario_bytes"))
-        with st.expander("📄 Formulario / Hoja de fórmulas", expanded=_form_stored):
-            st.caption(
-                "Adjunta un PDF con el formulario de la asignatura. "
-                "Se incluirá como última página en los archivos LaTeX (requiere compilación local con pdfpages)."
-            )
-            _f1, _f2 = st.columns([2, 1])
-            incl_formulario = _f1.checkbox(
-                "Incluir formulario al final del examen",
-                value=cfg.get("incl_formulario", _form_stored),
-                key="exp_incl_formulario",
-                disabled=not _form_stored,
-            )
-            _form_up = st.file_uploader(
-                "Subir PDF del formulario", type=["pdf"], key="formulario_upload",
-                help="El PDF se incluirá como página(s) extra al final del LaTeX con \\includepdf",
-            )
-            if _form_up:
-                if st.session_state.get("_formulario_upload_name") != _form_up.name:
-                    st.session_state["_formulario_bytes"]      = _form_up.getvalue()
-                    st.session_state["_formulario_name"]       = _form_up.name
-                    st.session_state["_formulario_upload_name"] = _form_up.name
+                _sync_col, _ = st.columns([2, 4])
+                if _sync_col.button("↺ Rellenar desde Configuración", key="btn_sync_cfg",
+                                    help="Sobreescribe Institución y Asignatura con los datos de ⚙️ Configuración"):
+                    st.session_state["_sync_from_cfg_general"] = True
                     st.rerun()
-            if _form_stored:
-                _f2.success(f"📎 {st.session_state.get('_formulario_name','formulario.pdf')}")
-                if _f2.button("🗑️ Quitar formulario", key="btn_del_formulario", use_container_width=True):
-                    for _k in ("_formulario_bytes", "_formulario_name", "_formulario_upload_name"):
-                        st.session_state.pop(_k, None)
+
+                e1, e2, e3 = st.columns(3)
+                inst  = e1.text_input("Institución",    key="exp_inst")
+                asig  = e2.text_input("Asignatura",     key="exp_asig")
+                tipo  = e3.text_input("Tipo de examen", value=cfg.get("tipo", "EXAMEN FINAL"),          key="exp_tipo")
+                e4, e5, e6 = st.columns(3)
+                fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
+                tiem          = e5.text_input("Tiempo",         value=cfg.get("tiem",  "90 min"),       key="exp_tiem")
+                nombre_archivo = e6.text_input("Nombre archivo", value=cfg.get("file", f"Examen_{datetime.date.today()}"), key="exp_file")
+                _campos_def   = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
+                _campos_map   = {"nombre": "Nombre", "dni": "DNI/NIU", "grupo": "Grupo", "firma": "Firma"}
+                _campos_sel   = st.multiselect("Campos del alumno en el examen", list(_campos_map.keys()),
+                                               default=_campos_def,
+                                               format_func=lambda x: _campos_map[x], key="exp_campos")
+
+        with _g_exam:
+            # ── 2. Generación ─────────────────────────────────────────────────────
+            with st.expander("⚙️ Opciones de generación", expanded=(_bit_exp or True)):
+                oc1, oc2, oc3 = st.columns(3)
+                num_modelos = oc1.selectbox("Nº Modelos", [1, 2, 3, 4],
+                                            index=max(0, cfg.get("vers", 1) - 1), key="exp_vers")
+                _orden_opts = [("Aleatorio por Bloques","bloques"),("Aleatorio por Temas","temas"),
+                               ("Aleatorio Global","global"),
+                               ("Manual (selección)","manual"),("Sin barajar (ID)","secuencial")]
+                _orden_idx  = next((i for i, (_, v) in enumerate(_orden_opts) if v == cfg.get("ord","bloques")), 0)
+                orden_val   = oc2.selectbox("Orden preguntas", _orden_opts, index=_orden_idx,
+                                            format_func=lambda x: x[0], key="exp_ord")
+                orden       = orden_val[1]
+                barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
+
+                st.markdown("**Modo de partes:**")
+                _partes_opts = [
+                    ("completo",    "📄 Completo (desarrollo + test juntos)"),
+                    ("solo_test",   "📋 Solo Test (MCQ)"),
+                    ("solo_dev",    "✍️ Solo Desarrollo (problemas)"),
+                    ("separados",   "📑 Separados (dos documentos independientes)"),
+                ]
+                _partes_idx = next((i for i, (v, _) in enumerate(_partes_opts)
+                                    if v == cfg.get("partes_modo", "separados")), 3)
+                partes_modo = st.selectbox(
+                    "Modo de partes", _partes_opts, index=_partes_idx,
+                    format_func=lambda x: x[1], key="exp_partes_modo",
+                    label_visibility="collapsed",
+                )[0]
+                if partes_modo == "separados":
+                    st.caption("ℹ️ Dos documentos independientes: **_DEV** (desarrollo, A4) y **_TEST** (test, con opción 2-por-hoja).")
+            campos_alumno = _campos_sel
+
+        with _g_fmt:
+            # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
+            with st.expander("📄 Formatos y marcado de soluciones", expanded=(_bit_exp or True)):
+                st.markdown("**Formatos de exportación:**")
+                fc1, fc2, fc3 = st.columns(3)
+                fc1.markdown("📊 **CSV** (siempre)", help="Clave de respuestas y metadatos — siempre se generan")
+                exp_word = fc2.checkbox("📄 Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
+                exp_tex  = fc3.checkbox("📑 LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
+                if exp_tex:
+                    st.caption("ℹ️ LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
+                st.markdown("**Marcado de la versión soluciones:**")
+                sc1, sc2, sc3 = st.columns(3)
+                sol_bold = sc1.checkbox("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
+                _color_opts = {"": "Sin color", "red": "Rojo", "green": "Verde",
+                               "blue": "Azul", "orange": "Naranja", "purple": "Morado"}
+                _color_cur  = cfg.get("sol_color", "red")
+                _color_idx  = list(_color_opts.keys()).index(_color_cur) if _color_cur in _color_opts else 1
+                sol_color = sc2.selectbox("Color respuesta correcta", list(_color_opts.keys()),
+                                          index=_color_idx, format_func=lambda x: _color_opts[x],
+                                          key="exp_sol_color")
+                sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
+                st.markdown("**Estilo bloque solución (desarrollo):**")
+                _esol_opts = {"caja": "📦 Caja tcolorbox", "linea": "📌 Línea lateral", "texto": "🔤 Texto"}
+                _esol_cur  = cfg.get("estilo_sol", "caja")
+                estilo_sol = st.radio("Estilo bloque solución", list(_esol_opts.keys()),
+                                      index=list(_esol_opts.keys()).index(_esol_cur) if _esol_cur in _esol_opts else 0,
+                                      format_func=lambda x: _esol_opts[x], horizontal=True,
+                                      key="exp_estilo_sol")
+                st.markdown("**Marca de agua en versión soluciones:**")
+                wc1, wc2 = st.columns([1, 2])
+                watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
+                watermark_text = wc2.text_input("Texto de la marca", value=cfg.get("watermark_text", "SOLUCIONES"),
+                                                key="exp_wm_text", disabled=not watermark_sol)
+                st.markdown("**Info extra por pregunta en versión soluciones (LaTeX):**")
+                ic1, ic2, ic3 = st.columns(3)
+                sol_info_bloque = ic1.checkbox("Bloque",      value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
+                sol_info_tema   = ic2.checkbox("Tema",        value=cfg.get("sol_info_tema",   False), key="exp_sol_tema")
+                sol_info_dif    = ic3.checkbox("Dificultad",  value=cfg.get("sol_info_dif",    False), key="exp_sol_dif")
+
+        with _g_exam:
+            # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
+            with st.expander("📝 Instrucciones y cabeceras", expanded=(_bit_exp or True)):
+                instr     = st.text_area("Instrucciones generales",
+                                         value=cfg.get("ins", "Conteste en la hoja de respuestas."),
+                                         height=70, key="exp_ins")
+                tc1, tc2  = st.columns(2)
+                titulo_fund = tc1.text_input("Título sección desarrollo",
+                                             value=cfg.get("titulo_fund", "PREGUNTAS DE DESARROLLO"),
+                                             key="exp_tit_fund")
+                titulo_test = tc2.text_input("Título sección test",
+                                             value=cfg.get("titulo_test", "PREGUNTAS TEST"),
+                                             key="exp_tit_test")
+                hc1, hc2  = st.columns(2)
+                info_fund = hc1.text_area("Cabecera sección desarrollo", value=cfg.get("h1", ""), height=70, key="exp_h1")
+                info_test = hc2.text_area("Cabecera sección test",       value=cfg.get("h2", ""), height=70, key="exp_h2")
+
+        with _g_fmt:
+            # ── 4b. Estilo visual ─────────────────────────────────────────────────
+            with st.expander("🎨 Estilo visual", expanded=(_bit_exp or False)):
+                _scheme_opts  = {"azul": "Azul profesional", "ucm": "Colores UCM (granate)", "byn": "Blanco y Negro"}
+                _scheme_cur   = cfg.get("color_scheme", "azul")
+                _scheme_idx   = list(_scheme_opts.keys()).index(_scheme_cur) if _scheme_cur in _scheme_opts else 0
+                sv1, sv2      = st.columns(2)
+                color_scheme  = sv1.selectbox("Esquema de color", list(_scheme_opts.keys()),
+                                              index=_scheme_idx, format_func=lambda x: _scheme_opts[x],
+                                              key="exp_color_scheme")
+                _font_opts    = {"cm": "Computer Modern (LaTeX)", "palatino": "Palatino / Georgia",
+                                 "times": "Times New Roman", "libertine": "Linux Libertine",
+                                 "helvet": "Helvetica / Arial"}
+                _font_cur     = cfg.get("tipografia", "cm")
+                if _font_cur not in _font_opts:
+                    _font_cur = "cm"
+                _font_idx     = list(_font_opts.keys()).index(_font_cur)
+                tipografia    = sv2.selectbox("Tipografía", list(_font_opts.keys()),
+                                              index=_font_idx, format_func=lambda x: _font_opts[x],
+                                              key="exp_tipografia")
+                sv3, sv4      = st.columns(2)
+                _size_opts    = [10, 11, 12]
+                _size_cur     = int(cfg.get("font_size", 12))
+                _size_idx     = _size_opts.index(_size_cur) if _size_cur in _size_opts else 2
+                font_size_val = sv3.selectbox("Tamaño de letra", _size_opts,
+                                              index=_size_idx, format_func=lambda x: f"{x} pt",
+                                              key="exp_font_size")
+                # Espaciado entre preguntas (sustituye al antiguo modo_compacto bool)
+                _esp_opts  = {"normal": "Normal", "compacto": "Compacto", "muy_compacto": "Muy compacto"}
+                _esp_raw   = cfg.get("espaciado", "compacto" if cfg.get("modo_compacto", False) else "normal")
+                if _esp_raw not in _esp_opts:
+                    _esp_raw = "normal"
+                espaciado  = sv4.selectbox("Espaciado preguntas", list(_esp_opts.keys()),
+                                           index=list(_esp_opts.keys()).index(_esp_raw),
+                                           format_func=lambda x: _esp_opts[x],
+                                           key="exp_espaciado",
+                                           help="Normal: 1.5em · Compacto: 0.8em · Muy compacto: 0.4em entre preguntas")
+                sv5, sv6  = st.columns(2)
+                _marg_opts = {"normal": "Normal (20 mm)", "reducido": "Reducido (15 mm)", "minimo": "Mínimo (12 mm)"}
+                _marg_cur  = cfg.get("margenes", "normal")
+                if _marg_cur not in _marg_opts:
+                    _marg_cur = "normal"
+                margenes   = sv5.selectbox("Márgenes", list(_marg_opts.keys()),
+                                           index=list(_marg_opts.keys()).index(_marg_cur),
+                                           format_func=lambda x: _marg_opts[x],
+                                           key="exp_margenes")
+                _cab_opts  = {"normal": "Normal (completa)", "compacta": "Compacta (una línea)"}
+                _cab_cur   = "compacta" if cfg.get("cabecera_compacta", False) else "normal"
+                _cab_sel   = sv6.selectbox("Cabecera", list(_cab_opts.keys()),
+                                           index=list(_cab_opts.keys()).index(_cab_cur),
+                                           format_func=lambda x: _cab_opts[x],
+                                           key="exp_cabecera")
+                cabecera_compacta = (_cab_sel == "compacta")
+                sv7, sv8  = st.columns(2)
+                sin_recuadro = sv7.checkbox("Ocultar recuadro del alumno",
+                                            value=cfg.get("sin_recuadro", False), key="exp_sin_recuadro",
+                                            help="No genera la caja Nombre/DNI/Firma")
+                _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
+                _cols_opt   = sv8.radio("Disposición opciones test", ["1 columna", "2 columnas"],
+                                        index=_cols_idx, horizontal=True, key="exp_opcols")
+                opciones_cols = 1 if _cols_opt == "1 columna" else 2
+                _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "vacio": "Círculo ○", "numero": "Número 1.", "nada": "Sin estilo"}
+                _enum_cur   = cfg.get("estilo_num", "cuadrado")
+                _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
+                estilo_num  = st.selectbox("Numeración de preguntas (LaTeX)", list(_enum_opts.keys()),
+                                           index=_enum_idx, format_func=lambda x: _enum_opts[x],
+                                           key="exp_estilo_num",
+                                           help="Estilo del número de cada pregunta en el PDF LaTeX")
+                fh1, fh2  = st.columns([1, 2])
+                fancyhdr_on  = fh1.checkbox("Encabezado/pie de página", value=cfg.get("fancyhdr_on", True),
+                                            key="exp_fancyhdr",
+                                            help="Muestra asignatura + versión en cabecera y nº de página en pie")
+                footer_text  = fh2.text_input("Texto extra en pie de página",
+                                              value=cfg.get("footer_text", ""), key="exp_footer",
+                                              placeholder="ej: Prohibido el uso de móvil",
+                                              disabled=not fancyhdr_on)
+                _dph_label = (
+                    "2 páginas por hoja en el **Test** (A5 → A4 apaisado)"
+                    if partes_modo == "separados" else
+                    "2 páginas por hoja (A5 → A4 apaisado)"
+                )
+                _dph_help = (
+                    "Solo para el documento _TEST. El documento de desarrollo (_DEV) se genera siempre en A4 normal."
+                    if partes_modo == "separados" else
+                    "LaTeX: imprime 2 páginas A5 en una hoja A4 apaisada (pgfpages). Word: genera en tamaño A5."
+                )
+                dos_por_hoja = st.checkbox(
+                    _dph_label,
+                    value=cfg.get("dos_por_hoja", False), key="exp_dos_por_hoja",
+                    help=_dph_help,
+                )
+
+        with _g_extra:
+            # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
+            with st.expander("📋 Hoja de respuestas", expanded=(_bit_exp or False)):
+                st.caption("Se añade como página final del examen (solo en versión alumno, no en soluciones).")
+                hr1, hr2 = st.columns([1, 2])
+                hoja_respuestas = hr1.checkbox("Generar hoja de respuestas",
+                                               value=cfg.get("hoja_respuestas", False), key="exp_hoja_resp")
+
+        with _g_extra:
+            # ── 4b-ter. Solucionario ──────────────────────────────────────────────
+            with st.expander("📖 Solucionario (apéndice)", expanded=(_bit_exp or False)):
+                st.caption("Añade un apéndice al LaTeX de soluciones con las soluciones desarrolladas de cada pregunta.")
+                sl1, sl2 = st.columns([1, 2])
+                incluir_solucionario = sl1.checkbox("Incluir solucionario",
+                                                    value=cfg.get("incluir_solucionario", False),
+                                                    key="exp_incl_sol")
+                titulo_solucionario = sl2.text_input("Título del apéndice",
+                                                     value=cfg.get("titulo_solucionario", "Solucionario"),
+                                                     key="exp_tit_sol", disabled=not incluir_solucionario)
+                _estilo_hoja_opts = {"omr": "OMR — Burbujas (○ A ○ B ○ C ○ D)", "tabla": "Tabla — Celdas para marcar"}
+                _estilo_hoja_cur  = cfg.get("estilo_hoja", "omr")
+                _estilo_hoja_idx  = list(_estilo_hoja_opts.keys()).index(_estilo_hoja_cur) if _estilo_hoja_cur in _estilo_hoja_opts else 0
+                estilo_hoja = hr2.selectbox("Estilo de la hoja", list(_estilo_hoja_opts.keys()),
+                                            index=_estilo_hoja_idx,
+                                            format_func=lambda x: _estilo_hoja_opts[x],
+                                            key="exp_estilo_hoja", disabled=not hoja_respuestas)
+
+        with _g_extra:
+            # ── 4b-cuarto. Guía de corrección (rúbrica) ──────────────────────────
+            _dev_qs_now  = st.session_state.get("dev_questions", [])
+            _has_rubrica = any(q.get("criterios") or q.get("solucion_modelo","").strip()
+                               for q in _dev_qs_now)
+            with st.expander("📐 Guía de corrección (rúbrica)", expanded=(_bit_exp or _has_rubrica)):
+                st.caption(
+                    "Genera un documento separado con la rúbrica y soluciones modelo "
+                    "de las preguntas de desarrollo. Se incluye en el ZIP."
+                )
+                rb1, rb2, rb3 = st.columns(3)
+                incl_rubrica = rb1.checkbox("Incluir guía de corrección",
+                                            value=cfg.get("incl_rubrica", _has_rubrica),
+                                            key="exp_incl_rubrica",
+                                            disabled=not _has_rubrica)
+                if not _has_rubrica:
+                    rb1.caption("⚠️ Define rúbrica/solución en Tab ✍️ Desarrollo")
+                fmt_rubrica_word = rb2.checkbox("Formato Word (.docx)", value=cfg.get("fmt_rubrica_word", True),
+                                                 key="exp_rubrica_word", disabled=not incl_rubrica)
+                fmt_rubrica_tex  = rb3.checkbox("Formato LaTeX (.tex)",  value=cfg.get("fmt_rubrica_tex",  True),
+                                                 key="exp_rubrica_tex",  disabled=not incl_rubrica)
+                tit_rubrica = st.text_input("Título del documento",
+                                            value=cfg.get("tit_rubrica", "Guía de Corrección"),
+                                            key="exp_tit_rubrica", disabled=not incl_rubrica)
+                rubrica_cajas = st.checkbox(
+                    "☑ Cajas de puntuación para corrector (columna derecha en criterios)",
+                    value=cfg.get("rubrica_cajas", False),
+                    key="exp_rubrica_cajas",
+                    disabled=not incl_rubrica,
+                    help="Añade una caja [ ___ ] a la derecha de cada criterio para que el corrector anote la nota directamente en el PDF impreso.",
+                )
+
+        with _g_extra:
+            # ── 4b-quinto. Formulario / Hoja de fórmulas ─────────────────────────
+            _form_stored = bool(st.session_state.get("_formulario_bytes"))
+            with st.expander("📄 Formulario / Hoja de fórmulas", expanded=(_bit_exp or _form_stored)):
+                st.caption(
+                    "Adjunta un PDF con el formulario de la asignatura. "
+                    "Se incluirá como última página en los archivos LaTeX (requiere compilación local con pdfpages)."
+                )
+                _f1, _f2 = st.columns([2, 1])
+                incl_formulario = _f1.checkbox(
+                    "Incluir formulario al final del examen",
+                    value=cfg.get("incl_formulario", _form_stored),
+                    key="exp_incl_formulario",
+                    disabled=not _form_stored,
+                )
+                _form_up = st.file_uploader(
+                    "Subir PDF del formulario", type=["pdf"], key="formulario_upload",
+                    help="El PDF se incluirá como página(s) extra al final del LaTeX con \\includepdf",
+                )
+                if _form_up:
+                    if st.session_state.get("_formulario_upload_name") != _form_up.name:
+                        st.session_state["_formulario_bytes"]      = _form_up.getvalue()
+                        st.session_state["_formulario_name"]       = _form_up.name
+                        st.session_state["_formulario_upload_name"] = _form_up.name
+                        st.rerun()
+                if _form_stored:
+                    _f2.success(f"📎 {st.session_state.get('_formulario_name','formulario.pdf')}")
+                    if _f2.button("🗑️ Quitar formulario", key="btn_del_formulario", use_container_width=True):
+                        for _k in ("_formulario_bytes", "_formulario_name", "_formulario_upload_name"):
+                            st.session_state.pop(_k, None)
+                        st.rerun()
+                else:
+                    incl_formulario = False
+
+        with _g_extra:
+            # ── 4c-bis. Caja de calificación ──────────────────────────────────────
+            _has_test_q = bool(sel_actual) or bool(st.session_state.get("auto_recipe"))
+            _has_dev_q  = bool(st.session_state.get("dev_questions", []))
+            with st.expander("🎓 Caja de calificación", expanded=(_bit_exp or False)):
+                st.caption(
+                    "Añade una caja para anotar la nota al final de cada sección. "
+                    "Solo aparece en la versión alumno, no en la de soluciones."
+                )
+                nc1, nc2, nc3 = st.columns(3)
+                notacal_dev  = nc1.checkbox(
+                    "Caja desarrollo",
+                    value=cfg.get("notacal_dev", False), key="exp_notacal_dev",
+                    disabled=not _has_dev_q,
+                    help="Se añade al final de la sección de desarrollo"
+                )
+                notacal_test = nc2.checkbox(
+                    "Caja test",
+                    value=cfg.get("notacal_test", False), key="exp_notacal_test",
+                    disabled=not _has_test_q,
+                    help="Se añade al final de la sección test"
+                )
+                notacal_final = nc3.checkbox(
+                    "Nota final",
+                    value=cfg.get("notacal_final", False), key="exp_notacal_final",
+                    disabled=not (_has_dev_q or _has_test_q),
+                    help="Caja de nota final con suma de las partes"
+                )
+                if not _has_dev_q:
+                    nc1.caption("⚠️ Sin preguntas de desarrollo")
+                if not _has_test_q:
+                    nc2.caption("⚠️ Sin preguntas test")
+        with _g_exam:
+            # ── 4c. Puntos y penalización ─────────────────────────────────────────
+            with st.expander("📊 Puntos y penalización", expanded=(_bit_exp or False)):
+                st.caption("Si dejas un campo vacío, ese dato no aparece en el examen.")
+                pp1, pp2, pp3 = st.columns(3)
+                pts_fund_val  = pp1.text_input("Puntos desarrollo", value=cfg.get("pts_fund", ""),
+                                               key="exp_pts_fund", placeholder="ej: 4")
+                pts_test_val  = pp2.text_input("Puntos test",       value=cfg.get("pts_test", ""),
+                                               key="exp_pts_test", placeholder="ej: 6")
+                _pen_opts     = ["Sin penalización", "−1/3", "−1/4", "−1/5", "−0,25", "Personalizado"]
+                _pen_cur      = cfg.get("penalizacion", "Sin penalización")
+                _pen_idx      = _pen_opts.index(_pen_cur) if _pen_cur in _pen_opts else 0
+                penalizacion_sel = pp3.selectbox("Penalización", _pen_opts, index=_pen_idx, key="exp_pen")
+                if penalizacion_sel == "Personalizado":
+                    penalizacion_val = st.text_input("Valor personalizado", value=cfg.get("pen_custom", ""),
+                                                     key="exp_pen_custom", placeholder="ej: −0.2")
+                else:
+                    penalizacion_val = "" if penalizacion_sel == "Sin penalización" else penalizacion_sel
+
+        with _g_extra:
+            # ── 4d. Versión adaptada ──────────────────────────────────────────────
+            with st.expander("♿ Versión adaptada", expanded=(_bit_exp or False)):
+                adapt_enabled = st.checkbox("Generar versión adaptada adicional",
+                                            value=cfg.get("adapt_enabled", False), key="exp_adapt_on")
+                if adapt_enabled:
+                    ad1, ad2, ad3 = st.columns(3)
+                    _asize_opts  = [12, 14, 16, 18]
+                    _asize_cur   = int(cfg.get("adapt_font_size", 14))
+                    _asize_idx   = _asize_opts.index(_asize_cur) if _asize_cur in _asize_opts else 1
+                    adapt_fsize  = ad1.selectbox("Tamaño letra", _asize_opts, index=_asize_idx,
+                                                 format_func=lambda x: f"{x} pt", key="exp_adapt_size")
+                    _aspac_opts  = {"1.0": "Normal", "1.5": "1,5×", "2.0": "Doble"}
+                    _aspac_cur   = str(cfg.get("adapt_spacing", "1.5"))
+                    _aspac_idx   = list(_aspac_opts.keys()).index(_aspac_cur) if _aspac_cur in _aspac_opts else 1
+                    adapt_spac   = ad2.selectbox("Interlineado", list(_aspac_opts.keys()),
+                                                 index=_aspac_idx, format_func=lambda x: _aspac_opts[x],
+                                                 key="exp_adapt_spac")
+                    _aextra_opts = {"0": "Normal", "25": "+25%", "50": "+50%", "100": "+100%"}
+                    _aextra_cur  = str(cfg.get("adapt_espacio_pct", "50"))
+                    _aextra_idx  = list(_aextra_opts.keys()).index(_aextra_cur) if _aextra_cur in _aextra_opts else 2
+                    adapt_extra  = ad3.selectbox("Cajas desarrollo", list(_aextra_opts.keys()),
+                                                 index=_aextra_idx, format_func=lambda x: _aextra_opts[x],
+                                                 key="exp_adapt_extra")
+                    adapt_id_val = st.text_input("Identificador en cabecera",
+                                                 value=cfg.get("adapt_id", "VERSIÓN ADAPTADA"),
+                                                 key="exp_adapt_id",
+                                                 placeholder="ej: VERSIÓN ADAPTADA — García López")
+                else:
+                    adapt_fsize = int(cfg.get("adapt_font_size", 14))
+                    adapt_spac  = str(cfg.get("adapt_spacing", "1.5"))
+                    adapt_extra = str(cfg.get("adapt_espacio_pct", "50"))
+                    adapt_id_val = cfg.get("adapt_id", "VERSIÓN ADAPTADA")
+
+        with _g_fmt:
+            # ── 5. Anclaje ────────────────────────────────────────────────────────
+            with st.expander("⚓ Anclaje de opciones", expanded=(_bit_exp or True)):
+                ac1, ac2      = st.columns([1, 2])
+                anclaje_auto  = ac1.checkbox("Activar anclaje", value=cfg.get("anc_chk", True), key="exp_anc")
+                anclaje_extra = ac2.text_input("Frases extra (coma separadas)",
+                                               value=cfg.get("anc_txt", ""), key="exp_anc_txt",
+                                               disabled=not anclaje_auto)
+                if anclaje_auto:
+                    _base = ["todas las anteriores","ninguna de las anteriores","ambas son correctas","son correctas","son falsas"]
+                    _extra = [f.strip() for f in anclaje_extra.split(",") if f.strip()] if anclaje_extra else []
+                    _todas = _base + _extra
+                    st.caption("Anclan (no se barajan): " + " · ".join(f'"{f}"' for f in _todas[:5]) + ("…" if len(_todas)>5 else ""))
+
+        with _g_tpl:
+            # ── 6. Plantillas ─────────────────────────────────────────────────────
+            with st.expander("📎 Plantillas (Word / LaTeX / Logo)", expanded=(_bit_exp or False)):
+                st.caption("Se suben por sesión. Los presets guardan la configuración pero no la plantilla.")
+                tc1, tc2, tc3    = st.columns(3)
+                tpl_word_file    = tc1.file_uploader("Plantilla Word (.docx)", type=["docx"], key="exp_tpl_word")
+                tpl_tex_file     = tc2.file_uploader("Plantilla LaTeX (.tex)", type=["tex"],  key="exp_tpl_tex")
+                logo_file        = tc3.file_uploader("Logo (PNG/JPG)",         type=["png","jpg","jpeg"], key="exp_logo")
+                if tpl_word_file:
+                    st.session_state["_tpl_word_bytes"] = tpl_word_file.getvalue()
+                    st.session_state["_tpl_word_name"]  = tpl_word_file.name
+                    tc1.success(f"✅ {tpl_word_file.name}")
+                elif st.session_state.get("_tpl_word_bytes"):
+                    tc1.info(f"En memoria: {st.session_state.get('_tpl_word_name','plantilla.docx')}")
+                    if tc1.button("🗑️ Quitar plantilla Word", key="btn_clear_tpl_word", use_container_width=True):
+                        st.session_state.pop("_tpl_word_bytes", None)
+                        st.session_state.pop("_tpl_word_name", None)
+                        st.rerun()
+                if tpl_tex_file:
+                    st.session_state["_tpl_tex_bytes"] = tpl_tex_file.getvalue()
+                    st.session_state["_tpl_tex_name"]  = tpl_tex_file.name
+                    tc2.success(f"✅ {tpl_tex_file.name}")
+                elif st.session_state.get("_tpl_tex_bytes"):
+                    tc2.info(f"En memoria: {st.session_state.get('_tpl_tex_name','plantilla.tex')}")
+                    if tc2.button("🗑️ Quitar plantilla LaTeX", key="btn_clear_tpl_tex", use_container_width=True):
+                        st.session_state.pop("_tpl_tex_bytes", None)
+                        st.session_state.pop("_tpl_tex_name", None)
+                        st.rerun()
+                if logo_file:
+                    import tempfile as _tmp
+                    _logo_p = os.path.join(_tmp.gettempdir(), logo_file.name)
+                    with open(_logo_p, "wb") as _f: _f.write(logo_file.read())
+                    st.session_state["_logo_path"] = _logo_p
+                    tc3.success(f"✅ {logo_file.name}")
+
+        with _g_tpl:
+            # ── 7. Presets ────────────────────────────────────────────────────────
+            with st.expander("💾 Presets de configuración", expanded=(_bit_exp or False)):
+                st.caption("Guarda y reutiliza configuraciones completas (instrucciones, datos, opciones).")
+                _presets = st.session_state.presets
+                pr1, pr2  = st.columns([3, 1])
+                _sel_pr   = pr1.selectbox("Preset", ["— Seleccionar —"] + list(_presets.keys()), key="preset_sel")
+                if pr2.button("📂 Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
+                    st.session_state.exam_cfg = _presets.get(_sel_pr, {})
+                    st.success(f"Preset '{_sel_pr}' cargado.")
                     st.rerun()
-            else:
-                incl_formulario = False
-
-        # ── 4c-bis. Caja de calificación ──────────────────────────────────────
-        _has_test_q = bool(sel_actual) or bool(st.session_state.get("auto_recipe"))
-        _has_dev_q  = bool(st.session_state.get("dev_questions", []))
-        with st.expander("🎓 Caja de calificación", expanded=False):
-            st.caption(
-                "Añade una caja para anotar la nota al final de cada sección. "
-                "Solo aparece en la versión alumno, no en la de soluciones."
-            )
-            nc1, nc2, nc3 = st.columns(3)
-            notacal_dev  = nc1.checkbox(
-                "Caja desarrollo",
-                value=cfg.get("notacal_dev", False), key="exp_notacal_dev",
-                disabled=not _has_dev_q,
-                help="Se añade al final de la sección de desarrollo"
-            )
-            notacal_test = nc2.checkbox(
-                "Caja test",
-                value=cfg.get("notacal_test", False), key="exp_notacal_test",
-                disabled=not _has_test_q,
-                help="Se añade al final de la sección test"
-            )
-            notacal_final = nc3.checkbox(
-                "Nota final",
-                value=cfg.get("notacal_final", False), key="exp_notacal_final",
-                disabled=not (_has_dev_q or _has_test_q),
-                help="Caja de nota final con suma de las partes"
-            )
-            if not _has_dev_q:
-                nc1.caption("⚠️ Sin preguntas de desarrollo")
-            if not _has_test_q:
-                nc2.caption("⚠️ Sin preguntas test")
-        # ── 4c. Puntos y penalización ─────────────────────────────────────────
-        with st.expander("📊 Puntos y penalización", expanded=False):
-            st.caption("Si dejas un campo vacío, ese dato no aparece en el examen.")
-            pp1, pp2, pp3 = st.columns(3)
-            pts_fund_val  = pp1.text_input("Puntos desarrollo", value=cfg.get("pts_fund", ""),
-                                           key="exp_pts_fund", placeholder="ej: 4")
-            pts_test_val  = pp2.text_input("Puntos test",       value=cfg.get("pts_test", ""),
-                                           key="exp_pts_test", placeholder="ej: 6")
-            _pen_opts     = ["Sin penalización", "−1/3", "−1/4", "−1/5", "−0,25", "Personalizado"]
-            _pen_cur      = cfg.get("penalizacion", "Sin penalización")
-            _pen_idx      = _pen_opts.index(_pen_cur) if _pen_cur in _pen_opts else 0
-            penalizacion_sel = pp3.selectbox("Penalización", _pen_opts, index=_pen_idx, key="exp_pen")
-            if penalizacion_sel == "Personalizado":
-                penalizacion_val = st.text_input("Valor personalizado", value=cfg.get("pen_custom", ""),
-                                                 key="exp_pen_custom", placeholder="ej: −0.2")
-            else:
-                penalizacion_val = "" if penalizacion_sel == "Sin penalización" else penalizacion_sel
-
-        # ── 4d. Versión adaptada ──────────────────────────────────────────────
-        with st.expander("♿ Versión adaptada", expanded=False):
-            adapt_enabled = st.checkbox("Generar versión adaptada adicional",
-                                        value=cfg.get("adapt_enabled", False), key="exp_adapt_on")
-            if adapt_enabled:
-                ad1, ad2, ad3 = st.columns(3)
-                _asize_opts  = [12, 14, 16, 18]
-                _asize_cur   = int(cfg.get("adapt_font_size", 14))
-                _asize_idx   = _asize_opts.index(_asize_cur) if _asize_cur in _asize_opts else 1
-                adapt_fsize  = ad1.selectbox("Tamaño letra", _asize_opts, index=_asize_idx,
-                                             format_func=lambda x: f"{x} pt", key="exp_adapt_size")
-                _aspac_opts  = {"1.0": "Normal", "1.5": "1,5×", "2.0": "Doble"}
-                _aspac_cur   = str(cfg.get("adapt_spacing", "1.5"))
-                _aspac_idx   = list(_aspac_opts.keys()).index(_aspac_cur) if _aspac_cur in _aspac_opts else 1
-                adapt_spac   = ad2.selectbox("Interlineado", list(_aspac_opts.keys()),
-                                             index=_aspac_idx, format_func=lambda x: _aspac_opts[x],
-                                             key="exp_adapt_spac")
-                _aextra_opts = {"0": "Normal", "25": "+25%", "50": "+50%", "100": "+100%"}
-                _aextra_cur  = str(cfg.get("adapt_espacio_pct", "50"))
-                _aextra_idx  = list(_aextra_opts.keys()).index(_aextra_cur) if _aextra_cur in _aextra_opts else 2
-                adapt_extra  = ad3.selectbox("Cajas desarrollo", list(_aextra_opts.keys()),
-                                             index=_aextra_idx, format_func=lambda x: _aextra_opts[x],
-                                             key="exp_adapt_extra")
-                adapt_id_val = st.text_input("Identificador en cabecera",
-                                             value=cfg.get("adapt_id", "VERSIÓN ADAPTADA"),
-                                             key="exp_adapt_id",
-                                             placeholder="ej: VERSIÓN ADAPTADA — García López")
-            else:
-                adapt_fsize = int(cfg.get("adapt_font_size", 14))
-                adapt_spac  = str(cfg.get("adapt_spacing", "1.5"))
-                adapt_extra = str(cfg.get("adapt_espacio_pct", "50"))
-                adapt_id_val = cfg.get("adapt_id", "VERSIÓN ADAPTADA")
-
-        # ── 5. Anclaje ────────────────────────────────────────────────────────
-        with st.expander("⚓ Anclaje de opciones", expanded=True):
-            ac1, ac2      = st.columns([1, 2])
-            anclaje_auto  = ac1.checkbox("Activar anclaje", value=cfg.get("anc_chk", True), key="exp_anc")
-            anclaje_extra = ac2.text_input("Frases extra (coma separadas)",
-                                           value=cfg.get("anc_txt", ""), key="exp_anc_txt",
-                                           disabled=not anclaje_auto)
-            if anclaje_auto:
-                _base = ["todas las anteriores","ninguna de las anteriores","ambas son correctas","son correctas","son falsas"]
-                _extra = [f.strip() for f in anclaje_extra.split(",") if f.strip()] if anclaje_extra else []
-                _todas = _base + _extra
-                st.caption("Anclan (no se barajan): " + " · ".join(f'"{f}"' for f in _todas[:5]) + ("…" if len(_todas)>5 else ""))
-
-        # ── 6. Plantillas ─────────────────────────────────────────────────────
-        with st.expander("📎 Plantillas (Word / LaTeX / Logo)", expanded=False):
-            st.caption("Se suben por sesión. Los presets guardan la configuración pero no la plantilla.")
-            tc1, tc2, tc3    = st.columns(3)
-            tpl_word_file    = tc1.file_uploader("Plantilla Word (.docx)", type=["docx"], key="exp_tpl_word")
-            tpl_tex_file     = tc2.file_uploader("Plantilla LaTeX (.tex)", type=["tex"],  key="exp_tpl_tex")
-            logo_file        = tc3.file_uploader("Logo (PNG/JPG)",         type=["png","jpg","jpeg"], key="exp_logo")
-            if tpl_word_file:
-                st.session_state["_tpl_word_bytes"] = tpl_word_file.getvalue()
-                st.session_state["_tpl_word_name"]  = tpl_word_file.name
-                tc1.success(f"✅ {tpl_word_file.name}")
-            elif st.session_state.get("_tpl_word_bytes"):
-                tc1.info(f"En memoria: {st.session_state.get('_tpl_word_name','plantilla.docx')}")
-                if tc1.button("🗑️ Quitar plantilla Word", key="btn_clear_tpl_word", use_container_width=True):
-                    st.session_state.pop("_tpl_word_bytes", None)
-                    st.session_state.pop("_tpl_word_name", None)
-                    st.rerun()
-            if tpl_tex_file:
-                st.session_state["_tpl_tex_bytes"] = tpl_tex_file.getvalue()
-                st.session_state["_tpl_tex_name"]  = tpl_tex_file.name
-                tc2.success(f"✅ {tpl_tex_file.name}")
-            elif st.session_state.get("_tpl_tex_bytes"):
-                tc2.info(f"En memoria: {st.session_state.get('_tpl_tex_name','plantilla.tex')}")
-                if tc2.button("🗑️ Quitar plantilla LaTeX", key="btn_clear_tpl_tex", use_container_width=True):
-                    st.session_state.pop("_tpl_tex_bytes", None)
-                    st.session_state.pop("_tpl_tex_name", None)
-                    st.rerun()
-            if logo_file:
-                import tempfile as _tmp
-                _logo_p = os.path.join(_tmp.gettempdir(), logo_file.name)
-                with open(_logo_p, "wb") as _f: _f.write(logo_file.read())
-                st.session_state["_logo_path"] = _logo_p
-                tc3.success(f"✅ {logo_file.name}")
-
-        # ── 7. Presets ────────────────────────────────────────────────────────
-        with st.expander("💾 Presets de configuración", expanded=False):
-            st.caption("Guarda y reutiliza configuraciones completas (instrucciones, datos, opciones).")
-            _presets = st.session_state.presets
-            pr1, pr2  = st.columns([3, 1])
-            _sel_pr   = pr1.selectbox("Preset", ["— Seleccionar —"] + list(_presets.keys()), key="preset_sel")
-            if pr2.button("📂 Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
-                st.session_state.exam_cfg = _presets.get(_sel_pr, {})
-                st.success(f"Preset '{_sel_pr}' cargado.")
-                st.rerun()
-            pr3, pr4  = st.columns([3, 1])
-            _pr_name  = pr3.text_input("Nombre del preset", placeholder="Ej: FM I Ordinario 2026",
-                                       key="preset_name_input", label_visibility="collapsed")
-            if pr4.button("💾 Guardar", key="btn_save_preset", use_container_width=True):
-                if _pr_name.strip():
-                    save_preset(_pr_name.strip(), st.session_state.get("exam_cfg", {}))
-                    st.success(f"Preset '{_pr_name}' guardado.")
-                    st.rerun()
-            if _sel_pr != "— Seleccionar —":
-                if st.button(f"🗑️ Eliminar '{_sel_pr}'", key="btn_del_preset"):
-                    delete_preset(_sel_pr); st.rerun()
+                pr3, pr4  = st.columns([3, 1])
+                _pr_name  = pr3.text_input("Nombre del preset", placeholder="Ej: FM I Ordinario 2026",
+                                           key="preset_name_input", label_visibility="collapsed")
+                if pr4.button("💾 Guardar", key="btn_save_preset", use_container_width=True):
+                    if _pr_name.strip():
+                        save_preset(_pr_name.strip(), st.session_state.get("exam_cfg", {}))
+                        st.success(f"Preset '{_pr_name}' guardado.")
+                        st.rerun()
+                if _sel_pr != "— Seleccionar —":
+                    if st.button(f"🗑️ Eliminar '{_sel_pr}'", key="btn_del_preset"):
+                        delete_preset(_sel_pr); st.rerun()
 
         # ── Persistir cfg en session_state ────────────────────────────────────
         st.session_state.exam_cfg = {
@@ -3244,241 +3267,275 @@ with tab_exp:
         if exp_word: _tpl_rows += f'<div style="opacity:0.8">📎 Word: {_tpl_w}</div>'
         if exp_tex:  _tpl_rows += f'<div style="opacity:0.8">📎 LaTeX: {_tpl_t}</div>'
 
-        st.markdown(
-            f"""<div style="background:linear-gradient(135deg,var(--chip, #1a252f),var(--chip, #2c3e50));color:var(--chip-ink, white);
-            border-radius:12px;padding:18px 20px;margin-bottom:12px;font-size:0.87em;line-height:1.75">
-            <div style="font-size:1.05em;font-weight:800;margin-bottom:2px">{asig or '—'} · {tipo or '—'}</div>
-            <div style="opacity:0.65;font-size:0.82em;margin-bottom:10px">
-              {inst or '—'} &nbsp;·&nbsp; {fecha or '—'} &nbsp;·&nbsp; {tiem or '—'}</div>
-            <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
-            <div>📋 <b>{n_pregs if not n_recipe else (f"{n_pregs} fijas + ~{n_recipe} auto" if n_pregs else f"~{n_recipe} auto")}</b> test{_dev_str} &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
-            <div>🔀 {_orden_label}</div>
-            <div>🃏 Barajar respuestas: {_barajar_str}</div>
-            <div>📦 {_fmt_str}</div>
-            <div>✍️ Soluciones: {_sol_str}</div>
-            <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
-            <div style="opacity:0.85">⚓ Anclaje: {_anc_status}</div>
-            {'<div style="opacity:0.6;font-size:0.82em">' + _anc_prev + '</div>' if anclaje_auto else ''}
-            <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
-            {_tpl_rows}
-            </div>""",
-            unsafe_allow_html=True,
-        )
+        if _bit_exp:
+            _partes_lbl = {"completo": "Completo", "solo_test": "Solo test",
+                           "solo_dev": "Solo desarrollo", "separados": "Separados"}
+            _n_test_lbl = (f"{n_pregs} + ~{n_recipe} auto" if (n_pregs and n_recipe)
+                           else (f"~{n_recipe} auto" if n_recipe else str(n_pregs)))
+            _items = [("Preguntas test", _n_test_lbl),
+                      ("Desarrollo", f"{_n_dev} preguntas" if _n_dev else "—"),
+                      ("Modelos", str(num_modelos)),
+                      ("Partes", _partes_lbl.get(partes_modo, partes_modo)),
+                      ("Formatos", " · ".join(["CSV"] + (["Word"] if exp_word else []) + (["LaTeX"] if exp_tex else []))),
+                      ("Soluciones", _sol_str)]
+            st.markdown(
+                f'<div class="card" style="margin-bottom:10px"><div class="sum-title">{asig or "—"} · {tipo or "—"}</div>'
+                f'<div class="sum-meta">{inst or "—"} · {fecha or "—"} · {tiem or "—"}</div><div class="sum-grid">'
+                + "".join(f'<div><div class="sum-l">{l}</div><div class="sum-v">{v}</div></div>' for l, v in _items)
+                + "</div></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""<div style="background:linear-gradient(135deg,var(--chip, #1a252f),var(--chip, #2c3e50));color:var(--chip-ink, white);
+                border-radius:12px;padding:18px 20px;margin-bottom:12px;font-size:0.87em;line-height:1.75">
+                <div style="font-size:1.05em;font-weight:800;margin-bottom:2px">{asig or '—'} · {tipo or '—'}</div>
+                <div style="opacity:0.65;font-size:0.82em;margin-bottom:10px">
+                  {inst or '—'} &nbsp;·&nbsp; {fecha or '—'} &nbsp;·&nbsp; {tiem or '—'}</div>
+                <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
+                <div>📋 <b>{n_pregs if not n_recipe else (f"{n_pregs} fijas + ~{n_recipe} auto" if n_pregs else f"~{n_recipe} auto")}</b> test{_dev_str} &nbsp;&nbsp; 🔢 <b>{num_modelos}</b> modelo(s)</div>
+                <div>🔀 {_orden_label}</div>
+                <div>🃏 Barajar respuestas: {_barajar_str}</div>
+                <div>📦 {_fmt_str}</div>
+                <div>✍️ Soluciones: {_sol_str}</div>
+                <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
+                <div style="opacity:0.85">⚓ Anclaje: {_anc_status}</div>
+                {'<div style="opacity:0.6;font-size:0.82em">' + _anc_prev + '</div>' if anclaje_auto else ''}
+                <hr style="border-color:rgba(255,255,255,0.15);margin:8px 0">
+                {_tpl_rows}
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
-        if st.button("👁 Vista previa del examen", use_container_width=True, key="btn_preview_exam"):
+        _bx1, _bx2 = st.columns(2) if _bit_exp else (st, st)
+        if _bx1.button("👁 Vista previa del examen", use_container_width=True, key="btn_preview_exam"):
             _dialog_preview_examen()
 
-        st.markdown("<div style='margin:6px 0'></div>", unsafe_allow_html=True)
+        if not _bit_exp:
+            st.markdown("<div style='margin:6px 0'></div>", unsafe_allow_html=True)
 
         _need_preview = n_recipe > 0 and not st.session_state.get("cache_examen")
-        if st.button("💾 EXPORTAR EXAMEN", type="primary", use_container_width=True,
-                     key="btn_export_main", disabled=(n_total == 0 or _need_preview)):
+        if _bx2.button("💾 Exportar examen" if _bit_exp else "💾 EXPORTAR EXAMEN", type="primary",
+                       use_container_width=True,
+                       key="btn_export_main", disabled=(n_total == 0 or _need_preview)):
             _dialog_confirmar_export()
         if n_total == 0:
             st.caption("⚠️ Ve a la pestaña **Selección** para elegir preguntas o configura un relleno automático.")
         elif _need_preview:
             st.caption("⚠️ Tienes una receta automática. Ve a **👁️ Preview** y pulsa **🎲 Generar** para fijar las preguntas antes de exportar.")
 
-        # ── Botones de descarga (tras exportar) ───────────────────────────────
-        ef = st.session_state.get("export_files")
-        if ef:
-            _nef = ef.get("nombre", "examen")
-            st.markdown("---")
-            st.markdown("**⬇️ Descargas**")
+        # Bitácora: descargas y compilación en dos pestañas; Clásico: una debajo de otra
+        if _bit_exp:
+            _t_dl, _t_pdf = st.tabs(["Descargas", "Compilar PDF"])
+        else:
+            _t_dl = _t_pdf = st.container()
+        with _t_dl:
+            if _bit_exp and not st.session_state.get("export_files"):
+                st.caption("Pulsa **Exportar examen** para generar los archivos.")
+            # ── Botones de descarga (tras exportar) ───────────────────────────────
+            ef = st.session_state.get("export_files")
+            if ef:
+                _nef = ef.get("nombre", "examen")
+                _fw, _fl, _fc = ("Word · ", "LaTeX · ", "CSV · ") if _bit_exp else ("", "", "")
+                if not _bit_exp:
+                    st.markdown("---")
+                    st.markdown("**⬇️ Descargas**")
 
-            st.download_button(
-                "⬇️ Descargar TODO (.zip)",
-                data=ef["zip_bytes"],
-                file_name=f"{_nef}_completo.zip",
-                mime="application/zip",
-                use_container_width=True,
-                key="dl_zip_all",
-                type="primary",
-            )
+                st.download_button(
+                    "⬇️ Descargar TODO (.zip)",
+                    data=ef["zip_bytes"],
+                    file_name=f"{_nef}_completo.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    key="dl_zip_all",
+                    type="primary",
+                )
 
-            _word_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"word_exam{s}")]
-            if _word_sfxs:
-                st.markdown("**Word:**")
-                _wlbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
-                for _ws in _word_sfxs:
-                    _wlbl = _wlbl_map[_ws]
-                    _warch = _nef + _ws
-                    _wc1, _wc2 = st.columns(2)
-                    _wc1.download_button(f"📄 Exámenes{_wlbl}",
-                        data=lib.generar_zip_bytes({f"{_warch}_MOD{l}.docx": d for l, d in ef[f"word_exam{_ws}"].items()}),
-                        file_name=f"{_warch}_word_examenes.zip", mime="application/zip",
-                        use_container_width=True, key=f"dl_word_exam{_ws}")
-                    _wc2.download_button(f"📄 Soluciones{_wlbl}",
-                        data=lib.generar_zip_bytes({f"{_warch}_MOD{l}_SOL.docx": d for l, d in ef[f"word_sol{_ws}"].items()}),
-                        file_name=f"{_warch}_word_soluciones.zip", mime="application/zip",
-                        use_container_width=True, key=f"dl_word_sol{_ws}")
-                if ef.get("word_adapt"):
-                    st.download_button("♿ Adaptada (Word)",
-                        data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.docx": d for l, d in ef["word_adapt"].items()}),
-                        file_name=f"{_nef}_word_adaptada.zip", mime="application/zip",
-                        use_container_width=True, key="dl_word_adapt")
+                _word_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"word_exam{s}")]
+                if _word_sfxs:
+                    (st.markdown("**Word:**") if not _bit_exp else None)
+                    _wlbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
+                    for _ws in _word_sfxs:
+                        _wlbl = _wlbl_map[_ws]
+                        _warch = _nef + _ws
+                        _wc1, _wc2 = st.columns(2)
+                        _wc1.download_button(f"📄 {_fw}Exámenes{_wlbl}",
+                            data=lib.generar_zip_bytes({f"{_warch}_MOD{l}.docx": d for l, d in ef[f"word_exam{_ws}"].items()}),
+                            file_name=f"{_warch}_word_examenes.zip", mime="application/zip",
+                            use_container_width=True, key=f"dl_word_exam{_ws}")
+                        _wc2.download_button(f"📄 {_fw}Soluciones{_wlbl}",
+                            data=lib.generar_zip_bytes({f"{_warch}_MOD{l}_SOL.docx": d for l, d in ef[f"word_sol{_ws}"].items()}),
+                            file_name=f"{_warch}_word_soluciones.zip", mime="application/zip",
+                            use_container_width=True, key=f"dl_word_sol{_ws}")
+                    if ef.get("word_adapt"):
+                        st.download_button("♿ Adaptada (Word)",
+                            data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.docx": d for l, d in ef["word_adapt"].items()}),
+                            file_name=f"{_nef}_word_adaptada.zip", mime="application/zip",
+                            use_container_width=True, key="dl_word_adapt")
 
-            _latex_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"latex_exam{s}")]
-            if _latex_sfxs:
-                st.markdown("**LaTeX:**")
-                _llbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
-                for _ls in _latex_sfxs:
-                    _llbl = _llbl_map[_ls]
-                    _larch = _nef + _ls
-                    _lc1, _lc2 = st.columns(2)
-                    _lc1.download_button(f"📑 Exámenes{_llbl}",
-                        data=lib.generar_zip_bytes({f"{_larch}_MOD{l}.tex": d for l, d in ef[f"latex_exam{_ls}"].items()}),
-                        file_name=f"{_larch}_latex_examenes.zip", mime="application/zip",
-                        use_container_width=True, key=f"dl_latex_exam{_ls}")
-                    _lc2.download_button(f"📑 Soluciones{_llbl}",
-                        data=lib.generar_zip_bytes({f"{_larch}_MOD{l}_SOL.tex": d for l, d in ef[f"latex_sol{_ls}"].items()}),
-                        file_name=f"{_larch}_latex_soluciones.zip", mime="application/zip",
-                        use_container_width=True, key=f"dl_latex_sol{_ls}")
-                if ef.get("latex_adapt"):
-                    st.download_button("♿ Adaptada (LaTeX)",
-                        data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.tex": d for l, d in ef["latex_adapt"].items()}),
-                        file_name=f"{_nef}_latex_adaptada.zip", mime="application/zip",
-                        use_container_width=True, key="dl_latex_adapt")
+                _latex_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"latex_exam{s}")]
+                if _latex_sfxs:
+                    (st.markdown("**LaTeX:**") if not _bit_exp else None)
+                    _llbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
+                    for _ls in _latex_sfxs:
+                        _llbl = _llbl_map[_ls]
+                        _larch = _nef + _ls
+                        _lc1, _lc2 = st.columns(2)
+                        _lc1.download_button(f"📑 {_fl}Exámenes{_llbl}",
+                            data=lib.generar_zip_bytes({f"{_larch}_MOD{l}.tex": d for l, d in ef[f"latex_exam{_ls}"].items()}),
+                            file_name=f"{_larch}_latex_examenes.zip", mime="application/zip",
+                            use_container_width=True, key=f"dl_latex_exam{_ls}")
+                        _lc2.download_button(f"📑 {_fl}Soluciones{_llbl}",
+                            data=lib.generar_zip_bytes({f"{_larch}_MOD{l}_SOL.tex": d for l, d in ef[f"latex_sol{_ls}"].items()}),
+                            file_name=f"{_larch}_latex_soluciones.zip", mime="application/zip",
+                            use_container_width=True, key=f"dl_latex_sol{_ls}")
+                    if ef.get("latex_adapt"):
+                        st.download_button("♿ Adaptada (LaTeX)",
+                            data=lib.generar_zip_bytes({f"{_nef}_MOD{l}_ADAPT.tex": d for l, d in ef["latex_adapt"].items()}),
+                            file_name=f"{_nef}_latex_adaptada.zip", mime="application/zip",
+                            use_container_width=True, key="dl_latex_adapt")
 
-            st.markdown("**CSV:**")
-            _cc1, _cc2 = st.columns(2)
-            _cc1.download_button("📊 Clave",     data=ef["csv_claves"], file_name=f"{_nef}_CLAVES.csv",
-                                 mime="text/csv", use_container_width=True, key="dl_csv_claves")
-            _cc2.download_button("📊 Metadatos", data=ef["csv_meta"],   file_name=f"{_nef}_METADATA.csv",
-                                 mime="text/csv", use_container_width=True, key="dl_csv_meta")
+                (st.markdown("**CSV:**") if not _bit_exp else None)
+                _cc1, _cc2 = st.columns(2)
+                _cc1.download_button(f"📊 {_fc}Clave",     data=ef["csv_claves"], file_name=f"{_nef}_CLAVES.csv",
+                                     mime="text/csv", use_container_width=True, key="dl_csv_claves")
+                _cc2.download_button(f"📊 {_fc}Metadatos", data=ef["csv_meta"],   file_name=f"{_nef}_METADATA.csv",
+                                     mime="text/csv", use_container_width=True, key="dl_csv_meta")
 
-            # ── Marcar preguntas como utilizadas ─────────────────────────────
-            st.markdown("---")
-            _cache_pids = [p.get("ID_Pregunta", "") for p in (st.session_state.get("cache_examen") or []) if p.get("ID_Pregunta")]
-            _ya_marcado = st.session_state.get("_exam_marcado", False)
-            if _ya_marcado:
-                st.success(f"✅ {st.session_state.get('_exam_marcado_n', 0)} preguntas marcadas como utilizadas el {datetime.date.today()}")
-                if st.button("↩ Deshacer marcado", key="btn_unmark", use_container_width=True):
+                # ── Marcar preguntas como utilizadas ─────────────────────────────
+                st.markdown("---")
+                _cache_pids = [p.get("ID_Pregunta", "") for p in (st.session_state.get("cache_examen") or []) if p.get("ID_Pregunta")]
+                _ya_marcado = st.session_state.get("_exam_marcado", False)
+                if _ya_marcado:
+                    st.success(f"✅ {st.session_state.get('_exam_marcado_n', 0)} preguntas marcadas como utilizadas el {datetime.date.today()}")
+                    if st.button("↩ Deshacer marcado", key="btn_unmark", use_container_width=True):
+                        st.session_state.pop("_exam_marcado", None)
+                        st.session_state.pop("_exam_marcado_n", None)
+                        st.rerun()
+                else:
+                    _mu1, _mu2 = st.columns([3, 2])
+                    _mu1.caption(f"📋 {len(_cache_pids)} preguntas en el examen actual")
+                    if _mu2.button("✅ Marcar como utilizadas", key="btn_marcar_usadas",
+                                   use_container_width=True, disabled=not _cache_pids,
+                                   help="Guarda la fecha de hoy como 'Fecha de uso' en la BD para todas las preguntas del examen"):
+                        _n = marcar_preguntas_usadas(_cache_pids, datetime.date.today().strftime("%Y-%m-%d"))
+                        st.session_state["_exam_marcado"] = True
+                        st.session_state["_exam_marcado_n"] = _n
+                        st.rerun()
+
+                if st.button("🔄 Nueva exportación", use_container_width=True, key="btn_clear_export"):
+                    st.session_state.pop("export_files", None)
+                    st.session_state.pop("_prev_mjax", None)
+                    st.session_state.pop("_compiled_pdf", None)
                     st.session_state.pop("_exam_marcado", None)
                     st.session_state.pop("_exam_marcado_n", None)
                     st.rerun()
+
+        with _t_pdf:
+            # ── Compilación PDF online ────────────────────────────────────────────
+            if not _bit_exp:
+                st.markdown("---")
+
+            _ef_now    = st.session_state.get("export_files")
+            _tex_avail_sfxs = [s for s in ("", "_TEST", "_DEV") if _ef_now and _ef_now.get(f"latex_exam{s}")]
+            _nombre_base    = _ef_now.get("nombre", "examen") if _ef_now else "examen"
+            _rub_tex_key    = f"{_nombre_base}_RUBRICA.tex"
+            _rub_tex_raw    = (_ef_now["_zip_all"].get(_rub_tex_key) or "") if _ef_now else ""
+            _rub_tex_bytes  = _rub_tex_raw.decode("utf-8", errors="replace") if isinstance(_rub_tex_raw, (bytes, bytearray)) else str(_rub_tex_raw)
+
+            if not _tex_avail_sfxs and not _rub_tex_bytes:
+                st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
             else:
-                _mu1, _mu2 = st.columns([3, 2])
-                _mu1.caption(f"📋 {len(_cache_pids)} preguntas en el examen actual")
-                if _mu2.button("✅ Marcar como utilizadas", key="btn_marcar_usadas",
-                               use_container_width=True, disabled=not _cache_pids,
-                               help="Guarda la fecha de hoy como 'Fecha de uso' en la BD para todas las preguntas del examen"):
-                    _n = marcar_preguntas_usadas(_cache_pids, datetime.date.today().strftime("%Y-%m-%d"))
-                    st.session_state["_exam_marcado"] = True
-                    st.session_state["_exam_marcado_n"] = _n
-                    st.rerun()
+                _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"") if _ef_now else b""
+                _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")} if _ef_now else {}
+                if _ef_now and _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
+                    _img_files[_ef_now["formulario_name"]] = _ef_now["formulario_bytes"]
 
-            if st.button("🔄 Nueva exportación", use_container_width=True, key="btn_clear_export"):
-                st.session_state.pop("export_files", None)
-                st.session_state.pop("_prev_mjax", None)
-                st.session_state.pop("_compiled_pdf", None)
-                st.session_state.pop("_exam_marcado", None)
-                st.session_state.pop("_exam_marcado_n", None)
-                st.rerun()
+                # Construir lista de documentos compilables (examen + rúbrica si existe)
+                _doc_lbl_map = {"": "Examen completo", "_TEST": "Test (MCQ)", "_DEV": "Desarrollo"}
+                _compile_opts = [("exam", s, _doc_lbl_map[s]) for s in _tex_avail_sfxs]
+                if _rub_tex_bytes:
+                    _compile_opts.append(("rub", "", "Rúbrica / Guía de corrección"))
 
-        # ── Compilación PDF online ────────────────────────────────────────────
-        st.markdown("---")
-
-        _ef_now    = st.session_state.get("export_files")
-        _tex_avail_sfxs = [s for s in ("", "_TEST", "_DEV") if _ef_now and _ef_now.get(f"latex_exam{s}")]
-        _nombre_base    = _ef_now.get("nombre", "examen") if _ef_now else "examen"
-        _rub_tex_key    = f"{_nombre_base}_RUBRICA.tex"
-        _rub_tex_raw    = (_ef_now["_zip_all"].get(_rub_tex_key) or "") if _ef_now else ""
-        _rub_tex_bytes  = _rub_tex_raw.decode("utf-8", errors="replace") if isinstance(_rub_tex_raw, (bytes, bytearray)) else str(_rub_tex_raw)
-
-        if not _tex_avail_sfxs and not _rub_tex_bytes:
-            st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
-        else:
-            _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"") if _ef_now else b""
-            _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")} if _ef_now else {}
-            if _ef_now and _ef_now.get("formulario_name") and _ef_now.get("formulario_bytes"):
-                _img_files[_ef_now["formulario_name"]] = _ef_now["formulario_bytes"]
-
-            # Construir lista de documentos compilables (examen + rúbrica si existe)
-            _doc_lbl_map = {"": "Examen completo", "_TEST": "Test (MCQ)", "_DEV": "Desarrollo"}
-            _compile_opts = [("exam", s, _doc_lbl_map[s]) for s in _tex_avail_sfxs]
-            if _rub_tex_bytes:
-                _compile_opts.append(("rub", "", "Rúbrica / Guía de corrección"))
-
-            if len(_compile_opts) > 1:
-                _doc_sel = st.selectbox(
-                    "Documento a compilar",
-                    _compile_opts,
-                    format_func=lambda x: x[2],
-                    key="compile_doc",
-                )
-            elif _compile_opts:
-                _doc_sel = _compile_opts[0]
-            else:
-                _doc_sel = None
-
-            if _doc_sel:
-                _doc_type, _compile_sfx, _doc_label = _doc_sel
-
-                # Layout unificado [info1 | info2 | botón] para rubrica y examen
-                _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
-
-                if _doc_type == "rub":
-                    _cx1.caption(f"📐 **{_doc_label}**")
-                    _cx2.caption(_rub_tex_key)
-                    _tex_preview_src = _rub_tex_bytes
+                if len(_compile_opts) > 1:
+                    _doc_sel = st.selectbox(
+                        "Documento a compilar",
+                        _compile_opts,
+                        format_func=lambda x: x[2],
+                        key="compile_doc",
+                    )
+                elif _compile_opts:
+                    _doc_sel = _compile_opts[0]
                 else:
-                    _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
-                    _modelos_disp   = list(_latex_exam_sel.keys())
-                    nombre_compile  = _nombre_base + _compile_sfx
-                    _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
-                                                  key="compile_modelo",
-                                                  format_func=lambda x: f"Modelo {x}")
-                    _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
-                                              horizontal=True, key="compile_ver")
-                    _tex_preview_src = (
-                        _latex_exam_sel.get(_modelos_disp[0], "") if _modelos_disp else ""
-                    )
+                    _doc_sel = None
 
-                if _cx3.button("🔨 Compilar PDF", type="primary",
-                                use_container_width=True, key="btn_compile_pdf"):
+                if _doc_sel:
+                    _doc_type, _compile_sfx, _doc_label = _doc_sel
+
+                    # Layout unificado [info1 | info2 | botón] para rubrica y examen
+                    _cx1, _cx2, _cx3 = st.columns([1, 1, 2])
+
                     if _doc_type == "rub":
-                        st.session_state["_compile_request"] = {
-                            "tex":    _rub_tex_bytes,
-                            "sty":    _sty_b, "imgs": _img_files,
-                            "nombre": _rub_tex_key.replace(".tex", ""),
-                            "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
-                        }
+                        _cx1.caption(f"📐 **{_doc_label}**")
+                        _cx2.caption(_rub_tex_key)
+                        _tex_preview_src = _rub_tex_bytes
                     else:
-                        _tex_src = (
-                            _latex_exam_sel[_modelo_sel]
-                            if _sol_sel == "Alumno"
-                            else _ef_now.get(f"latex_sol{_compile_sfx}", _latex_exam_sel)[_modelo_sel]
+                        _latex_exam_sel = _ef_now[f"latex_exam{_compile_sfx}"]
+                        _modelos_disp   = list(_latex_exam_sel.keys())
+                        nombre_compile  = _nombre_base + _compile_sfx
+                        _modelo_sel = _cx1.selectbox("Modelo", _modelos_disp,
+                                                      key="compile_modelo",
+                                                      format_func=lambda x: f"Modelo {x}")
+                        _sol_sel    = _cx2.radio("Versión", ["Alumno", "Soluciones"],
+                                                  horizontal=True, key="compile_ver")
+                        _tex_preview_src = (
+                            _latex_exam_sel.get(_modelos_disp[0], "") if _modelos_disp else ""
                         )
-                        _pdf_name = f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf"
-                        st.session_state["_compile_request"] = {
-                            "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
-                            "nombre": nombre_compile, "pdf_name": _pdf_name,
-                        }
-                    st.session_state.pop("_compiled_pdf", None)
-                    _dialog_compilar_pdf()
 
-                # Resultado previo (persiste entre reruns)
-                _cpdf = st.session_state.get("_compiled_pdf")
-                if _cpdf:
-                    import base64 as _b64
-                    _da, _db = st.columns([1, 1])
-                    _da.download_button(
-                        "⬇️ Descargar PDF compilado",
-                        data=_cpdf["bytes"],
-                        file_name=_cpdf["pdf_name"],
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="dl_compiled_pdf",
-                    )
-                    if _db.button("🔍 Ver PDF", use_container_width=True, key="btn_ver_pdf"):
-                        _dialog_ver_pdf(_cpdf)
+                    if _cx3.button("🔨 Compilar PDF", type="primary",
+                                    use_container_width=True, key="btn_compile_pdf"):
+                        if _doc_type == "rub":
+                            st.session_state["_compile_request"] = {
+                                "tex":    _rub_tex_bytes,
+                                "sty":    _sty_b, "imgs": _img_files,
+                                "nombre": _rub_tex_key.replace(".tex", ""),
+                                "pdf_name": _rub_tex_key.replace(".tex", ".pdf"),
+                            }
+                        else:
+                            _tex_src = (
+                                _latex_exam_sel[_modelo_sel]
+                                if _sol_sel == "Alumno"
+                                else _ef_now.get(f"latex_sol{_compile_sfx}", _latex_exam_sel)[_modelo_sel]
+                            )
+                            _pdf_name = f"{nombre_compile}_MOD{_modelo_sel}{'_SOL' if _sol_sel == 'Soluciones' else ''}.pdf"
+                            st.session_state["_compile_request"] = {
+                                "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
+                                "nombre": nombre_compile, "pdf_name": _pdf_name,
+                            }
+                        st.session_state.pop("_compiled_pdf", None)
+                        _dialog_compilar_pdf()
 
-                # Fuente .tex (para depuración)
-                with st.expander("📋 Ver fuente .tex (depuración)", expanded=False):
-                    _src_lines = _tex_preview_src.split("\n")
-                    _numbered  = "\n".join(f"{i+1:>3}: {l}" for i, l in enumerate(_src_lines[:100]))
-                    st.code(_numbered, language="latex")
+                    # Resultado previo (persiste entre reruns)
+                    _cpdf = st.session_state.get("_compiled_pdf")
+                    if _cpdf:
+                        import base64 as _b64
+                        _da, _db = st.columns([1, 1])
+                        _da.download_button(
+                            "⬇️ Descargar PDF compilado",
+                            data=_cpdf["bytes"],
+                            file_name=_cpdf["pdf_name"],
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="dl_compiled_pdf",
+                        )
+                        if _db.button("🔍 Ver PDF", use_container_width=True, key="btn_ver_pdf"):
+                            _dialog_ver_pdf(_cpdf)
+
+                    # Fuente .tex (para depuración)
+                    with st.expander("📋 Ver fuente .tex (depuración)", expanded=False):
+                        _src_lines = _tex_preview_src.split("\n")
+                        _numbered  = "\n".join(f"{i+1:>3}: {l}" for i, l in enumerate(_src_lines[:100]))
+                        st.code(_numbered, language="latex")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 · HISTORIAL
