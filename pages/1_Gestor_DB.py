@@ -684,8 +684,8 @@ with tab_man:
     if _bit:
         # Uso y dificultad como píldoras (radios con estilo); mismas claves y valores
         _u = df_total["usada"]
-        _uso_lbl = {"Todos": "Todas", "Nunca usada": "Nunca usadas", "Usada": "Usadas",
-                    "Usada >6m": "Más de 6 meses", "Usada >12m": "Más de 12 meses"}
+        _uso_lbl = {"Todos": "Todas", "Nunca usada": "Nunca", "Usada": "Usadas",
+                    "Usada >6m": "> 6 meses", "Usada >12m": "> 12 meses"}
         _uso_n = {"Todos": len(df_total), "Nunca usada": int((_u == "").sum()),
                   "Usada": int((_u != "").sum()),
                   "Usada >6m": int(_u.apply(lambda v: es_uso_antiguo(v, 6)).sum()),
@@ -1016,6 +1016,9 @@ with tab_man:
                 if sel_pid and sel_pid != st.session_state.get("_man_last_pid"):
                     _man_open_pid = sel_pid
                 st.session_state["_man_last_pid"] = sel_pid
+                if not sel_pid and n_sel <= 1:
+                    st.caption("Marca la casilla de una fila para abrir la pregunta en una ventana. "
+                               "Con «Selección múltiple» puedes borrar varias a la vez.")
 
             # ── Operaciones masivas (solo texto/dificultad, no borrado) ────────
             with st.expander(f"⚙️ Operaciones sobre las {n_filt} preguntas filtradas",
@@ -1116,8 +1119,7 @@ with tab_man:
 
             # ══ NADA SELECCIONADO ═════════════════════════════════════════════
             elif _gest_ventana:
-                st.caption("Marca la casilla de una fila para abrir la pregunta en una ventana. "
-                           "Con «Modo selección múltiple» puedes borrar varias a la vez.")
+                pass   # el aviso está justo debajo de la tabla
             else:
                 st.markdown(
                     "<div style='text-align:center;padding:40px 20px;color:var(--muted, #888);"

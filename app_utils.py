@@ -957,8 +957,47 @@ def es_uso_antiguo(v: str, months: int) -> bool:
     except (ValueError, TypeError):
         return False
 
+def _mathjax_bitacora(contenido: str) -> str:
+    """Vista MathJax con el estilo Bitácora. Detecta si la app está en oscuro
+    (atributo data-ui-mode del documento padre) y usa la paleta correspondiente."""
+    from app_theme import _T_BITACORA_LIGHT, _T_BITACORA_DARK, _vars
+    alias = ("--ui-ok:var(--ok);--ui-warn:var(--warn);--ui-err:var(--err);"
+             "--ui-border:var(--border);--ui-used:var(--used);")
+    return f"""<!DOCTYPE html><html><head>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script>
+try {{ if (window.parent.document.documentElement.getAttribute('data-ui-mode') === 'dark')
+         document.documentElement.classList.add('dark'); }} catch (e) {{}}
+MathJax={{tex:{{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]}},svg:{{fontCache:'global'}}}};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+:root{{{_vars(_T_BITACORA_LIGHT)}{alias}}}
+html.dark{{{_vars(_T_BITACORA_DARK)}}}
+*{{box-sizing:border-box}}
+body{{font-family:'Figtree',system-ui,sans-serif;font-size:14px;color:var(--text);padding:10px 12px;margin:0;background:var(--card)}}
+.q-card{{border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:10px;background:var(--card);line-height:1.55}}
+.q-head{{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:0.8em;color:var(--muted)}}
+.q-num{{font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text)}}
+.q-num small{{color:var(--muted)!important}}
+.q-enun{{font-weight:600;margin-bottom:8px}}
+.q-opts{{padding-left:4px}}
+.q-opt{{margin:4px 0;color:var(--text2)}}
+.q-opt.correct{{color:var(--ok);font-weight:600}}
+.tag{{display:inline-block;border-radius:999px;padding:2px 9px;font-size:0.76em;font-weight:600;margin-left:4px}}
+.tag-f{{background:var(--ok-bg);color:var(--ok)}}.tag-m{{background:var(--primary-soft);color:var(--primary)}}
+.tag-d{{background:var(--err-bg);color:var(--err)}}.tag-u{{background:var(--used-bg);color:var(--used)}}
+.tag-n{{background:var(--card2);color:var(--muted)}}
+.bloque-hdr{{background:var(--card2);color:var(--text);border:1px solid var(--border);padding:8px 14px;border-radius:10px;margin:14px 0 8px 0;font-weight:700;font-size:0.92em;display:flex;justify-content:space-between}}
+h1,h2,h3,h4{{color:var(--text)}}
+</style>
+</head><body>{contenido}</body></html>"""
+
+
 def mathjax_html(contenido: str) -> str:
     """Envuelve contenido HTML en una página con MathJax y los estilos de la app."""
+    if get_estilo() != "clasico":
+        return _mathjax_bitacora(contenido)
     return f"""<!DOCTYPE html><html><head>
 <script>MathJax={{tex:{{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]}},svg:{{fontCache:'global'}}}};</script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
