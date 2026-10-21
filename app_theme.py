@@ -142,6 +142,42 @@ _LABEL_METHODS = [
 ]
 
 
+# Colores de los gráficos Plotly en Bitácora: tonos que se leen en claro y en oscuro
+_CHART_COLORS = {
+    "#27ae60": "#3f9d6b",                 # fácil
+    "#f39c12": "#4f80dd",                 # media
+    "#c0392b": "#c4505c",                 # difícil
+    "#3498db": "#4f80dd",                 # seleccionadas / usadas
+    "#e0e7ef": "rgba(127,140,160,0.30)",  # disponibles / resto
+    "#ecf0f1": "rgba(127,140,160,0.30)",
+    "#e9ecef": "rgba(127,140,160,0.20)",  # rejilla
+}
+
+
+def _recolor_fig(fig):
+    """Cambia los colores fijos de una figura Plotly por los de Bitácora (en el sitio)."""
+    def m(c):
+        return _CHART_COLORS.get(c.lower(), c) if isinstance(c, str) else c
+    # cada paso por separado: una figura rara nunca debe impedir que se dibuje
+    for tr in getattr(fig, "data", []):
+        try:
+            if tr.type == "pie":
+                if tr.marker.colors is not None:
+                    tr.marker.colors = [m(c) for c in tr.marker.colors]
+            elif isinstance(tr.marker.color, str):
+                tr.marker.color = m(tr.marker.color)
+        except Exception:
+            pass
+    for ax in ("xaxis", "yaxis"):
+        try:
+            a = fig.layout[ax]
+            if isinstance(a.gridcolor, str):
+                a.gridcolor = m(a.gridcolor)
+        except Exception:
+            pass
+    return fig
+
+
 def _install_label_filter():
     """Envuelve los widgets de Streamlit para limpiar la etiqueta en el estilo Bitácora.
 
@@ -164,12 +200,14 @@ def _install_label_filter():
             return fn(self, *args, **kwargs)
         return inner
 
-    names = list(_LABEL_METHODS) + ["tabs", "markdown"]
+    names = list(_LABEL_METHODS) + ["tabs", "markdown", "plotly_chart"]
     for n in _LABEL_METHODS:
         setattr(DeltaGenerator, n, wrap(getattr(DeltaGenerator, n), clean_label, ("label", "body")))
     setattr(DeltaGenerator, "tabs",
             wrap(DeltaGenerator.tabs, lambda xs: [clean_label(x) for x in xs], ("tabs",)))
     setattr(DeltaGenerator, "markdown", wrap(DeltaGenerator.markdown, _clean_md, ("body",)))
+    setattr(DeltaGenerator, "plotly_chart",
+            wrap(DeltaGenerator.plotly_chart, _recolor_fig, ("figure_or_data",)))
     # st.button, st.tabs… son métodos ya ligados al contenedor principal: re-ligarlos
     for n in names:
         setattr(st, n, getattr(st._main, n))
@@ -187,7 +225,7 @@ def _install_label_filter():
 
 
 # ── Componentes HTML ──────────────────────────────────────────────────────────
-def kpi_html(items: list) -> str:
+def kpi_html(items: list, compact: bool = False) -> str:
     """Fila de indicadores. items = [(etiqueta, valor, subtítulo, acento_bool), …]"""
     cards = []
     for label, value, sub, accent in items:
@@ -195,7 +233,7 @@ def kpi_html(items: list) -> str:
         sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
         cards.append(f'<div class="kpi"><div class="kpi-lbl">{label}</div>'
                      f'<div class="{val_cls}">{value}</div>{sub_html}</div>')
-    return f'<div class="kpi-grid">{"".join(cards)}</div>'
+    return f'<div class="kpi-grid{" compact" if compact else ""}">{"".join(cards)}</div>'
 
 
 def _txt(v) -> str:
@@ -477,6 +515,39 @@ hr { border-color: var(--border) !important; }
 .st-key-man_uso_box label[data-baseweb="radio"]:has(input:checked) p { color: var(--chip-ink) !important; font-weight: 600; }
 .st-key-man_dif_box label[data-baseweb="radio"]:has(input:checked) { background: var(--btn); border-color: var(--btn); position: relative; }
 .st-key-man_dif_box label[data-baseweb="radio"]:has(input:checked) p { color: #ffffff !important; font-weight: 600; }
+
+/* ── Botones unidos para cualquier radio dentro de un contenedor con clave seg_* ── */
+[class*="st-key-seg_"] [role="radiogroup"] { gap: 0 !important; flex-wrap: wrap; }
+[class*="st-key-seg_"] label[data-baseweb="radio"] { margin: 0 0 0 -1px !important; padding: 6px 13px !important;
+  background: var(--card); border: 1px solid var(--border2); border-radius: 0; cursor: pointer; }
+[class*="st-key-seg_"] label[data-baseweb="radio"]:first-child { border-radius: 9px 0 0 9px; margin-left: 0 !important; }
+[class*="st-key-seg_"] label[data-baseweb="radio"]:last-child { border-radius: 0 9px 9px 0; }
+[class*="st-key-seg_"] label[data-baseweb="radio"] > div:first-child { display: none; }
+[class*="st-key-seg_"] label[data-baseweb="radio"] > div:last-child { padding-left: 0 !important; margin-left: 0 !important; }
+[class*="st-key-seg_"] label[data-baseweb="radio"] p { margin: 0; font-size: 0.9rem; }
+[class*="st-key-seg_"] label[data-baseweb="radio"]:has(input:checked) { background: var(--btn); border-color: var(--btn); }
+[class*="st-key-seg_"] label[data-baseweb="radio"]:has(input:checked) p { color: #ffffff !important; font-weight: 600; }
+
+/* ── Tarjetas: contenedores con borde y clave card_* ── */
+[class*="st-key-card_"] { background: var(--card); border-color: var(--border) !important; border-radius: 12px !important; }
+[class*="st-key-dev_del_"] button { color: var(--err) !important; border-color: var(--err-bg) !important; }
+
+/* ── Inicio compacto ── */
+.kpi-grid.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px 0; }
+.kpi-grid.compact .kpi { padding: 12px 16px; }
+.kpi-grid.compact .kpi-val { font-size: 1.6rem; display: inline-block; margin-right: 8px; }
+.kpi-grid.compact .kpi-sub { display: inline-block; }
+.cov-2col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+.cov-2col .cov-row { grid-template-columns: 86px minmax(0, 1fr) 46px; padding: 6px 0; }
+.steps-inline { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.86rem; color: var(--text2); }
+.steps-inline b { font-family: var(--mono); color: var(--muted); margin-right: 4px; }
+
+/* ── Resumen compacto de Exportar ── */
+.sum-title { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+.sum-meta { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.sum-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin-top: 12px; }
+.sum-l { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sum-v { font-weight: 600; color: var(--text); margin-top: 2px; font-size: 0.92rem; }
 """
 
 # Retoques del estilo Clásico sobre el CSS original (APP_CSS)

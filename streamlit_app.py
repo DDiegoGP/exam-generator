@@ -227,8 +227,19 @@ def _home_bitacora():
                else "Ninguna pregunta seleccionada todavía")
     else:
         sub = "Base de datos no conectada"
-    st.markdown(f'<div class="pg-head"><div class="pg-title">{fecha}</div>'
+
+    # Título + accesos directos (mismas claves que los botones de las tarjetas de Clásico)
+    h1, h2, h3, h4, h5 = st.columns([4.2, 1.1, 1.3, 0.9, 1.5], vertical_alignment="bottom")
+    h1.markdown(f'<div class="pg-head" style="margin:0"><div class="pg-title">{fecha}</div>'
                 f'<div class="pg-sub">{sub}</div></div>', unsafe_allow_html=True)
+    if h2.button("Gestor DB", use_container_width=True, key="btn_home_gestor"):
+        st.switch_page("pages/1_Gestor_DB.py")
+    if h3.button("Configuración", use_container_width=True, key="btn_home_cfg"):
+        st.switch_page("pages/3_Configuracion.py")
+    if h4.button("Ayuda", use_container_width=True, key="btn_home_help"):
+        st.switch_page("pages/4_Ayuda.py")
+    if h5.button("Ir al Generador", use_container_width=True, type="primary", key="btn_home_gen"):
+        st.switch_page("pages/2_Generador.py")
 
     if ss.db_connected:
         df     = ss.df_preguntas
@@ -236,82 +247,58 @@ def _home_bitacora():
         usadas = len(df) - nunca
         pct    = int(usadas / len(df) * 100) if len(df) else 0
         n_bloq = df["bloque"].nunique() if "bloque" in df.columns else 0
+        if "solucion" in df.columns:
+            _con_sol = (~df["solucion"].astype(str).str.strip().isin(["", "nan", "None"])).sum()
+            sin_sol  = int(len(df) - _con_sol)
+        else:
+            sin_sol = len(df)
         st.markdown(kpi_html([
-            ("Total preguntas",     len(df), f"en {n_bloq} bloques", False),
-            ("Usadas en exámenes",  usadas,  bar_html(pct), False),
-            ("Sin usar",            nunca,   "nunca han salido en un examen", False),
-            ("Cobertura",           f"{pct} %", "preguntas usadas alguna vez", False),
-            ("Seleccionadas ahora", n_sel,   "en el Generador", True),
-        ]), unsafe_allow_html=True)
+            ("Total preguntas", len(df),   f"{n_bloq} bloques", False),
+            ("Usadas",          usadas,    f"{pct} %", False),
+            ("Sin usar",        nunca,     "nunca en examen", False),
+            ("Sin solución",    sin_sol,   "pendientes", False),
+            ("Seleccionadas",   n_sel,     "en el Generador", True),
+        ], compact=True), unsafe_allow_html=True)
     else:
         st.warning("**Base de datos no conectada.** Sube tu archivo Excel desde la barra lateral para empezar.")
 
-    col_l, col_r = st.columns([3, 2], gap="medium")
+    col_l, col_r = st.columns([1.55, 1], gap="medium")
     with col_l:
         if ss.db_connected and "bloque" in ss.df_preguntas.columns:
             df = ss.df_preguntas
             rows = ""
             for blq in sorted(df["bloque"].dropna().unique().tolist(), key=_nsort):
-                d_b   = df[df["bloque"] == blq]
-                tot   = len(d_b)
-                usa   = int((d_b["usada"] != "").sum())
+                d_b = df[df["bloque"] == blq]
+                tot = len(d_b)
+                usa = int((d_b["usada"] != "").sum())
                 rows += (f'<div class="cov-row"><span class="cov-name" title="{nombre_bloque(str(blq))}">'
                          f'{nombre_bloque(str(blq))}</span>{bar_html(usa / tot * 100 if tot else 0)}'
                          f'<span class="cov-num">{usa}/{tot}</span></div>')
             st.markdown('<div class="card"><div class="sec-title">Cobertura por bloque'
                         '<span class="sec-meta">usadas / total</span></div>'
-                        f'{rows}</div>', unsafe_allow_html=True)
-
-        # Módulos (mismos botones que en el estilo Clásico)
-        st.markdown('<div class="sec-title" style="margin-top:4px">Módulos</div>', unsafe_allow_html=True)
-        _mods = [
-            ("Gestor DB", "Añadir, importar, editar y analizar el banco de preguntas.",
-             "Abrir Gestor DB →", "btn_home_gestor", "pages/1_Gestor_DB.py", "primary"),
-            ("Generador", "Seleccionar preguntas o auto-rellenar y exportar a Word / LaTeX.",
-             "Abrir Generador →", "btn_home_gen", "pages/2_Generador.py", "primary"),
-            ("Configuración", "Bloques, temas, objetivos, datos de la asignatura y apariencia.",
-             "Abrir Configuración →", "btn_home_cfg", "pages/3_Configuracion.py", "secondary"),
-            ("Manual de uso", "Guía paso a paso, formatos de exportación y preguntas frecuentes.",
-             "Ver Manual →", "btn_home_help", "pages/4_Ayuda.py", "secondary"),
-        ]
-        m_cols = st.columns(2, gap="small")
-        for i, (tit, desc, lbl, key, page, kind) in enumerate(_mods):
-            with m_cols[i % 2]:
-                with st.container(border=True, key=f"home_mod_{i}"):
-                    st.markdown(f"**{tit}**")
-                    st.caption(desc)
-                    if st.button(lbl, use_container_width=True, type=kind, key=key):
-                        st.switch_page(page)
+                        f'<div class="cov-2col">{rows}</div></div>', unsafe_allow_html=True)
 
     with col_r:
         historial = ss.historial
         if historial:
             rows = ""
-            for entry in reversed(historial[-6:]):
+            for entry in reversed(historial[-3:]):
                 rows += (f'<div class="list-row"><span class="list-date">{entry.get("fecha", "")}</span>'
                          f'<span class="list-title">{entry.get("titulo", "Sin título")}</span>'
                          f'<span class="list-meta">{entry.get("n_preguntas", "?")} preg · '
                          f'{entry.get("n_modelos", "?")} mod.</span></div>')
-            st.markdown(f'<div class="card"><div class="sec-title">Últimos exámenes generados</div>{rows}</div>',
+            st.markdown(f'<div class="card"><div class="sec-title">Últimos exámenes</div>{rows}</div>',
                         unsafe_allow_html=True)
-        pasos = [
-            ("Conecta tu base de datos Excel", "Barra lateral"),
-            ("Configura bloques, temas y objetivos", "Configuración"),
-            ("Añade o importa preguntas", "Gestor DB"),
-            ("Selecciona preguntas o usa Auto-relleno", "Generador"),
-            ("Exporta a Word / LaTeX", "Generador"),
-        ]
-        rows = "".join(f'<div class="list-row"><span class="step-n">{i}</span>'
-                       f'<span class="list-title" style="white-space:normal">{t}</span><span class="pill">{d}</span></div>'
-                       for i, (t, d) in enumerate(pasos, 1))
-        st.markdown(f'<div class="card"><div class="sec-title">Inicio rápido</div>{rows}</div>',
-                    unsafe_allow_html=True)
+        pasos = ["Conecta la base de datos", "Configura bloques y temas", "Añade o importa preguntas",
+                 "Selecciona o auto-rellena", "Exporta a Word / LaTeX"]
+        st.markdown('<div class="card"><div class="sec-title">Inicio rápido</div><div class="steps-inline">'
+                    + "".join(f"<span><b>{i}</b>{t}</span>" for i, t in enumerate(pasos, 1))
+                    + "</div></div>", unsafe_allow_html=True)
 
     st.caption(
         f"Generador Exámenes · Unidad de Física Médica · Facultad de Medicina · UCM · {hoy.year}"
         "  —  Desarrollado por Diego García Pinto"
     )
-
 
 if get_estilo() == "bitacora":
     _home_bitacora()
