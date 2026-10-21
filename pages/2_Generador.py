@@ -1059,7 +1059,10 @@ with tab_dev:
     to_delete = []
     for i, q in enumerate(dev_qs):
         # ── Acordeón ─────────────────────────────────────────────────────────
-        subapts   = list(q.get("subapartados") or [])
+        # La lista real de la pregunta (no una copia): así añadir/eliminar apartados
+        # sobrevive al st.rerun() que hacen esos botones
+        q["subapartados"] = list(q.get("subapartados") or [])
+        subapts   = q["subapartados"]
         _pts_disp = (sum(float(a.get("puntos") or 0) for a in subapts)
                      if subapts else float(q.get("pts", 1.0)))
         _prev_txt    = q.get("txt", "")
