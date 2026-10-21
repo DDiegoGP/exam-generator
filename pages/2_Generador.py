@@ -933,6 +933,7 @@ def _dev_qs_from_json(raw: bytes) -> list:
 
 
 with tab_dev:
+    _bit_dev = get_estilo() == "bitacora"
     page_header("✍️", "Preguntas de Desarrollo",
                 "Se incluirán como PARTE I del examen · Markdown y LaTeX soportados",
                 color="#7d3c98")
@@ -1072,27 +1073,35 @@ with tab_dev:
             # ── Cabecera compacta: modo + eliminar ────────────────────────────
             _hc1, _hc2 = st.columns([5, 1])
             _modo_actual = q.get("modo", "markdown")
-            _modo_sel = _hc1.radio(
-                "Modo de escritura",
-                ["✍ Markdown (recomendado)", "⚙ LaTeX puro"],
-                horizontal=True,
-                index=0 if _modo_actual != "latex" else 1,
-                key=f"dev_mode_{i}",
-                help="**Markdown**: texto normal + fórmulas con $…$. | **LaTeX puro**: usuarios avanzados.",
-            )
+            with _hc1.container(key=f"seg_devmode_{i}"):   # botones unidos en Bitácora
+                _modo_sel = st.radio(
+                    "Modo de escritura",
+                    ["✍ Markdown (recomendado)", "⚙ LaTeX puro"],
+                    horizontal=True,
+                    index=0 if _modo_actual != "latex" else 1,
+                    key=f"dev_mode_{i}",
+                    help="**Markdown**: texto normal + fórmulas con $…$. | **LaTeX puro**: usuarios avanzados.",
+                )
             q["modo"] = "latex" if "LaTeX" in _modo_sel else "markdown"
             _is_md = q["modo"] == "markdown"
             _snips_text = _SNIPS_TEXT_MD   if _is_md else _SNIPS_TEXT_LATEX
             _snips_math = _SNIPS_MATH_MD   if _is_md else _SNIPS_MATH_LATEX
             _snips_phys = _SNIPS_PHYS_MD   if _is_md else _SNIPS_PHYS_LATEX
 
-            if _hc2.button("🗑️ Eliminar", key=f"dev_del_{i}", use_container_width=True):
+            if _hc2.button("🗑️ Eliminar pregunta" if _bit_dev else "🗑️ Eliminar", key=f"dev_del_{i}",
+                           use_container_width=True):
                 to_delete.append(i)
 
             # ── 4 pestañas ────────────────────────────────────────────────────
-            _tab_enun, _tab_apts, _tab_rub, _tab_prev_q = st.tabs(
-                ["📝 Enunciado", "📑 Apartados", "⚙️ Rúbrica & Datos", "👁 Vista previa"]
-            )
+            if _bit_dev:
+                _tab_enun, _tab_apts, _tab_sol, _tab_rub, _tab_prev_q = st.tabs(
+                    ["📝 Enunciado", "📑 Apartados", "📖 Solución", "⚙️ Rúbrica y datos", "👁 Vista previa (LaTeX)"]
+                )
+            else:
+                _tab_enun, _tab_apts, _tab_rub, _tab_prev_q = st.tabs(
+                    ["📝 Enunciado", "📑 Apartados", "⚙️ Rúbrica & Datos", "👁 Vista previa"]
+                )
+                _tab_sol = _tab_enun   # Clásico: la solución sigue al final de Enunciado
 
             # ══════════════ Tab 1: Enunciado ══════════════════════════════════
             with _tab_enun:
@@ -1176,12 +1185,16 @@ with tab_dev:
                     "Usando $D = \\frac{E}{m}$, obtenemos…"
                     if _is_md else "Escribe en LaTeX…\nCalcula $D = \\frac{E}{m}$ si…"
                 )
-                new_txt = st.text_area(
+                _ed_col, _pv_col = st.columns(2) if (_bit_dev and _is_md) else (st, None)
+                new_txt = _ed_col.text_area(
                     "Enunciado", value=q.get("txt", ""), height=220,
                     key=f"dev_txt_{i}", label_visibility="collapsed",
                     placeholder=_ph_edit,
                 )
                 q["txt"] = new_txt
+                if _pv_col is not None:   # vista en directo: Streamlit dibuja las fórmulas $…$
+                    with _pv_col.container(border=True, height=220):
+                        st.markdown(new_txt if new_txt.strip() else "*La vista previa aparecerá aquí.*")
 
                 # Imagen del enunciado
                 _img_cur_pos = q.get("imagen_pos", "debajo")
@@ -1217,6 +1230,8 @@ with tab_dev:
                     new_img_bytes = None
                     new_img_name  = ""
 
+            # ══════════════ Solución (pestaña propia en Bitácora) ═════════════
+            with _tab_sol:
                 # Solución modelo — solo cuando NO hay apartados
                 if not subapts:
                     st.divider()
@@ -1288,6 +1303,9 @@ with tab_dev:
                             st.info("Escribe la solución para ver la vista previa.")
                 else:
                     new_sol_modelo = q.get("solucion_modelo", "")
+                    if _bit_dev:
+                        st.caption("Esta pregunta tiene apartados: la solución se escribe en cada apartado "
+                                   "(pestaña Apartados).")
 
             # ══════════════ Tab 2: Apartados ══════════════════════════════════
             with _tab_apts:
