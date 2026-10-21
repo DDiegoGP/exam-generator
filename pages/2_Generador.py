@@ -1071,7 +1071,7 @@ with tab_dev:
 
         with st.expander(_acc_label, expanded=_auto_expand):
             # ── Cabecera compacta: modo + eliminar ────────────────────────────
-            _hc1, _hc2 = st.columns([5, 1])
+            _hc1, _hc2 = st.columns([4, 1.2] if _bit_dev else [5, 1], vertical_alignment="bottom" if _bit_dev else "top")
             _modo_actual = q.get("modo", "markdown")
             with _hc1.container(key=f"seg_devmode_{i}"):   # botones unidos en Bitácora
                 _modo_sel = st.radio(
@@ -1117,7 +1117,7 @@ with tab_dev:
                         _cur = st.session_state.get(f"dev_txt_{i}", q.get("txt", ""))
                         st.session_state[f"dev_txt_{i}"] = _cur + _snip
                         st.rerun()
-                _tc_math, _tc_phys = st.columns([9, 8])
+                _tc_math, _tc_phys = (st.container(), st.container()) if _bit_dev else st.columns([9, 8])
                 with _tc_math:
                     st.markdown(
                         "<div style='font-size:.72em;color:var(--ui-ok, #1a6b3a);font-weight:700;"
@@ -1251,7 +1251,7 @@ with tab_dev:
                             _cur = st.session_state.get(f"dev_sol_{i}", q.get("solucion_modelo", ""))
                             st.session_state[f"dev_sol_{i}"] = _cur + _snip
                             st.rerun()
-                    _stc_m, _stc_p = st.columns([9, 8])
+                    _stc_m, _stc_p = (st.container(), st.container()) if _bit_dev else st.columns([9, 8])
                     with _stc_m:
                         st.markdown(
                             "<div style='font-size:.72em;color:var(--ui-ok, #1a6b3a);font-weight:700;"
@@ -1683,7 +1683,7 @@ with tab_prev:
     # ── Controles (Bitácora: en una tarjeta, interruptor y «Renderizar LaTeX») ─
     _bit_prev = get_estilo() == "bitacora"
     with (st.container(border=True, key="card_prev_ctrl") if _bit_prev else st.container()):
-        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = (st.columns([1.3, 2, 1.6, 1, 1.3], vertical_alignment="bottom")
+        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = (st.columns([1.8, 1.8, 1.5, 1, 1.7], vertical_alignment="bottom")
                                              if _bit_prev else st.columns([2, 2, 2, 1, 1]))
         show_sol  = (ctrl1.toggle("Mostrar soluciones", value=True, key="prev_show_sol") if _bit_prev
                      else ctrl1.checkbox("Mostrar soluciones ✓", value=True, key="prev_show_sol"))
@@ -3347,7 +3347,8 @@ with tab_exp:
             )
 
         _bx1, _bx2 = st.columns(2) if _bit_exp else (st, st)
-        if _bx1.button("👁 Vista previa del examen", use_container_width=True, key="btn_preview_exam"):
+        if _bx1.button("👁 Vista previa" if _bit_exp else "👁 Vista previa del examen", use_container_width=True,
+                       key="btn_preview_exam"):
             _dialog_preview_examen()
 
         if not _bit_exp:

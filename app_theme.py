@@ -203,6 +203,10 @@ def _install_label_filter():
     names = list(_LABEL_METHODS) + ["tabs", "markdown", "plotly_chart"]
     for n in _LABEL_METHODS:
         setattr(DeltaGenerator, n, wrap(getattr(DeltaGenerator, n), clean_label, ("label", "body")))
+    # en los botones, «$» literal (si no, «$$ …» se interpreta como fórmula y el botón sale vacío)
+    setattr(DeltaGenerator, "button",
+            wrap(DeltaGenerator.button,
+                 lambda x: x.replace("$", "\\$") if isinstance(x, str) and "$" in x else x, ("label",)))
     setattr(DeltaGenerator, "tabs",
             wrap(DeltaGenerator.tabs, lambda xs: [clean_label(x) for x in xs], ("tabs",)))
     setattr(DeltaGenerator, "markdown", wrap(DeltaGenerator.markdown, _clean_md, ("body",)))
