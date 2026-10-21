@@ -1680,18 +1680,23 @@ with tab_prev:
             st.session_state["recovery_mode"] = False
             st.rerun()
 
-    # ── Controles ─────────────────────────────────────────────────────────────
-    ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = st.columns([2, 2, 2, 1, 1])
-    show_sol  = ctrl1.checkbox("Mostrar soluciones ✓", value=True, key="prev_show_sol")
-    ord_prev  = ctrl2.selectbox("Orden",
-                    ["Por bloques", "Por temas", "Global aleatorio", "Manual (selección)", "Sin barajar (ID)"],
-                    key="prev_ord")
-    seed_prev = ctrl3.number_input("Semilla (0=aleatoria)", min_value=0, value=0, key="prev_seed")
-    _locked   = st.session_state.get("recovery_mode", False)
-    gen_btn   = ctrl4.button("🎲 Generar", type="primary", key="btn_gen_prev",
-                              use_container_width=True, disabled=_locked)
-    mj_btn    = ctrl5.button("∑ MathJax", key="btn_mathjax", use_container_width=True,
-                              help="Vista con fórmulas matemáticas renderizadas")
+    # ── Controles (Bitácora: en una tarjeta, interruptor y «Renderizar LaTeX») ─
+    _bit_prev = get_estilo() == "bitacora"
+    with (st.container(border=True, key="card_prev_ctrl") if _bit_prev else st.container()):
+        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = (st.columns([1.3, 2, 1.6, 1, 1.3], vertical_alignment="bottom")
+                                             if _bit_prev else st.columns([2, 2, 2, 1, 1]))
+        show_sol  = (ctrl1.toggle("Mostrar soluciones", value=True, key="prev_show_sol") if _bit_prev
+                     else ctrl1.checkbox("Mostrar soluciones ✓", value=True, key="prev_show_sol"))
+        ord_prev  = ctrl2.selectbox("Orden",
+                        ["Por bloques", "Por temas", "Global aleatorio", "Manual (selección)", "Sin barajar (ID)"],
+                        key="prev_ord")
+        seed_prev = ctrl3.number_input("Semilla (0=aleatoria)", min_value=0, value=0, key="prev_seed")
+        _locked   = st.session_state.get("recovery_mode", False)
+        gen_btn   = ctrl4.button("🎲 Generar", type="primary", key="btn_gen_prev",
+                                  use_container_width=True, disabled=_locked)
+        mj_btn    = ctrl5.button("∑ Renderizar LaTeX" if _bit_prev else "∑ MathJax", key="btn_mathjax",
+                                  use_container_width=True,
+                                  help="Vista con fórmulas matemáticas renderizadas")
 
     sel_prev  = get_sel_ids()          # manuales fijas
     auto_rec  = st.session_state.get("auto_recipe", {})
@@ -1864,13 +1869,22 @@ with tab_prev:
         else:
             # ── Vista nativa Streamlit (cards con colores, sin iframe) ─────────
             dev_qs = st.session_state.dev_questions
+            if _bit_prev:
+                st.caption(f"**{len(cache)}** preguntas test"
+                           + (f" + **{len(dev_qs)}** de desarrollo" if dev_qs else ""))
             if dev_qs:
-                st.markdown(
-                    "<div style='background:var(--primary-soft, #eaf4fb);border-left:4px solid var(--primary, #3498db);"
-                    "border-radius:5px;padding:10px 14px;margin-bottom:12px'>"
-                    "<b style='color:var(--text, #2c3e50)'>PARTE I — DESARROLLO</b></div>",
-                    unsafe_allow_html=True
-                )
+                if _bit_prev:
+                    _pts_dev = sum(float(q.get("pts") or 0) for q in dev_qs)
+                    st.markdown(f"<div class='bloque-header'>PARTE I — DESARROLLO"
+                                f"<span class='bloque-stats'>{len(dev_qs)} preguntas · {_pts_dev:g} pts</span></div>",
+                                unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        "<div style='background:var(--primary-soft, #eaf4fb);border-left:4px solid var(--primary, #3498db);"
+                        "border-radius:5px;padding:10px 14px;margin-bottom:12px'>"
+                        "<b style='color:var(--text, #2c3e50)'>PARTE I — DESARROLLO</b></div>",
+                        unsafe_allow_html=True
+                    )
                 for i, q in enumerate(dev_qs):
                     st.markdown(
                         f"<div style='padding:6px 14px;margin-bottom:4px;border-left:3px solid var(--primary, #3498db)'>"
@@ -1879,13 +1893,18 @@ with tab_prev:
                         unsafe_allow_html=True
                     )
 
-            st.markdown(
-                f"<div style='background:var(--primary-soft, #eaf4fb);border-left:4px solid var(--primary, #3498db);"
-                f"border-radius:5px;padding:10px 14px;margin-bottom:12px'>"
-                f"<b style='color:var(--text, #2c3e50)'>PARTE II — TEST</b>"
-                f"<span style='margin-left:10px;color:var(--muted, #666);font-size:0.85em'>{len(cache)} preguntas</span></div>",
-                unsafe_allow_html=True
-            )
+            if _bit_prev:
+                st.markdown(f"<div class='bloque-header'>PARTE II — TEST"
+                            f"<span class='bloque-stats'>{len(cache)} preguntas</span></div>",
+                            unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    f"<div style='background:var(--primary-soft, #eaf4fb);border-left:4px solid var(--primary, #3498db);"
+                    f"border-radius:5px;padding:10px 14px;margin-bottom:12px'>"
+                    f"<b style='color:var(--text, #2c3e50)'>PARTE II — TEST</b>"
+                    f"<span style='margin-left:10px;color:var(--muted, #666);font-size:0.85em'>{len(cache)} preguntas</span></div>",
+                    unsafe_allow_html=True
+                )
 
             # Agrupar por bloque
             bloques_en_cache = []
@@ -1906,6 +1925,8 @@ with tab_prev:
 
                 # Bloque como acordeón colapsable
                 label = (
+                    f"{blq} — {len(preg_list)} preguntas · {n_f} fácil · {n_m} media · {n_d} difícil"
+                    if _bit_prev else
                     f"📦 {blq}  —  {len(preg_list)} preguntas"
                     f"  🟢 {n_f} Fácil  🟡 {n_m} Media  🔴 {n_d} Difícil"
                 )
