@@ -2,9 +2,11 @@
 pages/4_Ayuda.py  –  Manual de uso y referencia de la aplicación.
 """
 import streamlit as st
+from app_theme import initial_sidebar
 from app_utils import init_session_state, render_sidebar, apply_theme
 
-st.set_page_config(page_title="Ayuda · ExamGen UCM", page_icon="📖", layout="wide")
+st.set_page_config(page_title="Ayuda · ExamGen UCM", page_icon="📖", layout="wide",
+                   initial_sidebar_state=initial_sidebar())
 init_session_state()
 
 apply_theme("ayuda")

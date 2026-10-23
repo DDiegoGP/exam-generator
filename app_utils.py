@@ -657,7 +657,7 @@ def handle_oauth_callback():
 
 
 # ── Google Sheets OAuth section (sidebar) ────────────────────────────────────
-def _render_gsheets_oauth():
+def _render_gsheets_oauth(p: str = ""):
     """
     Sección Google Sheets en el sidebar.
     Solo se renderiza si 'GOOGLE_OAUTH' está configurado en st.secrets.
@@ -683,13 +683,13 @@ def _render_gsheets_oauth():
         gs_url = st.text_input(
             "URL hoja de cálculo",
             value=st.session_state.get("_gsheets_url", ""),
-            key="sidebar_gsheets_url",
+            key=p + "sidebar_gsheets_url",
             label_visibility="collapsed",
             placeholder="https://docs.google.com/spreadsheets/d/...",
         )
 
         gc1, gc2 = st.columns(2)
-        if gc1.button("📥 Cargar", key="btn_load_gsheets", use_container_width=True):
+        if gc1.button("📥 Cargar", key=p + "btn_load_gsheets", use_container_width=True):
             with st.spinner("Conectando…"):
                 ok, msg = connect_db_from_gsheets(
                     st.session_state["google_token"], gs_url
@@ -699,12 +699,129 @@ def _render_gsheets_oauth():
             else:
                 st.error(msg)
 
-        if gc2.button("🚪 Salir", key="btn_logout_google", use_container_width=True):
+        if gc2.button("🚪 Salir", key=p + "btn_logout_google", use_container_width=True):
             for k in ("google_token", "google_user_email", "_gsheets_url", "_gsheets_title"):
                 st.session_state.pop(k, None)
             st.rerun()
 
     st.divider()
+
+
+def _render_db_panel(p: str = ""):
+    """Conexión a la base de datos: Google Sheets, Excel, ruta local, estado, recargar y descargar.
+    Se usa en la barra lateral (p="") y en el desplegable de la barra superior (p="pop_");
+    el prefijo `p` evita claves de widget repetidas."""
+    # ── Google Sheets OAuth (si está configurado) ─────────────────────────
+    _render_gsheets_oauth(p)
+
+    if get_estilo() == "clasico":
+        st.markdown("**📚 Base de Datos Excel**")
+
+    # ── Upload de Excel (funciona local Y en Cloud) ───────────────────────
+    uploaded = st.file_uploader(
+        "Cargar Excel (.xlsx)",
+        type=["xlsx"],
+        key=p + "sidebar_upload",
+        help="Sube tu base de datos Excel. Los cambios se guardan en memoria "
+             "y puedes descargar el archivo actualizado abajo.",
+        label_visibility="collapsed",
+    )
+    if uploaded is not None:
+        # Solo reconectar si es un archivo nuevo (evita resetear cambios en cada rerun)
+        if uploaded.name != st.session_state.get("_upload_name"):
+            ok, msg = connect_db_from_upload(uploaded)
+            if ok:
+                st.rerun()
+            else:
+                st.error(msg)
+
+    # ── Ruta local directa (solo útil en local, oculta en Cloud) ─────────
+    with st.expander("📂 Ruta local directa", expanded=False):
+        path_m = st.text_input(
+            "Ruta al .xlsx",
+            value=st.session_state.excel_path,
+            key=p + "sidebar_path_manual",
+            label_visibility="collapsed",
+            placeholder="C:/ruta/archivo.xlsx",
+        )
+        if st.button("🔌 Conectar", key=p + "btn_conectar_manual",
+                     use_container_width=True):
+            ok, msg = connect_db(path_m)
+            if ok:
+                st.rerun()
+            else:
+                st.error(msg)
+
+    # ── Datos de la asignatura (cfg_general) ─────────────────────────────
+    _cg = st.session_state.get("cfg_general", {})
+    _asig_sb = _cg.get("asignatura", "") or ""
+    _grado_sb = _cg.get("grado", "") or ""
+    _anio_sb  = _cg.get("anio_academico", "") or ""
+    _dept_sb  = _cg.get("departamento", "") or ""
+    _univ_sb  = _cg.get("universidad", "") or ""
+    if any([_asig_sb, _grado_sb, _dept_sb, _univ_sb]):
+        _lines = []
+        if _asig_sb:  _lines.append(f"<b style='color:var(--text, #2c3e50)'>{_asig_sb}</b>")
+        if _grado_sb: _lines.append(f"<span style='color:var(--text2, #555)'>{_grado_sb}</span>")
+        if _anio_sb:  _lines.append(f"<span style='color:var(--muted, #777);font-size:0.85em'>{_anio_sb}</span>")
+        if _dept_sb:  _lines.append(f"<span style='color:var(--muted, #888);font-size:0.82em'>{_dept_sb}</span>")
+        if _univ_sb:  _lines.append(f"<span style='color:var(--muted, #888);font-size:0.82em'>{_univ_sb}</span>")
+        st.markdown(
+            "<div style='background:var(--primary-soft, #f0f7ff);border:1px solid var(--ui-border, #c8dff8);"
+            "border-radius:8px;padding:9px 13px;margin-bottom:10px;line-height:1.6'>"
+            + "<br>".join(_lines) +
+            "<div style='font-size:0.7em;color:var(--faint, #aaa);margin-top:4px'>📋 Configuración → General</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Estado de conexión ────────────────────────────────────────────────
+    if st.session_state.db_connected:
+        fname = (st.session_state.get("_upload_name")
+                 or os.path.basename(st.session_state.excel_path)
+                 or "base_datos.xlsx")
+        df = st.session_state.df_preguntas
+        st.markdown(
+            f'<span class="conn-ok">✅ Conectado</span> '
+            f'<small style="color:var(--text2, #555)">{fname}</small>',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"{len(df)} preguntas · {len(st.session_state.bloques)} bloques")
+        if not df.empty:
+            nunca = (df["usada"] == "").sum()
+            st.caption(f"🆕 Sin usar: {nunca} · 📝 Usadas: {len(df) - nunca}")
+
+        col_r, col_d = st.columns(2)
+        if col_r.button("🔄 Recargar", use_container_width=True, key=p + "btn_reload"):
+            _gid   = st.session_state.get("_gsheets_id")
+            _token = st.session_state.get("google_token")
+            if _gid and _token:
+                connect_db_from_gsheets(_token,
+                    f"https://docs.google.com/spreadsheets/d/{_gid}")
+            else:
+                reload_db()
+            st.session_state["_reload_toast"] = True
+            st.rerun()
+        if st.session_state.pop("_reload_toast", False):
+            n = len(st.session_state.df_preguntas)
+            st.toast(f"✅ Base de datos recargada · {n} preguntas", icon="✅")
+
+        # ── Descarga del Excel actualizado ────────────────────────────────
+        excel_bytes = st.session_state.get("excel_bytes", b"")
+        if excel_bytes:
+            col_d.download_button(
+                "⬇️ Descargar",
+                data=excel_bytes,
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key=p + "btn_download_excel",
+            )
+    else:
+        st.markdown('<span class="conn-wait">⏳ Sin conexión</span>',
+                    unsafe_allow_html=True)
+        st.caption("Sube un archivo Excel arriba para empezar.")
+    render_estilo_quick(p)
 
 
 # ── Sidebar (componente compartido) ─────────────────────────────────────────
@@ -742,119 +859,9 @@ def render_sidebar():
                 unsafe_allow_html=True,
             )
 
-        # ── Google Sheets OAuth (si está configurado) ─────────────────────────
-        _render_gsheets_oauth()
-
-        if get_estilo() == "clasico":
-            st.markdown("**📚 Base de Datos Excel**")
-
-        # ── Upload de Excel (funciona local Y en Cloud) ───────────────────────
-        uploaded = st.file_uploader(
-            "Cargar Excel (.xlsx)",
-            type=["xlsx"],
-            key="sidebar_upload",
-            help="Sube tu base de datos Excel. Los cambios se guardan en memoria "
-                 "y puedes descargar el archivo actualizado abajo.",
-            label_visibility="collapsed",
-        )
-        if uploaded is not None:
-            # Solo reconectar si es un archivo nuevo (evita resetear cambios en cada rerun)
-            if uploaded.name != st.session_state.get("_upload_name"):
-                ok, msg = connect_db_from_upload(uploaded)
-                if ok:
-                    st.rerun()
-                else:
-                    st.error(msg)
-
-        # ── Ruta local directa (solo útil en local, oculta en Cloud) ─────────
-        with st.expander("📂 Ruta local directa", expanded=False):
-            path_m = st.text_input(
-                "Ruta al .xlsx",
-                value=st.session_state.excel_path,
-                key="sidebar_path_manual",
-                label_visibility="collapsed",
-                placeholder="C:/ruta/archivo.xlsx",
-            )
-            if st.button("🔌 Conectar", key="btn_conectar_manual",
-                         use_container_width=True):
-                ok, msg = connect_db(path_m)
-                if ok:
-                    st.rerun()
-                else:
-                    st.error(msg)
-
-        # ── Datos de la asignatura (cfg_general) ─────────────────────────────
-        _cg = st.session_state.get("cfg_general", {})
-        _asig_sb = _cg.get("asignatura", "") or ""
-        _grado_sb = _cg.get("grado", "") or ""
-        _anio_sb  = _cg.get("anio_academico", "") or ""
-        _dept_sb  = _cg.get("departamento", "") or ""
-        _univ_sb  = _cg.get("universidad", "") or ""
-        if any([_asig_sb, _grado_sb, _dept_sb, _univ_sb]):
-            _lines = []
-            if _asig_sb:  _lines.append(f"<b style='color:var(--text, #2c3e50)'>{_asig_sb}</b>")
-            if _grado_sb: _lines.append(f"<span style='color:var(--text2, #555)'>{_grado_sb}</span>")
-            if _anio_sb:  _lines.append(f"<span style='color:var(--muted, #777);font-size:0.85em'>{_anio_sb}</span>")
-            if _dept_sb:  _lines.append(f"<span style='color:var(--muted, #888);font-size:0.82em'>{_dept_sb}</span>")
-            if _univ_sb:  _lines.append(f"<span style='color:var(--muted, #888);font-size:0.82em'>{_univ_sb}</span>")
-            st.markdown(
-                "<div style='background:var(--primary-soft, #f0f7ff);border:1px solid var(--ui-border, #c8dff8);"
-                "border-radius:8px;padding:9px 13px;margin-bottom:10px;line-height:1.6'>"
-                + "<br>".join(_lines) +
-                "<div style='font-size:0.7em;color:var(--faint, #aaa);margin-top:4px'>📋 Configuración → General</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-        # ── Estado de conexión ────────────────────────────────────────────────
-        if st.session_state.db_connected:
-            fname = (st.session_state.get("_upload_name")
-                     or os.path.basename(st.session_state.excel_path)
-                     or "base_datos.xlsx")
-            df = st.session_state.df_preguntas
-            st.markdown(
-                f'<span class="conn-ok">✅ Conectado</span> '
-                f'<small style="color:var(--text2, #555)">{fname}</small>',
-                unsafe_allow_html=True,
-            )
-            st.caption(f"{len(df)} preguntas · {len(st.session_state.bloques)} bloques")
-            if not df.empty:
-                nunca = (df["usada"] == "").sum()
-                st.caption(f"🆕 Sin usar: {nunca} · 📝 Usadas: {len(df) - nunca}")
-
-            col_r, col_d = st.columns(2)
-            if col_r.button("🔄 Recargar", use_container_width=True, key="btn_reload"):
-                _gid   = st.session_state.get("_gsheets_id")
-                _token = st.session_state.get("google_token")
-                if _gid and _token:
-                    connect_db_from_gsheets(_token,
-                        f"https://docs.google.com/spreadsheets/d/{_gid}")
-                else:
-                    reload_db()
-                st.session_state["_reload_toast"] = True
-                st.rerun()
-            if st.session_state.pop("_reload_toast", False):
-                n = len(st.session_state.df_preguntas)
-                st.toast(f"✅ Base de datos recargada · {n} preguntas", icon="✅")
-
-            # ── Descarga del Excel actualizado ────────────────────────────────
-            excel_bytes = st.session_state.get("excel_bytes", b"")
-            if excel_bytes:
-                col_d.download_button(
-                    "⬇️ Descargar",
-                    data=excel_bytes,
-                    file_name=fname,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="btn_download_excel",
-                )
-        else:
-            st.markdown('<span class="conn-wait">⏳ Sin conexión</span>',
-                        unsafe_allow_html=True)
-            st.caption("Sube un archivo Excel arriba para empezar.")
+        _render_db_panel()
 
         st.divider()
-        render_estilo_quick()
         st.caption("ExamGen UCM · Unidad de Física Médica")
         st.markdown(
             "<div style='font-size:0.72em;color:var(--faint, #aaa);text-align:center;line-height:1.5'>"

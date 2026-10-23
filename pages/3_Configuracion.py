@@ -10,6 +10,7 @@ Pestañas:
 import json
 import io
 import streamlit as st
+from app_theme import initial_sidebar
 import pandas as pd
 import os
 import sys
@@ -25,7 +26,8 @@ from app_utils import (
 )
 from app_theme import ESTILOS, PREVIEWS, get_estilo, set_estilo, get_preview_mode, set_preview_mode
 
-st.set_page_config(page_title="Configuración · Exámenes UCM", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Configuración · Exámenes UCM", page_icon="⚙️", layout="wide",
+                   initial_sidebar_state=initial_sidebar())
 init_session_state()
 handle_oauth_callback()
 apply_theme("configuracion")

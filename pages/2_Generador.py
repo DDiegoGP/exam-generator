@@ -9,6 +9,7 @@ Pestañas:
   5. Historial    – Últimos exámenes generados
 """
 import streamlit as st
+from app_theme import initial_sidebar
 import pandas as pd
 import datetime
 import random
@@ -36,7 +37,8 @@ from app_utils import (
 from app_theme import get_preview_mode, get_estilo
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Generador · Exámenes UCM", page_icon="🎲", layout="wide")
+st.set_page_config(page_title="Generador · Exámenes UCM", page_icon="🎲", layout="wide",
+                   initial_sidebar_state=initial_sidebar())
 init_session_state()
 handle_oauth_callback()
 apply_theme("generador")

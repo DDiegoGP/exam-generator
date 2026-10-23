@@ -6,13 +6,14 @@ Ejecutar con:
 """
 import streamlit as st
 import datetime
+from app_theme import initial_sidebar
 
 # ── Configuración de página (DEBE ser el primer comando Streamlit) ────────────
 st.set_page_config(
     page_title="Generador Exámenes · UCM",
     page_icon="📝",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state=initial_sidebar("expanded"),
 )
 
 from app_utils import (init_session_state, render_sidebar, handle_oauth_callback, apply_theme,

@@ -8,6 +8,7 @@ Pestañas:
   4. Estadísticas  – Dashboard de cobertura y dificultad
 """
 import streamlit as st
+from app_theme import initial_sidebar
 import streamlit.components.v1 as stcomponents
 import pandas as pd
 import datetime
@@ -34,7 +35,8 @@ from app_utils import (
 )
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Gestor DB · Exámenes UCM", page_icon="🗄️", layout="wide")
+st.set_page_config(page_title="Gestor DB · Exámenes UCM", page_icon="🗄️", layout="wide",
+                   initial_sidebar_state=initial_sidebar())
 init_session_state()
 handle_oauth_callback()
 apply_theme("gestor")

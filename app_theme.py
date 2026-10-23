@@ -83,6 +83,12 @@ def get_estilo() -> str:
     return _pref("ui_estilo", ESTILOS, ESTILO_DEFAULT)
 
 
+def initial_sidebar(default: str = "auto") -> str:
+    """Opción A: en Bitácora la barra lateral arranca plegada (la conexión está en
+    «Base de datos ▾»); en Clásico se mantiene como siempre."""
+    return "collapsed" if get_estilo() == "bitacora" else default
+
+
 def set_estilo(estilo: str):
     if estilo in ESTILOS:
         st.session_state["ui_estilo"] = estilo
@@ -98,7 +104,7 @@ def set_preview_mode(modo: str):
         st.session_state["ui_preview"] = modo
 
 
-def render_estilo_quick():
+def render_estilo_quick(p: str = ""):
     """Selector rápido de estilo (barra lateral). Sincronizado con Configuración → Apariencia."""
     # Botones en vez de un radio: un radio en la barra lateral puede verse con la
     # opción equivocada al cambiar de página; un botón no guarda estado en el navegador.
@@ -107,7 +113,7 @@ def render_estilo_quick():
     cols = st.columns(len(ESTILOS))
     for col, (clave, nombre) in zip(cols, ESTILOS.items()):
         activo = clave == estilo
-        if col.button(nombre, key=f"btn_sb_estilo_{clave}", type="primary" if activo else "secondary",
+        if col.button(nombre, key=f"{p}btn_sb_estilo_{clave}", type="primary" if activo else "secondary",
                       use_container_width=True) and not activo:
             set_estilo(clave)
             st.rerun()
@@ -626,12 +632,18 @@ def render_topbar(page: str = "", estilo: str = ""):
         if str(asig) in ("nan", "None"):
             asig = ""
         title = "Generador de Exámenes" + (f" · {asig}" if asig else "")
-        st.markdown(
+        _c_brand, _c_db = st.columns([5, 1.3], vertical_alignment="center")
+        _c_brand.markdown(
             f'<div class="tb-brand"><div class="tb-logo">{_LOGO_SVG}</div><div>'
             f'<div class="tb-title">{title}</div>'
             f'<div class="tb-sub">{_estado_conexion()}</div></div></div>',
             unsafe_allow_html=True,
         )
+        # Opción A: la conexión se gestiona desde aquí; la barra lateral sigue disponible (plegada)
+        from app_utils import _render_db_panel  # import diferido: app_utils importa este módulo
+        _dot = ":green[●]" if st.session_state.get("db_connected") else ":orange[●]"
+        with _c_db.popover(f"{_dot} Base de datos", use_container_width=True):
+            _render_db_panel("pop_")
     with st.container(horizontal=True, gap=None, key="topnav"):
         for slug, path, label in NAV_PAGES:
             key = "nav_active" if slug == page else f"nav_{slug}"
