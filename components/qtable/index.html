@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Tabla de preguntas a medida (estilo Bitácora) para Streamlit.
+     Modos: "seleccion" (añadir/quitar fijas), "fijas" (ordenar/quitar) y "gestor" (casillas).
+     Devuelve a Python {action, id|ids, nonce}; Python ignora un valor ya procesado (nonce). -->
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root { --card:#ffffff; --card2:#f5f7fa; --bd:#dde2ea; --bd2:#d5dbe5; --row:#eceff4; --text:#1a2233; --text2:#3d4556;
+  --muted:#5b6475; --pri:#1d4a94; --prisoft:#e6edf8; --ok:#1e6b3c; --okbg:#e3f1e8; --err:#a3261a; --errbg:#fbe7e4;
+  --warn:#7a4f00; --warnbg:#fdf0d5; --hover:#f2f6fd; }
+html.dark { --card:#18202d; --card2:#1d2635; --bd:#2a3443; --bd2:#344052; --row:#232c3b; --text:#e6eaf2; --text2:#c3cad6;
+  --muted:#9aa4b5; --pri:#8fb2f5; --prisoft:#1f2f4d; --ok:#7fd19b; --okbg:#16321f; --err:#f19a8e; --errbg:#3d1b17;
+  --warn:#f0c674; --warnbg:#3a2e12; --hover:#1f2a3c; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Figtree', system-ui, sans-serif; font-size: 14px; color: var(--text); background: transparent; }
+.tbl { border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; background: var(--card); display: flex; flex-direction: column; }
+.head, .row { display: grid; gap: 10px; align-items: center; padding: 0 14px; }
+.head { background: var(--card2); border-bottom: 1px solid var(--bd); height: 38px; font-size: 11px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.body { overflow-y: auto; flex: 1; }
+.grp { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 14px; background: var(--card2);
+  border-top: 1px solid var(--bd); cursor: pointer; user-select: none; }
+.grp:first-child { border-top: none; }
+.grp b { font-weight: 700; }
+.grp .meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.row { min-height: 42px; padding-top: 6px; padding-bottom: 6px; border-top: 1px solid var(--row); cursor: pointer; }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--prisoft); }
+.mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.id { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.enun { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.sub { font-size: 12.5px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.muted { color: var(--muted); }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+.t-f { background: var(--okbg); color: var(--ok); } .t-m { background: var(--prisoft); color: var(--pri); }
+.t-d { background: var(--errbg); color: var(--err); } .t-w { background: var(--warnbg); color: var(--warn); }
+.t-n { background: var(--card2); color: var(--muted); border: 1px solid var(--bd); }
+button.ic { font: inherit; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--bd2); background: var(--card);
+  color: var(--pri); font-weight: 700; cursor: pointer; padding: 0; }
+button.ic:hover { border-color: var(--pri); }
+button.ic.on { background: var(--pri); border-color: var(--pri); color: #fff; }
+html.dark button.ic.on { color: #10151f; }
+button.ic.del { color: var(--err); }
+.acts { display: flex; gap: 4px; justify-content: flex-end; }
+input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--pri); cursor: pointer; margin: 0; }
+.ok { color: var(--ok); font-weight: 700; text-align: center; } .no { color: var(--muted); text-align: center; }
+.empty { padding: 26px 14px; text-align: center; color: var(--muted); }
+.foot { padding: 8px 14px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--bd); background: var(--card); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function () {
+  const send = (type, data) => window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data || {}), "*");
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const collapsed = new Set();
+  let A = null, checked = new Set(), lastReset = null, n = 0;
+
+  function emit(v) { n += 1; v.nonce = Date.now() + "-" + n; send("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+
+  const COLS = {
+    seleccion: "150px minmax(0,1fr) 84px 96px 40px 36px",
+    gestor: "24px 150px minmax(0,1fr) 84px 96px 104px",
+    fijas: "24px minmax(0,1fr) auto",
+  };
+  const HEAD = {
+    seleccion: ["ID", "Enunciado", "Dificultad", "Último uso", "Sol.", ""],
+    gestor: ["", "ID", "Enunciado", "Dificultad", "Último uso", "Solución"],
+    fijas: ["", "Pregunta", ""],
+  };
+  const difTag = (r) => `<span class="tag t-${r.difk || "n"}">${esc(r.dif)}</span>`;
+
+  function rowHtml(r, i) {
+    const m = A.mode, id = esc(r.id);
+    if (m === "seleccion") {
+      const btn = r.sel
+        ? `<button class="ic on" data-act="remove" data-id="${id}" title="Quitar de fijas" aria-label="Quitar ${id}">✓</button>`
+        : `<button class="ic" data-act="add" data-id="${id}" title="Añadir como fija" aria-label="Añadir ${id}">+</button>`;
+      return `<div class="row${r.sel ? " sel" : ""}" data-open="${id}" style="grid-template-columns:${COLS[m]}">`
+        + `<span class="mono id">${id}</span><span class="enun" title="${esc(r.enun)}">${esc(r.enun)}</span>`
+        + `<span>${difTag(r)}</span><span class="mono muted">${esc(r.uso || "nunca")}</span>`
+        + `<span class="${r.sol ? "ok" : "no"}">${r.sol ? "✓" : "—"}</span><span>${btn}</span></div>`;
+    }
+    if (m === "gestor") {
+      const on = checked.has(r.id);
+      return `<div class="row${on ? " sel" : ""}" data-open="${id}" style="grid-template-columns:${COLS[m]}">`
+        + `<span><input type="checkbox" data-chk="${id}" ${on ? "checked" : ""} aria-label="Seleccionar ${id}"></span>`
+        + `<span class="mono id">${id}</span><span class="enun" title="${esc(r.enun)}">${esc(r.enun)}</span>`
+        + `<span>${difTag(r)}</span><span class="mono muted">${esc(r.uso || "nunca")}</span>`
+        + `<span>${r.sol ? '<span class="tag t-f">con solución</span>' : '<span class="tag t-w">sin solución</span>'}</span></div>`;
+    }
+    // fijas
+    const last = i === A.rows.length - 1;
+    return `<div class="row" data-open="${id}" style="grid-template-columns:${COLS[m]}">`
+      + `<span class="mono muted">${String(i + 1).padStart(2, "0")}</span>`
+      + `<span style="min-width:0"><div class="mono id">${id}</div><div class="sub">${esc(r.enun)}</div></span>`
+      + `<span class="acts"><button class="ic" data-act="up" data-id="${id}" title="Subir" aria-label="Subir ${id}" ${i === 0 ? "disabled" : ""}>↑</button>`
+      + `<button class="ic" data-act="down" data-id="${id}" title="Bajar" aria-label="Bajar ${id}" ${last ? "disabled" : ""}>↓</button>`
+      + `<button class="ic del" data-act="remove" data-id="${id}" title="Quitar" aria-label="Quitar ${id}">×</button></span></div>`;
+  }
+
+  function render() {
+    const m = A.mode, rows = A.rows || [];
+    let body = "";
+    if (!rows.length) {
+      body = `<div class="empty">${esc(A.empty || "No hay preguntas")}</div>`;
+    } else if (m === "fijas") {
+      body = rows.map(rowHtml).join("");
+    } else {
+      let cur = null;
+      rows.forEach((r, i) => {
+        if (r.grp !== cur) {
+          cur = r.grp;
+          const c = collapsed.has(cur);
+          body += `<div class="grp" data-grp="${esc(cur)}"><span><b>${c ? "▸" : "▾"}&nbsp; ${esc(r.grp)}</b></span><span class="meta">${esc(r.grp_meta || "")}</span></div>`;
+        }
+        if (!collapsed.has(cur)) body += rowHtml(r, i);
+      });
+    }
+    const head = HEAD[m].map((h) => `<span>${esc(h)}</span>`).join("");
+    const foot = A.foot ? `<div class="foot">${esc(A.foot)}</div>` : "";
+    const root = document.getElementById("root");
+    const prevScroll = root.querySelector(".body") ? root.querySelector(".body").scrollTop : 0;
+    root.innerHTML = `<div class="tbl" style="height:${A.height}px"><div class="head" style="grid-template-columns:${COLS[m]}">${head}</div>`
+      + `<div class="body">${body}</div>${foot}</div>`;
+    root.querySelector(".body").scrollTop = prevScroll;
+    send("streamlit:setFrameHeight", { height: A.height + 2 });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!A) return;
+    const chk = e.target.closest("[data-chk]");
+    if (chk) {
+      const id = chk.getAttribute("data-chk");
+      if (chk.checked) checked.add(id); else checked.delete(id);
+      emit({ action: "check", ids: Array.from(checked) });
+      render();
+      return;
+    }
+    const btn = e.target.closest("button[data-act]");
+    if (btn) { if (!btn.disabled) emit({ action: btn.getAttribute("data-act"), id: btn.getAttribute("data-id") }); return; }
+    const g = e.target.closest("[data-grp]");
+    if (g) { const k = g.getAttribute("data-grp"); if (collapsed.has(k)) collapsed.delete(k); else collapsed.add(k); render(); return; }
+    const r = e.target.closest("[data-open]");
+    if (r) emit({ action: "open", id: r.getAttribute("data-open") });
+  });
+
+  window.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (!d || d.type !== "streamlit:render") return;
+    A = d.args || {};
+    const th = d.theme || {};
+    const dark = th.base === "dark";
+    document.documentElement.classList.toggle("dark", dark);
+    if (A.reset !== lastReset) { checked = new Set(A.checked || []); lastReset = A.reset; }
+    render();
+  });
+
+  send("streamlit:componentReady", { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>

@@ -23,7 +23,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 import examen_lib_latex as lib
-from app_theme import get_preview_mode, get_estilo, question_detail_html
+from app_theme import get_preview_mode, get_estilo, question_detail_html, qtable, qtable_row
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
     connect_db, reload_db,
@@ -727,13 +727,12 @@ with tab_man:
         f_sin_sol = rc2.checkbox("Sin solución", key="man_filter_sin_sol", value=False)
         f_global  = rc3.checkbox("Buscar en todos los bloques", key="man_search_global", value=False,
                                  help="Buscar ignorando el filtro de bloque")
-        with rc4:
-            _multi_mode = st.toggle(
-                "Selección múltiple",
-                value=st.session_state.get("man_multi_mode", False),
-                key="man_multi_mode",
-                help="Activa para seleccionar varias filas y borrarlas. Desactiva para navegar pregunta a pregunta.",
-            )
+        _multi_mode = False   # con la tabla a medida las casillas están siempre disponibles
+        # siempre activo: se dibuja antes que la tabla, así que no puede saber aún qué hay marcado
+        if rc4.button("Quitar selección", key="btn_man_unchk", use_container_width=True):
+            st.session_state["man_checked"] = []
+            st.session_state["_man_chk_reset"] = st.session_state.get("_man_chk_reset", 0) + 1
+            st.rerun()
         _count_slot = rc1
     else:
         fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1.5, 2, 0.7])
@@ -979,48 +978,83 @@ with tab_man:
                     help="Activa para seleccionar varias filas y borrarlas. Desactiva para navegar pregunta a pregunta.",
                 )
 
-            display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad",
-                                   "usada", "solucion", "enunciado"]].copy()
-            display_df["enunciado"] = display_df["enunciado"].str[:120]
-            display_df["usada"]     = display_df["usada"].apply(lambda v: v or "—")
-            display_df["bloque"]    = display_df["bloque"].apply(nombre_bloque)
-            display_df["solucion"]  = display_df["solucion"].apply(
-                lambda v: "✓" if str(v).strip() and str(v) not in ('nan','None','') else "—")
-            display_df.columns = ["ID", "Bloque", "T", "Dif.", "Usado", "Sol.", "Enunciado"]
-            display_df = display_df.reset_index(drop=True)
+            if _bit:
+                # Tabla a medida: agrupada por bloque, casillas para acciones en grupo, la fila abre la pregunta
+                _recs = df_filt.to_dict("records")
+                _recs.sort(key=lambda r: (_nsort(str(r.get("bloque", ""))), _nsort(str(r.get("Tema", ""))),
+                                          str(r.get("ID_Pregunta", ""))))
+                _meta = {}
+                for r in _recs:
+                    g = nombre_bloque(str(r.get("bloque", "")))
+                    m = _meta.setdefault(g, [0, 0, 0])
+                    m[0] += 1
+                    m[1] += bool(str(r.get("usada", "") or "").strip())
+                    m[2] += bool(str(r.get("solucion", "") or "").strip() not in ("", "nan", "None"))
+                _ids_ok = set(df_filt["ID_Pregunta"])
+                _checked = [i for i in st.session_state.get("man_checked", []) if i in _ids_ok]
+                _rows = []
+                for r in _recs:
+                    g = nombre_bloque(str(r.get("bloque", "")))
+                    _rows.append(qtable_row(r, grp=g, grp_meta=(f"{_meta[g][0]} preguntas · {_meta[g][1]} usadas"
+                                                                f" · {_meta[g][2]} con solución")))
+                _act = qtable(_rows, "gestor", key="qt_gestor", height=460, checked=_checked,
+                              reset=st.session_state.get("_man_chk_reset", 0),
+                              foot="Pulsa una fila para abrir la pregunta · marca casillas para borrar varias a la vez",
+                              empty="No hay preguntas que coincidan con los filtros")
+                if _act and _act.get("action") == "check":
+                    _checked = [i for i in _act.get("ids", []) if i in _ids_ok]
+                    st.session_state["man_checked"] = _checked
+                elif _act and _act.get("action") == "open":
+                    st.session_state["man_open_pid"] = _act["id"]
+                    if _gest_ventana:
+                        _man_open_pid = _act["id"]
+                n_sel          = len(_checked)
+                sel_pids_multi = list(_checked)
+                _op = st.session_state.get("man_open_pid")
+                sel_pid        = _op if _op in _ids_ok and not _checked else None
+            else:
+                display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad",
+                                       "usada", "solucion", "enunciado"]].copy()
+                display_df["enunciado"] = display_df["enunciado"].str[:120]
+                display_df["usada"]     = display_df["usada"].apply(lambda v: v or "—")
+                display_df["bloque"]    = display_df["bloque"].apply(nombre_bloque)
+                display_df["solucion"]  = display_df["solucion"].apply(
+                    lambda v: "✓" if str(v).strip() and str(v) not in ('nan','None','') else "—")
+                display_df.columns = ["ID", "Bloque", "T", "Dif.", "Usado", "Sol.", "Enunciado"]
+                display_df = display_df.reset_index(drop=True)
 
-            sel = st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                selection_mode="multi-row" if _multi_mode else "single-row",
-                on_select="rerun",
-                key="man_df_sel" if not _man_nonce else f"man_df_sel_{_man_nonce}",
-                height=400,
-                column_config={
-                    "ID":        st.column_config.TextColumn("ID", width=150 if _bit else 115),
-                    "Bloque":    st.column_config.TextColumn("Bloque", width=100 if _bit else 115),
-                    "T":         st.column_config.TextColumn("Tema" if _bit else "T", width=56 if _bit else 32),
-                    "Dif.":      st.column_config.TextColumn("Dificultad" if _bit else "Dif.", width=88 if _bit else 55),
-                    "Usado":     st.column_config.TextColumn("Último uso" if _bit else "Usado", width=104 if _bit else 80),
-                    "Sol.":      st.column_config.TextColumn("Solución" if _bit else "Sol.", width=76 if _bit else 40),
-                    "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
-                },
-            )
+                sel = st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    selection_mode="multi-row" if _multi_mode else "single-row",
+                    on_select="rerun",
+                    key="man_df_sel" if not _man_nonce else f"man_df_sel_{_man_nonce}",
+                    height=400,
+                    column_config={
+                        "ID":        st.column_config.TextColumn("ID", width=150 if _bit else 115),
+                        "Bloque":    st.column_config.TextColumn("Bloque", width=100 if _bit else 115),
+                        "T":         st.column_config.TextColumn("Tema" if _bit else "T", width=56 if _bit else 32),
+                        "Dif.":      st.column_config.TextColumn("Dificultad" if _bit else "Dif.", width=88 if _bit else 55),
+                        "Usado":     st.column_config.TextColumn("Último uso" if _bit else "Usado", width=104 if _bit else 80),
+                        "Sol.":      st.column_config.TextColumn("Solución" if _bit else "Sol.", width=76 if _bit else 40),
+                        "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
+                    },
+                )
 
-            sel_rows = sel.selection.rows if sel.selection else []
-            n_sel    = len(sel_rows)
-            sel_pid  = (df_filt.iloc[sel_rows[0]]["ID_Pregunta"]
-                        if n_sel == 1 else None)
-            sel_pids_multi = ([df_filt.iloc[r]["ID_Pregunta"] for r in sel_rows]
-                              if n_sel > 1 else [])
-            if _gest_ventana:   # abrir solo cuando cambia la fila elegida
-                if sel_pid and sel_pid != st.session_state.get("_man_last_pid"):
-                    _man_open_pid = sel_pid
-                st.session_state["_man_last_pid"] = sel_pid
-                if not sel_pid and n_sel <= 1:
-                    st.caption("Marca la casilla de una fila para abrir la pregunta en una ventana. "
-                               "Con «Selección múltiple» puedes borrar varias a la vez.")
+                sel_rows = sel.selection.rows if sel.selection else []
+                n_sel    = len(sel_rows)
+                sel_pid  = (df_filt.iloc[sel_rows[0]]["ID_Pregunta"]
+                            if n_sel == 1 else None)
+                sel_pids_multi = ([df_filt.iloc[r]["ID_Pregunta"] for r in sel_rows]
+                                  if n_sel > 1 else [])
+                if _gest_ventana:   # abrir solo cuando cambia la fila elegida
+                    if sel_pid and sel_pid != st.session_state.get("_man_last_pid"):
+                        _man_open_pid = sel_pid
+                    st.session_state["_man_last_pid"] = sel_pid
+                    if not sel_pid and n_sel <= 1:
+                        st.caption("Marca la casilla de una fila para abrir la pregunta en una ventana. "
+                                   "Con «Selección múltiple» puedes borrar varias a la vez.")
 
             # ── Operaciones masivas (solo texto/dificultad, no borrado) ────────
             with st.expander(f"⚙️ Operaciones sobre las {n_filt} preguntas filtradas",
@@ -1076,8 +1110,8 @@ with tab_man:
         # ── Panel derecho: preview (1 fila) o acción multi (N filas) ─────────
         with col_preview:
 
-            # ══ MULTI-SELECT: N > 1 ══════════════════════════════════════════
-            if n_sel > 1:
+            # ══ MULTI-SELECT: N > 1 (en Bitácora, desde 1 casilla) ══════════
+            if n_sel > 1 or (_bit and n_sel == 1):
                 st.markdown(
                     f"<div style='background:var(--note-bg, #fff3cd);border-left:4px solid var(--ui-warn, #f39c12);"
                     f"border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px'>"
@@ -1107,6 +1141,8 @@ with tab_man:
                     if ok:
                         sync_bloques_gsheets(list(
                             df_total[df_total["ID_Pregunta"].isin(sel_pids_multi)]["bloque"].unique()))
+                        st.session_state["man_checked"] = []
+                        st.session_state["_man_chk_reset"] = st.session_state.get("_man_chk_reset", 0) + 1
                         st.success(msg); reload_db(); st.rerun()
                     else:
                         st.error(msg)

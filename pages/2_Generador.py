@@ -34,7 +34,7 @@ from app_utils import (
     OUTPUT_DIR, _nsort,
     _dialog_editar_pregunta, marcar_preguntas_usadas,
 )
-from app_theme import get_preview_mode, get_estilo
+from app_theme import get_preview_mode, get_estilo, qtable, qtable_row
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Generador · Exámenes UCM", page_icon="🎲", layout="wide",
@@ -592,6 +592,7 @@ with tab_sel:
     # LAYOUT: disponibles | preview | fijas   (o disponibles | fijas + ventana)
     # ═══════════════════════════════════════════════════════════════════════════
     _prev_ventana = get_preview_mode() == "ventana"
+    _bit_sel      = get_estilo() == "bitacora"   # Bitácora: tablas a medida
     _dlg_nonce    = st.session_state.get("_sel_dlg_nonce", 0)
     _open_preview = None   # pregunta a abrir en ventana en esta ejecución
     if _prev_ventana:
@@ -614,40 +615,64 @@ with tab_sel:
             set_sel_ids(cur)
             st.rerun()
 
-        display_avail = df_filt[["ID_Pregunta", "Tema", "dificultad", "enunciado"]].copy()
-        display_avail["enunciado"] = display_avail["enunciado"].str[:60]
-        display_avail.columns = ["ID", "T", "Dif", "Enunciado"]
-        display_avail = display_avail.reset_index(drop=True)
+        if _bit_sel:
+            # Tabla a medida: agrupada por bloque y tema, «+» añade como fija, la fila abre la pregunta
+            _recs = df_filt.to_dict("records")
+            _recs.sort(key=lambda r: (_nsort(str(r.get("bloque", ""))), _nsort(str(r.get("Tema", ""))),
+                                      str(r.get("ID_Pregunta", ""))))
+            _grp_of = lambda r: f'{nombre_bloque(str(r.get("bloque", "")))} · {nombre_tema(str(r.get("Tema", "")))}'
+            _cnt = {}
+            for r in _recs:
+                _cnt[_grp_of(r)] = _cnt.get(_grp_of(r), 0) + 1
+            _act = qtable([qtable_row(r, grp=_grp_of(r), grp_meta=f"{_cnt[_grp_of(r)]} preguntas") for r in _recs],
+                          "seleccion", key="qt_avail", height=520,
+                          foot="Pulsa una fila para ver la pregunta · + la añade como fija",
+                          empty="No hay preguntas disponibles con estos filtros")
+            if _act and _act.get("action") == "add":
+                cur = get_sel_ids()
+                if _act["id"] not in cur:
+                    cur.append(_act["id"])
+                set_sel_ids(cur)
+                st.rerun()
+            elif _act and _act.get("action") == "open":
+                st.session_state["sel_preview_pid"] = _act["id"]
+                if _prev_ventana:
+                    _open_preview = _act["id"]
+        else:
+            display_avail = df_filt[["ID_Pregunta", "Tema", "dificultad", "enunciado"]].copy()
+            display_avail["enunciado"] = display_avail["enunciado"].str[:60]
+            display_avail.columns = ["ID", "T", "Dif", "Enunciado"]
+            display_avail = display_avail.reset_index(drop=True)
 
-        sel_avail = st.dataframe(
-            display_avail,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            # en modo ventana, tras añadir/quitar se renueva la tabla para no
-            # abrir sola la pregunta que ocupa ahora la fila seleccionada
-            key="df_avail" if not _dlg_nonce else f"df_avail_{_dlg_nonce}",
-            height=480,
-            column_config={
-                "ID":        st.column_config.TextColumn("ID", width=120),
-                "T":         st.column_config.TextColumn("T", width=30),
-                "Dif":       st.column_config.TextColumn("Dif", width=50),
-                "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
-            },
-        )
-        avail_sel_rows = sel_avail.selection.rows if sel_avail.selection else []
-        if avail_sel_rows:
-            new_avail_pid = df_filt.iloc[avail_sel_rows[0]]["ID_Pregunta"]
-            if new_avail_pid != st.session_state.get("_last_avail_pid"):
-                st.session_state["_last_avail_pid"] = new_avail_pid
-                st.session_state["sel_preview_pid"] = new_avail_pid
-                _open_preview = new_avail_pid
-        elif _prev_ventana:
-            # sin fila seleccionada: volver a pulsar la misma pregunta la reabre
-            st.session_state["_last_avail_pid"] = None
-        if _prev_ventana:
-            st.caption("Pulsa una fila para ver la pregunta completa.")
+            sel_avail = st.dataframe(
+                display_avail,
+                use_container_width=True,
+                hide_index=True,
+                selection_mode="single-row",
+                on_select="rerun",
+                # en modo ventana, tras añadir/quitar se renueva la tabla para no
+                # abrir sola la pregunta que ocupa ahora la fila seleccionada
+                key="df_avail" if not _dlg_nonce else f"df_avail_{_dlg_nonce}",
+                height=480,
+                column_config={
+                    "ID":        st.column_config.TextColumn("ID", width=120),
+                    "T":         st.column_config.TextColumn("T", width=30),
+                    "Dif":       st.column_config.TextColumn("Dif", width=50),
+                    "Enunciado": st.column_config.TextColumn("Enunciado", width="large"),
+                },
+            )
+            avail_sel_rows = sel_avail.selection.rows if sel_avail.selection else []
+            if avail_sel_rows:
+                new_avail_pid = df_filt.iloc[avail_sel_rows[0]]["ID_Pregunta"]
+                if new_avail_pid != st.session_state.get("_last_avail_pid"):
+                    st.session_state["_last_avail_pid"] = new_avail_pid
+                    st.session_state["sel_preview_pid"] = new_avail_pid
+                    _open_preview = new_avail_pid
+            elif _prev_ventana:
+                # sin fila seleccionada: volver a pulsar la misma pregunta la reabre
+                st.session_state["_last_avail_pid"] = None
+            if _prev_ventana:
+                st.caption("Pulsa una fila para ver la pregunta completa.")
 
     # ── Columna central: preview (solo en modo panel) ─────────────────────────
     if col_prev is not None:
@@ -694,65 +719,87 @@ with tab_sel:
             df_sel["_ord"] = df_sel["ID_Pregunta"].map(id_order)
             df_sel = df_sel.sort_values("_ord").drop(columns=["_ord"]).reset_index(drop=True)
 
-            display_sel = df_sel[["ID_Pregunta", "Tema", "dificultad"]].copy()
-            display_sel.columns = ["ID", "T", "Dif"]
-            display_sel = display_sel.reset_index(drop=True)
-
-            sel_right = st.dataframe(
-                display_sel,
-                use_container_width=True,
-                hide_index=False,
-                selection_mode="single-row",
-                on_select="rerun",
-                key="df_sel",
-                height=380,
-                column_config={
-                    "ID":  st.column_config.TextColumn("ID", width=120),
-                    "T":   st.column_config.TextColumn("T", width=30),
-                    "Dif": st.column_config.TextColumn("Dif", width=50),
-                },
-            )
-            right_sel_rows = sel_right.selection.rows if sel_right.selection else []
-            right_sel_pid = (df_sel.iloc[right_sel_rows[0]]["ID_Pregunta"]
-                             if right_sel_rows else None)
-            # Clic en fijas → actualizar preview (sólo si cambió). En modo ventana
-            # no se abre sola (se selecciona para reordenar): botón «Ver».
-            if right_sel_pid:
-                if right_sel_pid != st.session_state.get("_last_sel_pid"):
-                    st.session_state["_last_sel_pid"] = right_sel_pid
-                    st.session_state["sel_preview_pid"] = right_sel_pid
-
-            # Botones de reordenar / quitar
-            if _prev_ventana:
-                sb1, sb2, sb3, sb4 = st.columns(4)
-                if sb4.button("👁", key="btn_view_sel", disabled=(right_sel_pid is None),
-                              use_container_width=True, help="Ver la pregunta"):
-                    _open_preview = right_sel_pid
+            if _bit_sel:
+                # Tabla a medida: ↑ ↓ × en cada fila; la fila abre la pregunta
+                _actf = qtable([qtable_row(r) for r in df_sel.to_dict("records")], "fijas", key="qt_fijas",
+                               height=min(440, 40 + 52 * len(df_sel)))
+                if _actf:
+                    _pid, _a = _actf.get("id"), _actf.get("action")
+                    cur = get_sel_ids()
+                    idx = cur.index(_pid) if _pid in cur else -1
+                    if _a == "open":
+                        st.session_state["sel_preview_pid"] = _pid
+                        if _prev_ventana:
+                            _open_preview = _pid
+                    elif idx >= 0:
+                        if _a == "up" and idx > 0:
+                            cur[idx], cur[idx - 1] = cur[idx - 1], cur[idx]
+                        elif _a == "down" and idx < len(cur) - 1:
+                            cur[idx], cur[idx + 1] = cur[idx + 1], cur[idx]
+                        elif _a == "remove":
+                            cur.remove(_pid)
+                        set_sel_ids(cur)
+                        st.rerun()
             else:
-                sb1, sb2, sb3 = st.columns(3)
-            if sb1.button("⬆️", key="btn_up", disabled=(right_sel_pid is None),
-                          use_container_width=True, help="Subir"):
-                cur = get_sel_ids()
-                idx = cur.index(right_sel_pid) if right_sel_pid in cur else -1
-                if idx > 0:
-                    cur[idx], cur[idx - 1] = cur[idx - 1], cur[idx]
+                display_sel = df_sel[["ID_Pregunta", "Tema", "dificultad"]].copy()
+                display_sel.columns = ["ID", "T", "Dif"]
+                display_sel = display_sel.reset_index(drop=True)
+
+                sel_right = st.dataframe(
+                    display_sel,
+                    use_container_width=True,
+                    hide_index=False,
+                    selection_mode="single-row",
+                    on_select="rerun",
+                    key="df_sel",
+                    height=380,
+                    column_config={
+                        "ID":  st.column_config.TextColumn("ID", width=120),
+                        "T":   st.column_config.TextColumn("T", width=30),
+                        "Dif": st.column_config.TextColumn("Dif", width=50),
+                    },
+                )
+                right_sel_rows = sel_right.selection.rows if sel_right.selection else []
+                right_sel_pid = (df_sel.iloc[right_sel_rows[0]]["ID_Pregunta"]
+                                 if right_sel_rows else None)
+                # Clic en fijas → actualizar preview (sólo si cambió). En modo ventana
+                # no se abre sola (se selecciona para reordenar): botón «Ver».
+                if right_sel_pid:
+                    if right_sel_pid != st.session_state.get("_last_sel_pid"):
+                        st.session_state["_last_sel_pid"] = right_sel_pid
+                        st.session_state["sel_preview_pid"] = right_sel_pid
+
+                # Botones de reordenar / quitar
+                if _prev_ventana:
+                    sb1, sb2, sb3, sb4 = st.columns(4)
+                    if sb4.button("👁", key="btn_view_sel", disabled=(right_sel_pid is None),
+                                  use_container_width=True, help="Ver la pregunta"):
+                        _open_preview = right_sel_pid
+                else:
+                    sb1, sb2, sb3 = st.columns(3)
+                if sb1.button("⬆️", key="btn_up", disabled=(right_sel_pid is None),
+                              use_container_width=True, help="Subir"):
+                    cur = get_sel_ids()
+                    idx = cur.index(right_sel_pid) if right_sel_pid in cur else -1
+                    if idx > 0:
+                        cur[idx], cur[idx - 1] = cur[idx - 1], cur[idx]
+                        set_sel_ids(cur)
+                    st.rerun()
+                if sb2.button("⬇️", key="btn_dn", disabled=(right_sel_pid is None),
+                              use_container_width=True, help="Bajar"):
+                    cur = get_sel_ids()
+                    idx = cur.index(right_sel_pid) if right_sel_pid in cur else -1
+                    if idx >= 0 and idx < len(cur) - 1:
+                        cur[idx], cur[idx + 1] = cur[idx + 1], cur[idx]
+                        set_sel_ids(cur)
+                    st.rerun()
+                if sb3.button("🗑️", key="btn_rem2", disabled=(right_sel_pid is None),
+                              use_container_width=True, help="Quitar del examen"):
+                    cur = get_sel_ids()
+                    if right_sel_pid in cur:
+                        cur.remove(right_sel_pid)
                     set_sel_ids(cur)
-                st.rerun()
-            if sb2.button("⬇️", key="btn_dn", disabled=(right_sel_pid is None),
-                          use_container_width=True, help="Bajar"):
-                cur = get_sel_ids()
-                idx = cur.index(right_sel_pid) if right_sel_pid in cur else -1
-                if idx >= 0 and idx < len(cur) - 1:
-                    cur[idx], cur[idx + 1] = cur[idx + 1], cur[idx]
-                    set_sel_ids(cur)
-                st.rerun()
-            if sb3.button("🗑️", key="btn_rem2", disabled=(right_sel_pid is None),
-                          use_container_width=True, help="Quitar del examen"):
-                cur = get_sel_ids()
-                if right_sel_pid in cur:
-                    cur.remove(right_sel_pid)
-                set_sel_ids(cur)
-                st.rerun()
+                    st.rerun()
 
             if st.button("🗑️ Limpiar todo", key="btn_clear_all",
                          use_container_width=True):

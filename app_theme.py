@@ -246,6 +246,46 @@ def kpi_html(items: list, compact: bool = False) -> str:
     return f'<div class="kpi-grid{" compact" if compact else ""}">{"".join(cards)}</div>'
 
 
+# ── Tabla de preguntas a medida (components/qtable) ───────────────────────────
+import streamlit.components.v1 as _components
+
+_QTABLE = _components.declare_component(
+    "qtable", path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "components", "qtable"))
+
+
+def qtable(rows: list, mode: str, key: str, height: int = 460,
+           checked=None, reset=0, foot: str = "", empty: str = ""):
+    """Dibuja la tabla a medida y devuelve la acción pulsada, solo una vez:
+    {"action": "open"|"add"|"remove"|"up"|"down"|"check", "id": ..., "ids": [...]} o None.
+
+    rows: dicts con id, enun, dif, difk (f/m/d), uso, sol, sel, grp, grp_meta.
+    """
+    if os.environ.get("EXAMGEN_SIN_COMPONENTES"):   # el banco de pruebas no dibuja componentes
+        st.caption(f"[tabla {mode}: {len(rows)} filas]")
+        return None
+    val = _QTABLE(rows=rows, mode=mode, height=height, checked=list(checked or []), reset=reset,
+                  foot=foot, empty=empty, key=key, default=None)
+    if isinstance(val, dict) and val.get("nonce") != st.session_state.get(f"_qt_{key}"):
+        st.session_state[f"_qt_{key}"] = val.get("nonce")
+        return val
+    return None
+
+
+def qtable_row(r: dict, sel: bool = False, grp: str = "", grp_meta: str = "") -> dict:
+    """Fila de qtable a partir de una pregunta (dict con las columnas de la base de datos)."""
+    dif = _txt(r.get("dificultad")) or "Media"
+    dl = dif.lower().replace("á", "a").replace("í", "i")
+    return {
+        "id": _txt(r.get("ID_Pregunta")),
+        "enun": re.sub(r"<[^>]+>", "", _txt(r.get("enunciado")))[:220],
+        "dif": {"facil": "Fácil", "media": "Media", "dificil": "Difícil"}.get(dl, dif),
+        "difk": {"facil": "f", "media": "m", "dificil": "d"}.get(dl, "n"),
+        "uso": _txt(r.get("usada")).split(" ")[0],
+        "sol": bool(_txt(r.get("solucion"))),
+        "sel": bool(sel), "grp": grp, "grp_meta": grp_meta,
+    }
+
+
 def _txt(v) -> str:
     v = str(v if v is not None else "").strip()
     return "" if v in ("nan", "None", "NaT") else v
