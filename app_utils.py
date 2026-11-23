@@ -1130,97 +1130,103 @@ def _editor_bitacora(pid: str, row: dict, extra=None):
     bloques_list = st.session_state.bloques or []
     ss = st.session_state
     st.caption(f"{pid} · {nombre_bloque(str(row.get('bloque', '')))} · {nombre_tema(str(row.get('Tema', '')))}")
-    t_p, t_s, t_c, t_n = st.tabs(["Pregunta", "Solución", "Clasificación", "Notas y datos"])
+    col_ed, col_pv = st.columns([1.15, 1], gap="medium")
+    with col_ed:
+        t_p, t_s, t_c, t_n = st.tabs(["Pregunta", "Solución", "Clasificación", "Notas y datos"])
 
-    with t_p:
-        ed_enun = st.text_area("Enunciado", value=_txt(row.get("enunciado")), height=90, key="dlg_enun")
-        ops_orig = list(row.get("opciones_list", []) or []) + ["", "", "", ""]
-        corr_cur = _txt(row.get("letra_correcta")).upper() or "A"
-        ed_corr = st.radio("Respuesta correcta", ["A", "B", "C", "D"], horizontal=True, key="dlg_corr",
-                           index=["A", "B", "C", "D"].index(corr_cur) if corr_cur in "ABCD" else 0)
-        ed_ops = []
-        oc1, oc2 = st.columns(2)
-        for li, ll in enumerate(["A", "B", "C", "D"]):
-            ed_ops.append((oc1 if li % 2 == 0 else oc2).text_input(f"Opción {ll}", value=_txt(ops_orig[li]),
-                                                                    key=f"dlg_op{ll}"))
-        if st.toggle("Vista previa con fórmulas", value=True, key="dlg_prev_on"):
-            prev = dict(row)
-            prev.update({"enunciado": ed_enun, "opciones_list": ed_ops, "letra_correcta": ed_corr})
-            _vista_formulas(render_question_card_html(prev, show_sol=True, include_notas=False), 190)
+        with t_p:
+            ed_enun = st.text_area("Enunciado", value=_txt(row.get("enunciado")), height=90, key="dlg_enun")
+            ops_orig = list(row.get("opciones_list", []) or []) + ["", "", "", ""]
+            corr_cur = _txt(row.get("letra_correcta")).upper() or "A"
+            ed_corr = st.radio("Respuesta correcta", ["A", "B", "C", "D"], horizontal=True, key="dlg_corr",
+                               index=["A", "B", "C", "D"].index(corr_cur) if corr_cur in "ABCD" else 0)
+            ed_ops = []
+            for li, ll in enumerate(["A", "B", "C", "D"]):
+                ed_ops.append(st.text_input(f"Opción {ll}", value=_txt(ops_orig[li]), key=f"dlg_op{ll}"))
 
-    with t_s:
-        sk = f"dlg_sol_{pid}"
-        if sk not in ss:
-            ss[sk] = _txt(row.get("solucion")).strip()
-        st.markdown("<span style='font-size:0.8em;color:var(--muted);font-weight:600'>PLANTILLA RÁPIDA</span>",
-                    unsafe_allow_html=True)
-        pc = st.columns(3)
-        for i, (nom, tpl) in enumerate(_PLANTILLAS_SOL.items()):
-            if pc[i].button(nom, key=f"dlg_tpl_{i}", use_container_width=True):
-                ss[sk] = tpl.replace("{c}", ed_corr)
-        ed_sol = st.text_area("Solución — LaTeX: $...$ en línea · $$...$$ en bloque", key=sk, height=150)
+        with t_s:
+            sk = f"dlg_sol_{pid}"
+            if sk not in ss:
+                ss[sk] = _txt(row.get("solucion")).strip()
+            st.markdown("<span style='font-size:0.8em;color:var(--muted);font-weight:600'>PLANTILLA RÁPIDA</span>",
+                        unsafe_allow_html=True)
+            pc = st.columns(3)
+            for i, (nom, tpl) in enumerate(_PLANTILLAS_SOL.items()):
+                if pc[i].button(nom, key=f"dlg_tpl_{i}", use_container_width=True):
+                    ss[sk] = tpl.replace("{c}", ed_corr)
+            ed_sol = st.text_area("Solución — LaTeX: $...$ en línea · $$...$$ en bloque", key=sk, height=230)
+            if not ed_sol.strip():
+                st.caption("Sin solución. Elige una plantilla o escríbela; a la derecha verás las fórmulas.")
+
+        with t_c:
+            c1, c2 = st.columns(2)
+            blq_idx = bloques_list.index(row["bloque"]) if row.get("bloque") in bloques_list else 0
+            ed_blq = c1.selectbox("Bloque", bloques_list, index=blq_idx, key="dlg_bloque", format_func=nombre_bloque,
+                                  disabled=True, help="La pregunta se guarda en la hoja de su bloque.")
+            temas_d = temas_de_bloque(ed_blq) or [str(i) for i in range(1, 51)]
+            tem_cur = str(row.get("Tema", "1"))
+            ed_tema = c2.selectbox("Tema", temas_d, index=temas_d.index(tem_cur) if tem_cur in temas_d else 0,
+                                   key="dlg_tema", format_func=nombre_tema)
+            dif_opts = ["Facil", "Media", "Dificil"]
+            dif_cur = _txt(row.get("dificultad")).capitalize() or "Media"
+            with st.container(key="seg_dlg_dif"):
+                ed_dif = st.radio("Dificultad", dif_opts, horizontal=True, key="dlg_dif",
+                                  index=dif_opts.index(dif_cur) if dif_cur in dif_opts else 1,
+                                  format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
+            _obj_opts = [""] + objetivos_de_tema(ed_blq, str(ed_tema))
+            _obj_cur = _txt(row.get("objetivo"))
+            if _obj_cur and _obj_cur not in _obj_opts:
+                _obj_opts.append(_obj_cur)
+            ed_obj = st.selectbox("Objetivo docente", _obj_opts,
+                                  index=_obj_opts.index(_obj_cur) if _obj_cur in _obj_opts else 0, key="dlg_obj",
+                                  format_func=lambda x: "— Sin objetivo —" if x == "" else nombre_objetivo(x))
+            ed_com = st.text_input("Etiqueta", value=_txt(row.get("comentario")), key="dlg_com",
+                                   placeholder="ej: CLASE, EXAMEN_2023...")
+
+        with t_n:
+            _usada_raw = _txt(row.get("usada")).strip()
+            _usada_val = None
+            if _usada_raw:
+                try:
+                    _usada_val = datetime.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+            if st.checkbox("Pregunta ya usada", value=(_usada_val is not None), key="dlg_tiene_usada"):
+                ed_usada = st.date_input("Fecha de uso", value=_usada_val or datetime.date.today(),
+                                         key="dlg_usada").strftime("%Y-%m-%d")
+            else:
+                ed_usada = ""
+            ed_notas = st.text_area("Notas", value=_txt(row.get("notas")), height=80, key="dlg_notas")
+            _datos_df = lib.get_datos_df(ss.get("excel_dfs", {}))
+            _cur = [x.strip() for x in _txt(row.get("datos")).split(",") if x.strip()]
+            sel_ids = []
+            st.markdown("**Constantes / datos**")
+            if _datos_df.empty or not _datos_df["ID"].astype(str).str.strip().any():
+                st.caption("No hay constantes. Añádelas en Gestor → Constantes.")
+            else:
+                for _dc in sorted(_datos_df["Categoría"].fillna("Sin categoría").unique()):
+                    _dcdf = _datos_df[_datos_df["Categoría"].fillna("Sin categoría") == _dc]
+                    st.caption(_dc)
+                    for _, _dr in _dcdf.iterrows():
+                        _did = str(_dr["ID"]).strip()
+                        _lbl = (f"{_txt(_dr.get('Nombre'))} ({_txt(_dr.get('Símbolo'))} = {_txt(_dr.get('Valor'))} "
+                                f"{_txt(_dr.get('Unidades'))})").strip()
+                        if st.checkbox(_lbl, value=(_did in _cur), key=f"dlgdat_{pid}_{_did}"):
+                            sel_ids.append(_did)
+
+    with col_pv:   # vista previa fija, siempre visible al lado
+        st.markdown("<div style='font-size:.75rem;font-weight:600;color:var(--muted);letter-spacing:.06em;"
+                    "margin:6px 0 4px 0'>VISTA PREVIA</div>", unsafe_allow_html=True)
+        prev = dict(row)
+        prev.update({"enunciado": ed_enun, "opciones_list": ed_ops, "letra_correcta": ed_corr,
+                     "dificultad": ed_dif, "notas": ed_notas})
+        _html = render_question_card_html(prev, show_sol=True, include_notas=True)
         if ed_sol.strip():
-            _vista_formulas(
-                "<div style='font-size:14px;line-height:1.65;padding:12px 14px;border-left:3px solid var(--primary);"
-                f"background:var(--primary-soft);border-radius:0 8px 8px 0'>{ed_sol}</div>", 220)
-        else:
-            st.caption("Sin solución. Elige una plantilla o escríbela; aquí verás las fórmulas mientras escribes.")
-
-    with t_c:
-        c1, c2 = st.columns(2)
-        blq_idx = bloques_list.index(row["bloque"]) if row.get("bloque") in bloques_list else 0
-        ed_blq = c1.selectbox("Bloque", bloques_list, index=blq_idx, key="dlg_bloque", format_func=nombre_bloque,
-                              disabled=True, help="La pregunta se guarda en la hoja de su bloque.")
-        temas_d = temas_de_bloque(ed_blq) or [str(i) for i in range(1, 51)]
-        tem_cur = str(row.get("Tema", "1"))
-        ed_tema = c2.selectbox("Tema", temas_d, index=temas_d.index(tem_cur) if tem_cur in temas_d else 0,
-                               key="dlg_tema", format_func=nombre_tema)
-        dif_opts = ["Facil", "Media", "Dificil"]
-        dif_cur = _txt(row.get("dificultad")).capitalize() or "Media"
-        with st.container(key="seg_dlg_dif"):
-            ed_dif = st.radio("Dificultad", dif_opts, horizontal=True, key="dlg_dif",
-                              index=dif_opts.index(dif_cur) if dif_cur in dif_opts else 1,
-                              format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
-        _obj_opts = [""] + objetivos_de_tema(ed_blq, str(ed_tema))
-        _obj_cur = _txt(row.get("objetivo"))
-        if _obj_cur and _obj_cur not in _obj_opts:
-            _obj_opts.append(_obj_cur)
-        ed_obj = st.selectbox("Objetivo docente", _obj_opts,
-                              index=_obj_opts.index(_obj_cur) if _obj_cur in _obj_opts else 0, key="dlg_obj",
-                              format_func=lambda x: "— Sin objetivo —" if x == "" else nombre_objetivo(x))
-        ed_com = st.text_input("Etiqueta", value=_txt(row.get("comentario")), key="dlg_com",
-                               placeholder="ej: CLASE, EXAMEN_2023...")
-
-    with t_n:
-        _usada_raw = _txt(row.get("usada")).strip()
-        _usada_val = None
-        if _usada_raw:
-            try:
-                _usada_val = datetime.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
-            except Exception:
-                pass
-        if st.checkbox("Pregunta ya usada", value=(_usada_val is not None), key="dlg_tiene_usada"):
-            ed_usada = st.date_input("Fecha de uso", value=_usada_val or datetime.date.today(),
-                                     key="dlg_usada").strftime("%Y-%m-%d")
-        else:
-            ed_usada = ""
-        ed_notas = st.text_area("Notas", value=_txt(row.get("notas")), height=80, key="dlg_notas")
-        _datos_df = lib.get_datos_df(ss.get("excel_dfs", {}))
-        _cur = [x.strip() for x in _txt(row.get("datos")).split(",") if x.strip()]
-        sel_ids = []
-        st.markdown("**Constantes / datos**")
-        if _datos_df.empty or not _datos_df["ID"].astype(str).str.strip().any():
-            st.caption("No hay constantes. Añádelas en Gestor → Constantes.")
-        else:
-            for _dc in sorted(_datos_df["Categoría"].fillna("Sin categoría").unique()):
-                _dcdf = _datos_df[_datos_df["Categoría"].fillna("Sin categoría") == _dc]
-                st.caption(_dc)
-                for _, _dr in _dcdf.iterrows():
-                    _did = str(_dr["ID"]).strip()
-                    _lbl = (f"{_txt(_dr.get('Nombre'))} ({_txt(_dr.get('Símbolo'))} = {_txt(_dr.get('Valor'))} "
-                            f"{_txt(_dr.get('Unidades'))})").strip()
-                    if st.checkbox(_lbl, value=(_did in _cur), key=f"dlgdat_{pid}_{_did}"):
-                        sel_ids.append(_did)
+            _html += ("<div style='font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.06em;"
+                      "margin:12px 0 4px 2px'>SOLUCIÓN</div>"
+                      "<div style='line-height:1.6;padding:10px 14px;border-left:3px solid var(--primary);"
+                      f"background:var(--primary-soft);border-radius:0 8px 8px 0'>{ed_sol}</div>")
+        _vista_formulas(_html, 470)
 
     sc1, sc2, sc3 = st.columns([1.6, 1, 2.4], vertical_alignment="center")
     if extra is not None:

@@ -973,7 +973,8 @@ def init_cfg_from_data(dfs: dict) -> dict:
     Sincroniza Cfg_Bloques y Cfg_Temas con los datos reales de preguntas:
     - Añade bloques/temas nuevos que no estén en el config.
     - Nunca sobreescribe nombres/descripciones ya guardados.
-    - Elimina filas huérfanas (bloques/temas que ya no existen en los datos).
+    - Los bloques huérfanos se eliminan; los temas sin preguntas se CONSERVAN (se pueden crear
+      temas antes de tener preguntas en ellos, desde Configuración › Temas).
     """
     _k = lambda t: [int(x) if x.isdigit() else x.lower()
                     for x in re.split(r"(\d+)", str(t))]
@@ -1023,19 +1024,20 @@ def init_cfg_from_data(dfs: dict) -> dict:
             if t.endswith(".0"):
                 t = t[:-2]
             if t and t not in ("nan", "None", ""):
+                _nom, _blq = str(r.get("Nombre", "") or ""), str(r.get("Bloque", "") or "")
                 existing_map_t[t] = {
-                    "nombre": str(r.get("Nombre", "") or ""),
-                    "bloque": str(r.get("Bloque", "") or ""),
+                    "nombre": "" if _nom in ("nan", "None") else _nom,
+                    "bloque": "" if _blq in ("nan", "None") else _blq,
                 }
 
-    # Merge: only keep temas that exist in data; preserve saved names
+    # Merge: temas con preguntas + temas guardados (aunque no tengan preguntas); se conservan los nombres
     rows_t = []
-    for t in sorted(seen, key=_k):
+    for t in sorted(set(seen) | set(existing_map_t), key=_k):
         prev = existing_map_t.get(t, {})
         rows_t.append({
             "Tema":   t,
             "Nombre": prev.get("nombre", "") or "",
-            "Bloque": prev.get("bloque", "") or seen[t],
+            "Bloque": prev.get("bloque", "") or seen.get(t, ""),
         })
     dfs[CFG_TEMAS_SHEET] = pd.DataFrame(rows_t) if rows_t else pd.DataFrame(
         columns=["Tema", "Nombre", "Bloque"]

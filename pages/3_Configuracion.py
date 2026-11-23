@@ -198,6 +198,9 @@ with tab_temas:
         pd.DataFrame({"Tema": [], "Nombre": [], "Bloque": []})
     ).copy()
 
+    if "Nombre" in cfg_t.columns:   # celdas vacías del Excel: «nan» → vacío
+        cfg_t["Nombre"] = cfg_t["Nombre"].fillna("").astype(str).replace({"nan": "", "None": ""})
+
     # Normalizar Tema (quitar .0)
     if not cfg_t.empty and "Tema" in cfg_t.columns:
         cfg_t["Tema"] = cfg_t["Tema"].astype(str).str.replace(r"\.0$", "", regex=True)
@@ -252,6 +255,56 @@ with tab_temas:
         key="editor_temas",
         num_rows="fixed",
     )
+
+    def _guardar_temas_df(df_t):
+        dfs = lib.save_cfg_temas(st.session_state.excel_dfs, df_t)
+        dfs = _load_cfg(dfs)
+        st.session_state.excel_dfs   = dfs
+        st.session_state.excel_bytes = lib.generar_excel_bytes(dfs)
+        path = st.session_state.get("excel_path", "")
+        if path:
+            lib.guardar_excel_local(path, dfs)
+        sync_hoja_gsheets(lib.CFG_TEMAS_SHEET)
+
+    with st.expander("➕ Añadir un tema (aunque todavía no tenga preguntas)",
+                     expanded=bool(cfg_t.empty)):
+        with st.form("form_nuevo_tema", clear_on_submit=True):
+            nt1, nt2, nt3 = st.columns([1, 3, 2])
+            _sig = 1
+            try:
+                _sig = max(int(float(t)) for t in cfg_t["Tema"] if str(t).replace(".", "", 1).isdigit()) + 1
+            except ValueError:
+                pass
+            nt_num = nt1.text_input("Nº tema", value=str(_sig))
+            nt_nom = nt2.text_input("Nombre", placeholder="Ej: Óptica geométrica")
+            nt_blq = nt3.selectbox("Bloque", bloques_list) if bloques_list else ""
+            if st.form_submit_button("Añadir tema", type="primary"):
+                _n = nt_num.strip().removesuffix(".0")
+                if not _n:
+                    st.error("Indica el número del tema.")
+                elif _n in set(cfg_t["Tema"].astype(str)):
+                    st.error(f"El tema {_n} ya existe: cambia su nombre en la tabla de abajo.")
+                else:
+                    _new = pd.concat([cfg_t[["Tema", "Nombre", "Bloque"]],
+                                      pd.DataFrame([{"Tema": _n, "Nombre": nt_nom.strip(), "Bloque": nt_blq}])],
+                                     ignore_index=True)
+                    _new["_s"] = _new["Tema"].apply(lambda t: [int(x) if x.isdigit() else x.lower()
+                                                               for x in __import__("re").split(r"(\d+)", str(t))])
+                    _guardar_temas_df(_new.sort_values("_s").drop(columns=["_s"]))
+                    notify(f"✅ Tema {_n} añadido.")
+                    st.rerun()
+        _vacios = cfg_t[cfg_t["N preg."] == 0]["Tema"].astype(str).tolist()
+        if _vacios:
+            dq1, dq2 = st.columns([3, 1], vertical_alignment="bottom")
+            _q = dq1.selectbox("Quitar un tema sin preguntas", _vacios, key="cfg_t_quitar",
+                               format_func=lambda t: f"Tema {t}" + (
+                                   f": {cfg_t.loc[cfg_t['Tema'].astype(str) == t, 'Nombre'].iloc[0]}"
+                                   if str(cfg_t.loc[cfg_t['Tema'].astype(str) == t, 'Nombre'].iloc[0]).strip()
+                                   not in ("", "nan", "None") else ""))
+            if dq2.button("Quitar", key="btn_cfg_t_quitar", use_container_width=True):
+                _guardar_temas_df(cfg_t[cfg_t["Tema"].astype(str) != _q][["Tema", "Nombre", "Bloque"]])
+                notify(f"🗑️ Tema {_q} quitado.")
+                st.rerun()
 
     if st.button("💾 Guardar nombres de temas", type="primary", key="btn_save_temas"):
         # Reconstruir df completo combinando la vista editada con el resto
