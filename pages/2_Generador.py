@@ -1591,12 +1591,12 @@ with tab_dev:
                 st.markdown("---")
                 st.caption(
                     "Constantes que aparecerán como *Datos:* debajo del enunciado. "
-                    "Añade nuevas en **Gestor → 🔢 Constantes**."
+                    "Añade nuevas en **Configuración → 🔢 Constantes**."
                 )
                 new_datos_ids = q.get("datos_ids", "")
                 _datos_df_gen = lib.get_datos_df(st.session_state.get("excel_dfs", {}))
                 if _datos_df_gen.empty or not _datos_df_gen['ID'].astype(str).str.strip().any():
-                    st.info("No hay constantes en la BD. Añádelas en Gestor → 🔢 Constantes.")
+                    st.info("No hay constantes en la BD. Añádelas en Configuración → 🔢 Constantes.")
                 else:
                     _cur_ids = [x.strip() for x in new_datos_ids.split(',') if x.strip()]
                     _cats_gen = sorted(

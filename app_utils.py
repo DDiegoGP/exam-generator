@@ -1202,7 +1202,7 @@ def _editor_bitacora(pid: str, row: dict, extra=None):
             sel_ids = []
             st.markdown("**Constantes / datos**")
             if _datos_df.empty or not _datos_df["ID"].astype(str).str.strip().any():
-                st.caption("No hay constantes. Añádelas en Gestor → Constantes.")
+                st.caption("No hay constantes. Añádelas en Configuración → Constantes.")
             else:
                 for _dc in sorted(_datos_df["Categoría"].fillna("Sin categoría").unique()):
                     _dcdf = _datos_df[_datos_df["Categoría"].fillna("Sin categoría") == _dc]
@@ -1317,7 +1317,7 @@ def _dialog_editar_pregunta(pid: str, row: dict, extra=None):
         _datos_cur_init = str(row.get("datos", "") or "")
         with st.expander("📊 Constantes / Datos", expanded=bool(_datos_cur_init)):
             if _datos_df_dlg.empty or not _datos_df_dlg['ID'].astype(str).str.strip().any():
-                st.caption("No hay constantes. Añádelas en Gestor → 🔢 Constantes.")
+                st.caption("No hay constantes. Añádelas en Configuración → 🔢 Constantes.")
                 _dlg_sel_ids = []
             else:
                 _dlg_cur = [x.strip() for x in _datos_cur_init.split(',') if x.strip()]

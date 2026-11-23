@@ -23,6 +23,7 @@ from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback,
     apply_theme, page_header, _load_cfg, _nsort,
     sync_bloques_gsheets, sync_hoja_gsheets, reload_db,
+    temas_de_bloque, nombre_tema, nombre_bloque,
 )
 from app_theme import ESTILOS, PREVIEWS, get_estilo, set_estilo, get_preview_mode, set_preview_mode
 
@@ -47,8 +48,8 @@ st.session_state.excel_dfs = dfs
 bloques_list  = st.session_state.bloques
 df_preguntas  = st.session_state.df_preguntas
 
-tab_gen, tab_bloques, tab_temas, tab_obj, tab_backup, tab_ui = st.tabs(
-    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos",
+tab_gen, tab_bloques, tab_temas, tab_obj, tab_const, tab_backup, tab_ui = st.tabs(
+    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos", "🔢 Constantes",
      "💾 Copia de seguridad" if get_estilo() == "bitacora" else "💾 Backup config", "🎨 Apariencia"]
 )
 
@@ -346,67 +347,25 @@ with tab_temas:
 with tab_obj:
     st.markdown("#### Objetivos docentes / Competencias")
     st.caption(
-        "Define los objetivos o competencias que pueden asignarse a las preguntas. "
-        "Se mostrarán en filtros y estadísticas. Puedes restringir cada objetivo a un bloque o tema concreto."
+        "Define los objetivos o competencias que se asignan a las preguntas (en el editor, pestaña "
+        "«Clasificación»). Cada objetivo puede limitarse a un bloque o a un tema."
     )
 
-    _empty_obj = pd.DataFrame({
-        "Codigo": pd.Series(dtype=str), "Nombre_corto": pd.Series(dtype=str),
-        "Descripcion": pd.Series(dtype=str), "Bloque": pd.Series(dtype=str),
-        "Tema": pd.Series(dtype=str),
-    })
-    cfg_o = st.session_state.excel_dfs.get(lib.CFG_OBJETIVOS_SHEET, _empty_obj).copy()
-    # Asegurar columnas y tipos — NaN en SelectboxColumn causa StreamlitAPIException
-    for _c in ["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]:
+    import re as _re_o
+    _OCOLS = ["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]
+    cfg_o = st.session_state.excel_dfs.get(lib.CFG_OBJETIVOS_SHEET, pd.DataFrame(columns=_OCOLS)).copy()
+    for _c in _OCOLS:   # columnas antiguas con tilde → nombres actuales
+        _alt = {"Codigo": "Código", "Nombre_corto": "Nombre_Corto", "Descripcion": "Descripción"}.get(_c)
         if _c not in cfg_o.columns:
-            cfg_o[_c] = ""
-        cfg_o[_c] = cfg_o[_c].fillna("").astype(str)
-    cfg_o = cfg_o[cfg_o["Codigo"].str.strip() != ""].reset_index(drop=True)   # filas vacías
-
-    # Añadir contador de preguntas asignadas
-    if not df_preguntas.empty and "objetivo" in df_preguntas.columns:
-        counts_o = df_preguntas.groupby(df_preguntas["objetivo"].astype(str)).size().to_dict()
-        cfg_o["N preg."] = cfg_o["Codigo"].apply(lambda c: int(counts_o.get(str(c), 0)))
-    else:
-        cfg_o["N preg."] = 0
-    cfg_o["N preg."] = cfg_o["N preg."].astype(int)
-
-    # Métricas
-    n_obj_total = len(cfg_o)
-    n_obj_usados = int((cfg_o["N preg."] > 0).sum())
-    om1, om2, om3 = st.columns(3)
-    om1.metric("Total objetivos", n_obj_total)
-    om2.metric("Con preguntas asignadas", n_obj_usados)
-    om3.metric("Sin asignar", n_obj_total - n_obj_usados)
-
-    _bloques_opts = [""] + [str(b) for b in bloques_list if str(b).strip()]
-    edited_o = st.data_editor(
-        cfg_o,
-        column_config={
-            "Codigo":       st.column_config.TextColumn("Código", width="medium",
-                                                         help="Identificador único, p.ej. OBJ_01 o CE1"),
-            "Nombre_corto": st.column_config.TextColumn("Nombre corto", width="large",
-                                                         help="Nombre que aparecerá en filtros"),
-            "Descripcion":  st.column_config.TextColumn("Descripción completa", width="large"),
-            "Bloque":       st.column_config.SelectboxColumn("Bloque (opcional)", options=_bloques_opts,
-                                                              width="medium",
-                                                              help="Dejar vacío = aplicable a todos los bloques"),
-            "Tema":         st.column_config.TextColumn("Tema (opcional)", width="small",
-                                                         help="Número de tema. Dejar vacío = todos"),
-            "N preg.":      st.column_config.NumberColumn("Preguntas", disabled=True, width="small"),
-        },
-        hide_index=True,
-        use_container_width=True,
-        key="editor_objetivos",
-        num_rows="dynamic",
-    )
-
-    st.caption("Para cambiar textos, edita la tabla y pulsa «Guardar objetivos». "
-               "Para añadir o quitar, usa los apartados de abajo.")
+            cfg_o[_c] = cfg_o[_alt] if _alt and _alt in cfg_o.columns else ""
+        cfg_o[_c] = cfg_o[_c].fillna("").astype(str).replace({"nan": "", "None": ""})
+    cfg_o = cfg_o[_OCOLS]
+    cfg_o = cfg_o[cfg_o["Codigo"].str.strip() != ""].reset_index(drop=True)
+    _cnt_o = (df_preguntas["objetivo"].astype(str).value_counts().to_dict()
+              if not df_preguntas.empty and "objetivo" in df_preguntas.columns else {})
 
     def _guardar_obj_df(df_o):
-        dfs2 = lib.save_cfg_objetivos(st.session_state.excel_dfs,
-                                      df_o[["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]])
+        dfs2 = lib.save_cfg_objetivos(st.session_state.excel_dfs, df_o[_OCOLS])
         dfs2 = _load_cfg(dfs2)
         st.session_state.excel_dfs   = dfs2
         st.session_state.excel_bytes = lib.generar_excel_bytes(dfs2)
@@ -417,54 +376,51 @@ with tab_obj:
 
     def _prefijo_bloque(b: str) -> str:
         """«BLOQUE III» → «B3»; sin bloque → «G» (general)."""
-        import re as _re
         b = str(b or "").strip().upper()
         if not b:
             return "G"
-        m = _re.search(r"([IVXLC]+|\d+)$", b)
+        m = _re_o.search(r"([IVXLC]+|\d+)$", b)
         if m:
             v = m.group(1)
             if v.isdigit():
                 return f"B{int(v)}"
             val = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
-            n = sum(-val[c] if i + 1 < len(v) and val[c] < val[v[i + 1]] else val[c] for i, c in enumerate(v))
-            return f"B{n}"
-        return _re.sub(r"[^A-Z0-9]", "", b)[:4] or "OBJ"
+            return "B" + str(sum(-val[ch] if i + 1 < len(v) and val[ch] < val[v[i + 1]] else val[ch]
+                                 for i, ch in enumerate(v)))
+        return _re_o.sub(r"[^A-Z0-9]", "", b)[:4] or "OBJ"
 
     def _siguiente_codigo(b: str) -> str:
         pre = _prefijo_bloque(b)
-        nums = []
-        for c in cfg_o["Codigo"].astype(str):
-            if c.startswith(pre + "-") and c[len(pre) + 1:].isdigit():
-                nums.append(int(c[len(pre) + 1:]))
+        nums = [int(x[len(pre) + 1:]) for x in cfg_o["Codigo"]
+                if x.startswith(pre + "-") and x[len(pre) + 1:].isdigit()]
         return f"{pre}-{(max(nums) + 1) if nums else 1:02d}"
 
     _STOP = {"el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "y", "e", "o", "u", "a",
              "en", "al", "que", "se", "su", "sus", "para", "por", "con", "lo"}
 
     def _nombre_corto(desc: str) -> str:
-        """Nombre corto a partir de la descripción: quita el verbo inicial y los artículos; 6 palabras."""
-        import re as _re
-        w = _re.findall(r"[\wÀ-ÿ\-·]+", desc or "")
-        if w and _re.search(r"(ar|er|ir)$", w[0].lower()):
+        """Nombre corto a partir de la descripción: sin el verbo inicial ni artículos; hasta 6 palabras."""
+        w = _re_o.findall(r"[\wÀ-ÿ\-·]+", desc or "")
+        if w and _re_o.search(r"(ar|er|ir)$", w[0].lower()):
             w = w[1:]
         while w and w[0].lower() in _STOP:
             w = w[1:]
         out = w[:6]
-        while len(out) > 1 and out[-1].lower() in _STOP:   # que no acabe en «de», «la», «a»…
+        while len(out) > 1 and out[-1].lower() in _STOP:
             out = out[:-1]
         s = " ".join(out)
         return (s[:1].upper() + s[1:]) if s else ""
 
+    def _temas_de(b: str) -> list:
+        return [str(t) for t in temas_de_bloque(b)] if b else []
+
+    # ── Añadir ────────────────────────────────────────────────────────────────
     with st.expander("➕ Añadir un objetivo", expanded=cfg_o.empty):
         na1, na2 = st.columns([2, 1])
         n_blq = na1.selectbox("Bloque", [""] + [str(b) for b in bloques_list], key="obj_new_blq",
-                              format_func=lambda b: b or "— Todos los bloques (general) —")
-        _tms = sorted({str(t) for t, d in st.session_state.get("cfg_temas", {}).items()
-                       if not n_blq or (isinstance(d, dict) and d.get("bloque") in ("", n_blq))},
-                      key=lambda t: [int(x) if x.isdigit() else x for x in __import__("re").split(r"(\d+)", t)])
-        n_tem = na2.selectbox("Tema (opcional)", [""] + _tms, key="obj_new_tem",
-                              format_func=lambda t: "— Todos —" if not t else f"Tema {t}")
+                              format_func=lambda b: nombre_bloque(b) if b else "— Todos los bloques (general) —")
+        n_tem = na2.selectbox("Tema (opcional)", [""] + _temas_de(n_blq), key="obj_new_tem",
+                              format_func=lambda t: "— Todos —" if not t else nombre_tema(t))
         n_desc = st.text_area("Descripción", key="obj_new_desc", height=70,
                               placeholder="Ej: Calcular la dosis absorbida a partir de la fluencia de energía")
         n_nom = st.text_input("Nombre corto (opcional)", key="obj_new_nom",
@@ -482,32 +438,232 @@ with tab_obj:
             notify(f"✅ Objetivo {_cod} añadido.")
             st.rerun()
 
-    if not cfg_o.empty:
-        with st.expander("🗑️ Quitar un objetivo"):
-            q_cod = st.selectbox("Objetivo", cfg_o["Codigo"].tolist(), key="obj_del_cod",
-                                 format_func=lambda c: f"{c} — {cfg_o.loc[cfg_o['Codigo'] == c, 'Nombre_corto'].iloc[0]}")
-            _n_asig = int(cfg_o.loc[cfg_o["Codigo"] == q_cod, "N preg."].iloc[0])
-            if _n_asig:
-                st.warning(f"{_n_asig} pregunta(s) tienen asignado este objetivo. Seguirán teniendo el código "
-                           "guardado, pero ya no aparecerá en la lista.")
-            if st.button("Quitar objetivo", key="btn_obj_del"):
-                _guardar_obj_df(cfg_o[cfg_o["Codigo"] != q_cod])
-                notify(f"🗑️ Objetivo {q_cod} quitado.")
-                st.rerun()
+    # ── Lista: editar / quitar cada uno ──────────────────────────────────────
+    if cfg_o.empty:
+        st.info("Aún no hay objetivos. Añade el primero con el formulario de arriba.")
+    else:
+        _n_asig = sum(1 for x in cfg_o["Codigo"] if _cnt_o.get(x))
+        st.caption(f"{len(cfg_o)} objetivo(s) · {_n_asig} con preguntas asignadas")
+        _ed = st.session_state.get("_obj_edit_cod")
+        _del = st.session_state.get("_obj_del_conf")
+        for _, r in cfg_o.iterrows():
+            cod = r["Codigo"]
+            alc = " · ".join(x for x in (nombre_bloque(r["Bloque"]) if r["Bloque"] else "Todos los bloques",
+                                         nombre_tema(r["Tema"]) if r["Tema"] else "") if x)
+            with st.container(border=True, key=f"card_obj_{_re_o.sub(r'[^A-Za-z0-9_]', '_', cod)}"):
+                if _ed == cod:
+                    e1, e2 = st.columns(2)
+                    e_nom = e1.text_input("Nombre corto", r["Nombre_corto"], key=f"oe_nom_{cod}")
+                    _bo = [""] + [str(b) for b in bloques_list]
+                    e_blq = e2.selectbox("Bloque", _bo, index=_bo.index(r["Bloque"]) if r["Bloque"] in _bo else 0,
+                                         key=f"oe_blq_{cod}",
+                                         format_func=lambda b: nombre_bloque(b) if b else "— Todos los bloques —")
+                    e_desc = st.text_area("Descripción", r["Descripcion"], key=f"oe_desc_{cod}", height=70)
+                    _to = [""] + _temas_de(e_blq)
+                    e_tem = e1.selectbox("Tema", _to, index=_to.index(r["Tema"]) if r["Tema"] in _to else 0,
+                                         key=f"oe_tem_{cod}", format_func=lambda t: "— Todos —" if not t else nombre_tema(t))
+                    s1, s2, _ = st.columns([1, 1, 3])
+                    if s1.button("Guardar", type="primary", key=f"oe_save_{cod}", use_container_width=True):
+                        _m = cfg_o["Codigo"] == cod
+                        cfg_o.loc[_m, ["Nombre_corto", "Descripcion", "Bloque", "Tema"]] = [
+                            e_nom.strip(), e_desc.strip(), e_blq, e_tem]
+                        _guardar_obj_df(cfg_o)
+                        st.session_state.pop("_obj_edit_cod", None)
+                        notify(f"✅ Objetivo {cod} guardado.")
+                        st.rerun()
+                    if s2.button("Cancelar", key=f"oe_cancel_{cod}", use_container_width=True):
+                        st.session_state.pop("_obj_edit_cod", None)
+                        st.rerun()
+                else:
+                    o1, o2, o3 = st.columns([6, 1, 1], vertical_alignment="center")
+                    _n = _cnt_o.get(cod, 0)
+                    o1.markdown(
+                        f"<div style='display:flex;gap:10px;align-items:baseline;flex-wrap:wrap'>"
+                        f"<code>{cod}</code><b>{r['Nombre_corto'] or '—'}</b>"
+                        f"<span style='font-size:.8rem;color:var(--muted, #888)'>{alc} · "
+                        f"{_n} pregunta{'s' if _n != 1 else ''}</span></div>"
+                        + (f"<div style='font-size:.86rem;color:var(--text2, #555);margin-top:3px'>{r['Descripcion']}</div>"
+                           if r["Descripcion"] else ""), unsafe_allow_html=True)
+                    if o2.button("Editar", key=f"obj_edit_{cod}", use_container_width=True):
+                        st.session_state["_obj_edit_cod"] = cod
+                        st.session_state.pop("_obj_del_conf", None)
+                        st.rerun()
+                    if o3.button("Quitar", key=f"obj_del_{cod}", use_container_width=True):
+                        st.session_state["_obj_del_conf"] = cod
+                        st.rerun()
+                    if _del == cod:
+                        st.warning(f"¿Quitar el objetivo {cod}?"
+                                   + (f" {_n} pregunta(s) lo tienen asignado: conservarán el código, pero ya "
+                                      "no aparecerá en la lista." if _n else ""))
+                        q1, q2, _ = st.columns([1, 1, 3])
+                        if q1.button("Sí, quitar", type="primary", key=f"obj_del_ok_{cod}", use_container_width=True):
+                            _guardar_obj_df(cfg_o[cfg_o["Codigo"] != cod])
+                            st.session_state.pop("_obj_del_conf", None)
+                            notify(f"🗑️ Objetivo {cod} quitado.")
+                            st.rerun()
+                        if q2.button("Cancelar", key=f"obj_del_no_{cod}", use_container_width=True):
+                            st.session_state.pop("_obj_del_conf", None)
+                            st.rerun()
 
-    if st.button("💾 Guardar objetivos", type="primary", key="btn_save_obj"):
-        save_o = edited_o[["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]].copy()
-        save_o = save_o[save_o["Codigo"].astype(str).str.strip() != ""].reset_index(drop=True)
-        dfs2 = lib.save_cfg_objetivos(st.session_state.excel_dfs, save_o)
-        dfs2 = _load_cfg(dfs2)
-        st.session_state.excel_dfs   = dfs2
-        st.session_state.excel_bytes = lib.generar_excel_bytes(dfs2)
-        path = st.session_state.get("excel_path", "")
-        if path:
-            lib.guardar_excel_local(path, dfs2)
-        sync_hoja_gsheets(lib.CFG_OBJETIVOS_SHEET)
-        notify("✅ Objetivos guardados.")
-        st.rerun()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB · CONSTANTES FÍSICAS (antes en el Gestor)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab_const:
+    st.subheader("Constantes físicas / Datos")
+    st.caption(
+        "Define los valores que aparecerán como *Datos:* debajo de los enunciados. "
+        "Una vez añadidas, selecciónalas desde el editor de cada pregunta."
+    )
+
+    if not st.session_state.db_connected:
+        st.info("Conecta una base de datos para gestionar las constantes.")
+    else:
+        import re as _re_const
+
+        def _auto_id(nombre: str) -> str:
+            s = nombre.lower().strip()
+            for _src, _dst in [('á','a'),('é','e'),('í','i'),('ó','o'),('ú','u'),('ñ','n')]:
+                s = s.replace(_src, _dst)
+            return _re_const.sub(r'[^a-z0-9]+', '_', s).strip('_')
+
+        def _save_datos_state(df_new):
+            _dfs2 = lib.save_datos_df(st.session_state.excel_dfs, df_new)
+            st.session_state.excel_dfs    = _dfs2
+            lib.guardar_excel_local(st.session_state.excel_path, _dfs2)
+            st.session_state["excel_bytes"] = lib.generar_excel_bytes(_dfs2)
+            sync_bloques_gsheets([lib.DATOS_SHEET])  # sincronizar con Google Sheets si está conectado
+
+        _datos_df = lib.get_datos_df(st.session_state.excel_dfs)
+
+        # ── Procesar acciones pendientes (delete / edit-save) antes de renderizar ──
+        _del_id  = st.session_state.pop("_const_del_id", None)
+        _upd_row = st.session_state.pop("_const_upd_row", None)
+
+        if _del_id:
+            _datos_df = _datos_df[_datos_df['ID'].astype(str) != _del_id].reset_index(drop=True)
+            _save_datos_state(_datos_df)
+            notify(f"🗑️ Constante '{_del_id}' eliminada.")
+        if _upd_row:
+            _did_upd = _upd_row['ID']
+            _mask = _datos_df['ID'].astype(str) == _did_upd
+            for _col, _val in _upd_row.items():
+                _datos_df.loc[_mask, _col] = _val
+            _save_datos_state(_datos_df)
+            st.session_state.pop("_const_edit_id", None)
+
+        # ── Formulario: añadir nueva constante ───────────────────────────────
+        def _on_nc_nombre_change():
+            st.session_state["nc_id"] = _auto_id(st.session_state.get("nc_nombre", ""))
+
+        _cats_exist = (sorted(_datos_df['Categoría'].dropna().unique().tolist())
+                       if not _datos_df.empty else [])
+
+        with st.expander("➕ Nueva constante", expanded=False):
+            _nca, _ncb = st.columns([3, 2])
+            with _nca:
+                st.text_input("Nombre", key="nc_nombre", on_change=_on_nc_nombre_change,
+                              placeholder="Velocidad de la luz en el vacío")
+                st.text_input("ID (auto-generado, editable)", key="nc_id",
+                              placeholder="c_luz")
+                _nc_cat_opts = _cats_exist + (["✏️ Escribir nueva…"] if _cats_exist else [])
+                if _nc_cat_opts:
+                    _nc_cat_sel = st.selectbox("Categoría", _nc_cat_opts, key="nc_cat_sel")
+                    _nc_cat_final = (st.text_input("Nueva categoría", key="nc_cat_new",
+                                                   placeholder="p.ej. Constantes fundamentales")
+                                    if _nc_cat_sel == "✏️ Escribir nueva…"
+                                    else _nc_cat_sel)
+                else:
+                    _nc_cat_final = st.text_input("Categoría", key="nc_cat_new",
+                                                  placeholder="p.ej. Constantes fundamentales")
+            with _ncb:
+                st.text_input("Símbolo LaTeX", key="nc_sym",
+                              placeholder="c", help="p.ej. `c`, `m_e`, `\\hbar`")
+                st.text_input("Valor LaTeX", key="nc_val",
+                              placeholder="3{,}00 \\times 10^8",
+                              help="Se incluirá dentro de $…$, p.ej. `3{,}00 \\times 10^8`")
+                st.text_input("Unidades LaTeX", key="nc_uni",
+                              placeholder="\\text{m/s}")
+
+            if st.button("💾 Añadir constante", type="primary", key="btn_add_const",
+                         use_container_width=True):
+                _nc_id  = st.session_state.get("nc_id",  "").strip()
+                _nc_nom = st.session_state.get("nc_nombre","").strip()
+                _nc_sym = st.session_state.get("nc_sym", "").strip()
+                _nc_val = st.session_state.get("nc_val", "").strip()
+                _nc_uni = st.session_state.get("nc_uni", "").strip()
+                _nc_cat = _nc_cat_final.strip() if '_nc_cat_final' in dir() else ""
+                if not _nc_id:
+                    st.error("El ID no puede estar vacío.")
+                elif not _nc_val:
+                    st.error("El valor no puede estar vacío.")
+                elif not _datos_df.empty and _nc_id in _datos_df['ID'].astype(str).tolist():
+                    st.error(f"Ya existe una constante con ID `{_nc_id}`.")
+                else:
+                    _new_row = {'ID': _nc_id, 'Nombre': _nc_nom, 'Símbolo': _nc_sym,
+                                'Valor': _nc_val, 'Unidades': _nc_uni, 'Categoría': _nc_cat}
+                    import pandas as _pd_tmp
+                    _datos_df = _pd_tmp.concat([_datos_df, _pd_tmp.DataFrame([_new_row])],
+                                               ignore_index=True)
+                    _save_datos_state(_datos_df)
+                    for _k in ["nc_nombre","nc_id","nc_sym","nc_val","nc_uni","nc_cat_new"]:
+                        st.session_state.pop(_k, None)
+                    notify(f"✅ Constante `{_nc_id}` añadida.")
+                    st.rerun()
+
+        # ── Lista de constantes por categoría ─────────────────────────────────
+        if _datos_df.empty or not _datos_df['ID'].astype(str).str.strip().any():
+            st.info("Aún no hay constantes. Usa el formulario de arriba para añadir la primera.")
+        else:
+            _edit_id = st.session_state.get("_const_edit_id")
+            _cats_all = sorted(_datos_df['Categoría'].fillna('Sin categoría').unique().tolist())
+
+            for _cat in _cats_all:
+                _cdf = _datos_df[_datos_df['Categoría'].fillna('Sin categoría') == _cat].copy()
+                with st.expander(f"**{_cat}** — {len(_cdf)} constante(s)", expanded=True):
+                    for _, _cr in _cdf.iterrows():
+                        _did = str(_cr['ID']).strip()
+                        if _edit_id == _did:
+                            # ── Modo edición inline ───────────────────────────
+                            with st.form(key=f"form_edit_{_did}", border=True):
+                                _fe1, _fe2 = st.columns(2)
+                                _en = _fe1.text_input("Nombre", value=str(_cr.get('Nombre','') or ''))
+                                _es = _fe2.text_input("Símbolo", value=str(_cr.get('Símbolo','') or ''))
+                                _ev = _fe1.text_input("Valor", value=str(_cr.get('Valor','') or ''))
+                                _eu = _fe2.text_input("Unidades", value=str(_cr.get('Unidades','') or ''))
+                                _cats_ed = sorted(_datos_df['Categoría'].dropna().unique().tolist())
+                                _ec_idx  = _cats_ed.index(_cat) if _cat in _cats_ed else 0
+                                _ec = st.selectbox("Categoría", _cats_ed, index=_ec_idx)
+                                _fsb1, _fsb2 = st.columns(2)
+                                if _fsb1.form_submit_button("💾 Guardar", type="primary",
+                                                            use_container_width=True):
+                                    st.session_state["_const_upd_row"] = {
+                                        'ID': _did, 'Nombre': _en, 'Símbolo': _es,
+                                        'Valor': _ev, 'Unidades': _eu, 'Categoría': _ec
+                                    }
+                                    st.rerun()
+                                if _fsb2.form_submit_button("✖ Cancelar",
+                                                            use_container_width=True):
+                                    st.session_state.pop("_const_edit_id", None)
+                                    st.rerun()
+                        else:
+                            # ── Modo visualización ────────────────────────────
+                            _rc1, _rc2, _rc3 = st.columns([5, 1, 1])
+                            _nom = str(_cr.get('Nombre','') or _did)
+                            _sym = str(_cr.get('Símbolo','') or '')
+                            _val = str(_cr.get('Valor','') or '')
+                            _uni = str(_cr.get('Unidades','') or '')
+                            _eq  = f" = {_val} {_uni}".rstrip() if _val else ""
+                            _rc1.markdown(f"**{_nom}** — `{_did}`")
+                            _rc1.caption(f"{_sym}{_eq}" if _sym or _val else "")
+                            if _rc2.button("✏️", key=f"edbtn_{_did}", use_container_width=True,
+                                           help="Editar"):
+                                st.session_state["_const_edit_id"] = _did
+                                st.rerun()
+                            if _rc3.button("🗑️", key=f"delbtn_{_did}", use_container_width=True,
+                                           help="Eliminar"):
+                                st.session_state["_const_del_id"] = _did
+                                st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
