@@ -8,7 +8,9 @@ CFG_TEMAS_SHEET     = "Cfg_Temas"
 CFG_GENERAL_SHEET   = "Cfg_General"
 CFG_OBJETIVOS_SHEET = "Cfg_Objetivos"
 DATOS_SHEET         = "Datos"
-CFG_SHEETS          = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET, DATOS_SHEET, CFG_OBJETIVOS_SHEET}
+# An_Examenes / An_Preguntas: registro de exámenes y análisis agregado (ver analisis_lib.py)
+CFG_SHEETS          = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET, DATOS_SHEET, CFG_OBJETIVOS_SHEET,
+                       "An_Examenes", "An_Preguntas"}
 DATOS_COLS         = ["ID", "Nombre", "Símbolo", "Valor", "Unidades", "Categoría"]
 from docx.shared import Inches, RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH

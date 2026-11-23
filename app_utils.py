@@ -1082,10 +1082,177 @@ def render_question_card_html(row, show_sol: bool = True, num: int = None, inclu
     )
 
 
+def _txt(v) -> str:
+    s = "" if v is None else str(v)
+    return "" if s in ("nan", "NaT", "None") else s
+
+
+def datos_de_fila(row: dict, **cambios) -> dict:
+    """Todos los campos que espera lib.actualizar_pregunta_excel_local, tomados de la fila
+    actual de df_preguntas, con los cambios indicados (esa función sobrescribe todo)."""
+    d = {
+        "bloque": _txt(row.get("bloque")), "tema": _txt(row.get("Tema")) or "1",
+        "enunciado": _txt(row.get("enunciado")), "opciones": list(row.get("opciones_list") or []),
+        "correcta": _txt(row.get("letra_correcta")) or "A", "dificultad": _txt(row.get("dificultad")) or "Media",
+        "usada": _txt(row.get("usada")), "notas": _txt(row.get("notas")),
+        "comentario": _txt(row.get("comentario")), "objetivo": _txt(row.get("objetivo")),
+        "datos_ids": _txt(row.get("datos")),
+    }
+    d.update(cambios)
+    return d
+
+
+def guardar_hojas(hojas: list):
+    """Persiste excel_dfs tras cambiar hojas que no son de preguntas (local + Google Sheets)."""
+    dfs = st.session_state.excel_dfs
+    st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
+    path = st.session_state.get("excel_path", "")
+    if path:
+        lib.guardar_excel_local(path, dfs)
+    for h in hojas:
+        sync_hoja_gsheets(h)
+
+
+_PLANTILLAS_SOL = {
+    "Razonamiento": "La respuesta correcta es la **{c})** porque...\n\nLas otras opciones son incorrectas porque...",
+    "Cálculo": "**Datos:**\n\n\n\n**Desarrollo:**\n\n\n\n**Resultado:**",
+    "Concepto": "**Concepto clave:** ...\n\n**Opción {c})** es correcta porque...\n\n**Las demás son incorrectas** porque...",
+}
+
+
+def _vista_formulas(html: str, height: int = 240):
+    import streamlit.components.v1 as _stc
+    _stc.html(mathjax_html(html), height=height, scrolling=True)
+
+
+def _editor_bitacora(pid: str, row: dict):
+    """Editor en 4 pestañas (Pregunta · Solución · Clasificación · Notas y datos) con un solo «Guardar»."""
+    bloques_list = st.session_state.bloques or []
+    ss = st.session_state
+    st.caption(f"{pid} · {nombre_bloque(str(row.get('bloque', '')))} · {nombre_tema(str(row.get('Tema', '')))}")
+    t_p, t_s, t_c, t_n = st.tabs(["Pregunta", "Solución", "Clasificación", "Notas y datos"])
+
+    with t_p:
+        ed_enun = st.text_area("Enunciado", value=_txt(row.get("enunciado")), height=110, key="dlg_enun")
+        ops_orig = list(row.get("opciones_list", []) or []) + ["", "", "", ""]
+        corr_cur = _txt(row.get("letra_correcta")).upper() or "A"
+        ed_corr = st.radio("Respuesta correcta", ["A", "B", "C", "D"], horizontal=True, key="dlg_corr",
+                           index=["A", "B", "C", "D"].index(corr_cur) if corr_cur in "ABCD" else 0)
+        ed_ops = []
+        oc1, oc2 = st.columns(2)
+        for li, ll in enumerate(["A", "B", "C", "D"]):
+            ed_ops.append((oc1 if li % 2 == 0 else oc2).text_input(f"Opción {ll}", value=_txt(ops_orig[li]),
+                                                                    key=f"dlg_op{ll}"))
+        if st.toggle("Vista previa con fórmulas", value=True, key="dlg_prev_on"):
+            prev = dict(row)
+            prev.update({"enunciado": ed_enun, "opciones_list": ed_ops, "letra_correcta": ed_corr})
+            _vista_formulas(render_question_card_html(prev, show_sol=True, include_notas=False), 230)
+
+    with t_s:
+        sk = f"dlg_sol_{pid}"
+        if sk not in ss:
+            ss[sk] = _txt(row.get("solucion")).strip()
+        st.markdown("<span style='font-size:0.8em;color:var(--muted);font-weight:600'>PLANTILLA RÁPIDA</span>",
+                    unsafe_allow_html=True)
+        pc = st.columns(3)
+        for i, (nom, tpl) in enumerate(_PLANTILLAS_SOL.items()):
+            if pc[i].button(nom, key=f"dlg_tpl_{i}", use_container_width=True):
+                ss[sk] = tpl.replace("{c}", ed_corr)
+        ed_sol = st.text_area("Solución — LaTeX: $...$ en línea · $$...$$ en bloque", key=sk, height=170)
+        if ed_sol.strip():
+            _vista_formulas(
+                "<div style='font-size:14px;line-height:1.65;padding:12px 14px;border-left:3px solid var(--primary);"
+                f"background:var(--primary-soft);border-radius:0 8px 8px 0'>{ed_sol}</div>", 220)
+        else:
+            st.caption("Sin solución. Elige una plantilla o escríbela; aquí verás las fórmulas mientras escribes.")
+
+    with t_c:
+        c1, c2 = st.columns(2)
+        blq_idx = bloques_list.index(row["bloque"]) if row.get("bloque") in bloques_list else 0
+        ed_blq = c1.selectbox("Bloque", bloques_list, index=blq_idx, key="dlg_bloque", format_func=nombre_bloque,
+                              disabled=True, help="La pregunta se guarda en la hoja de su bloque.")
+        temas_d = temas_de_bloque(ed_blq) or [str(i) for i in range(1, 51)]
+        tem_cur = str(row.get("Tema", "1"))
+        ed_tema = c2.selectbox("Tema", temas_d, index=temas_d.index(tem_cur) if tem_cur in temas_d else 0,
+                               key="dlg_tema", format_func=nombre_tema)
+        dif_opts = ["Facil", "Media", "Dificil"]
+        dif_cur = _txt(row.get("dificultad")).capitalize() or "Media"
+        with st.container(key="seg_dlg_dif"):
+            ed_dif = st.radio("Dificultad", dif_opts, horizontal=True, key="dlg_dif",
+                              index=dif_opts.index(dif_cur) if dif_cur in dif_opts else 1,
+                              format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
+        _obj_opts = [""] + objetivos_de_tema(ed_blq, str(ed_tema))
+        _obj_cur = _txt(row.get("objetivo"))
+        if _obj_cur and _obj_cur not in _obj_opts:
+            _obj_opts.append(_obj_cur)
+        ed_obj = st.selectbox("Objetivo docente", _obj_opts,
+                              index=_obj_opts.index(_obj_cur) if _obj_cur in _obj_opts else 0, key="dlg_obj",
+                              format_func=lambda x: "— Sin objetivo —" if x == "" else nombre_objetivo(x))
+        ed_com = st.text_input("Etiqueta", value=_txt(row.get("comentario")), key="dlg_com",
+                               placeholder="ej: CLASE, EXAMEN_2023...")
+
+    with t_n:
+        _usada_raw = _txt(row.get("usada")).strip()
+        _usada_val = None
+        if _usada_raw:
+            try:
+                _usada_val = datetime.datetime.strptime(_usada_raw[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+        if st.checkbox("Pregunta ya usada", value=(_usada_val is not None), key="dlg_tiene_usada"):
+            ed_usada = st.date_input("Fecha de uso", value=_usada_val or datetime.date.today(),
+                                     key="dlg_usada").strftime("%Y-%m-%d")
+        else:
+            ed_usada = ""
+        ed_notas = st.text_area("Notas", value=_txt(row.get("notas")), height=80, key="dlg_notas")
+        _datos_df = lib.get_datos_df(ss.get("excel_dfs", {}))
+        _cur = [x.strip() for x in _txt(row.get("datos")).split(",") if x.strip()]
+        sel_ids = []
+        st.markdown("**Constantes / datos**")
+        if _datos_df.empty or not _datos_df["ID"].astype(str).str.strip().any():
+            st.caption("No hay constantes. Añádelas en Gestor → Constantes.")
+        else:
+            for _dc in sorted(_datos_df["Categoría"].fillna("Sin categoría").unique()):
+                _dcdf = _datos_df[_datos_df["Categoría"].fillna("Sin categoría") == _dc]
+                st.caption(_dc)
+                for _, _dr in _dcdf.iterrows():
+                    _did = str(_dr["ID"]).strip()
+                    _lbl = (f"{_txt(_dr.get('Nombre'))} ({_txt(_dr.get('Símbolo'))} = {_txt(_dr.get('Valor'))} "
+                            f"{_txt(_dr.get('Unidades'))})").strip()
+                    if st.checkbox(_lbl, value=(_did in _cur), key=f"dlgdat_{pid}_{_did}"):
+                        sel_ids.append(_did)
+
+    st.divider()
+    sc1, sc2, _ = st.columns([2, 1, 2])
+    if sc1.button("Guardar cambios", type="primary", use_container_width=True, key="dlg_save"):
+        datos = {
+            "bloque": ed_blq, "tema": ed_tema, "enunciado": ed_enun.strip(), "opciones": ed_ops,
+            "correcta": ed_corr, "dificultad": ed_dif, "usada": ed_usada, "notas": ed_notas.strip(),
+            "comentario": ed_com.strip(), "objetivo": ed_obj, "datos_ids": ",".join(sel_ids),
+            "solucion": ed_sol.strip(),
+        }
+        ok, msg = lib.actualizar_pregunta_excel_local(ss.excel_path, ss.excel_dfs, pid, datos)
+        if ok:
+            sync_bloques_gsheets([datos["bloque"]])
+            reload_db()
+            ss.pop(sk, None)
+            from app_theme import notify
+            notify(f"✅ Pregunta {pid} guardada.")
+            st.rerun()
+        else:
+            st.error(f"❌ {msg}")
+    if sc2.button("Cancelar", use_container_width=True, key="dlg_cancel"):
+        ss.pop(sk, None)
+        st.rerun()
+
+
 # ── Dialog compartido: editor de pregunta individual ─────────────────────────
 @st.dialog("✏️ Editar pregunta", width="large")
 def _dialog_editar_pregunta(pid: str, row: dict):
     """Modal de edición de una pregunta. Llama a st.rerun() para cerrar."""
+    if get_estilo() == "bitacora":
+        _editor_bitacora(pid, row)
+        return
     bloques_list = st.session_state.bloques or []
 
     st.markdown(f"**ID:** `{pid}`")
@@ -1205,12 +1372,16 @@ def marcar_preguntas_usadas(pids: list, fecha_str: str) -> int:
     """Marca una lista de IDs de pregunta como usadas con la fecha dada.
     Devuelve el número de preguntas actualizadas correctamente."""
     count = 0
+    df_p = st.session_state.get("df_preguntas")
+    filas = df_p.set_index("ID_Pregunta").to_dict("index") if df_p is not None else {}
     for pid in pids:
+        if pid not in filas:
+            continue
         ok, _ = lib.actualizar_pregunta_excel_local(
             st.session_state.excel_path,
             st.session_state.excel_dfs,
             pid,
-            {"usada": fecha_str}
+            datos_de_fila(filas[pid], usada=fecha_str)   # la función sobrescribe todos los campos
         )
         if ok:
             count += 1

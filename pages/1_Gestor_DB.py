@@ -483,6 +483,33 @@ with tab_add:
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 · IMPORTAR
 # ─────────────────────────────────────────────────────────────────────────────
+def _stg_sin_correcta(q: dict) -> bool:
+    if str(q.get("letra_correcta", "")).upper() not in ("A", "B", "C", "D"):
+        return True
+    return any(("Sin respuesta" in w or "por defecto" in w) for w in q.get("_warnings", []))
+
+
+def _stg_problemas(q: dict) -> bool:
+    return bool(q.get("_dup") or q.get("_dup_file") or _stg_sin_correcta(q))
+
+
+def _stg_tags(q: dict) -> str:
+    def chip(t, c):
+        return (f"<span style='display:inline-block;padding:0 7px;border-radius:999px;font-size:.78em;"
+                f"font-weight:600;margin-left:4px;background:var(--{c}-bg, #fdf0d5);color:var(--{c}, #7a4f00)'>{t}</span>")
+    out = ""
+    if q.get("_dup"):
+        out += chip(f"posible duplicado ({q['_dup']} %)", "err")
+    if q.get("_dup_file"):
+        out += chip("repetida en el archivo", "err")
+    if _stg_sin_correcta(q):
+        out += chip("sin respuesta correcta", "warn")
+    otras = [w for w in q.get("_warnings", []) if "Sin respuesta" not in w and "por defecto" not in w]
+    if otras:
+        out += chip(otras[0].lower(), "warn")
+    return out
+
+
 with tab_imp:
     st.subheader("Importar preguntas")
 
@@ -530,11 +557,19 @@ with tab_imp:
                 preguntas = lib.parse_aiken(text, bloque_imp, tema_imp, dif_imp)
             for p in preguntas:
                 p["comentario"] = com_imp.strip()
+            # Revisión: posibles duplicados (con la base de datos y dentro del archivo)
+            _seen = []
+            for p in preguntas:
+                _d, _sim = lib.check_for_similar_enunciado(p.get("enunciado", ""), df_total)
+                p["_dup"] = round(float(_sim) * 100) if _d else 0
+                _n = lib._normalizar_texto(p.get("enunciado", ""))
+                p["_dup_file"] = bool(_n) and _n in _seen
+                _seen.append(_n)
             st.session_state.import_staging = preguntas
             st.session_state["_staging_edit_idx"] = None
-            # Inicializar todas las selecciones a True
-            for i in range(len(preguntas)):
-                st.session_state[f"stg_sel_{i}"] = True
+            # Selección inicial: se desmarcan las que tienen problemas
+            for i, p in enumerate(preguntas):
+                st.session_state[f"stg_sel_{i}"] = not _stg_problemas(p)
             st.success(f"Detectadas **{len(preguntas)}** preguntas. Revisa, edita si es necesario e importa.")
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
@@ -559,6 +594,11 @@ div[data-testid="stHorizontalBlock"] > div { padding-top:2px!important; padding-
 div[data-testid="stCheckbox"] { margin-top:4px!important; }
 </style>""", unsafe_allow_html=True)
 
+        _n_dup = sum(1 for q in staging if q.get("_dup") or q.get("_dup_file"))
+        _n_sc  = sum(1 for q in staging if _stg_sin_correcta(q))
+        st.markdown(f"**{len(staging)}** detectadas · **{_n_dup}** posibles duplicados · **{_n_sc}** sin respuesta "
+                    f"correcta clara" + (" — se han desmarcado; revísalas con ✏️" if (_n_dup or _n_sc) else ""))
+
         # Cabecera
         h0, h2, h3, h4 = st.columns([0.5, 8, 0.8, 0.7])
         h0.markdown("<span style='font-size:0.8em;color:var(--muted, #888)'>✓</span>", unsafe_allow_html=True)
@@ -575,6 +615,9 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
 
             warns      = q.get("_warnings", [])
             warn_icon  = " <span style='color:var(--ui-warn, #e67e22)'>⚠</span>" if warns else ""
+            _tags = _stg_tags(q)
+            if _tags:
+                warn_icon = " " + _tags
             enun_short = q["enunciado"][:85] + ("…" if len(q["enunciado"]) > 85 else "")
             c_enun.markdown(
                 f"<span style='font-size:0.85em;line-height:1.3'>"
@@ -604,7 +647,8 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
         st.caption(f"Seleccionadas: **{sel_count}** de {len(staging)}")
 
         c_imp, c_clr = st.columns([3, 1])
-        if c_imp.button(f"📥 Importar seleccionadas ({sel_count})", type="primary",
+        if c_imp.button(f"📥 Importar {sel_count}" if get_estilo() == "bitacora"
+                        else f"📥 Importar seleccionadas ({sel_count})", type="primary",
                         key="btn_imp_sel", disabled=(sel_count == 0)):
             imported = 0; skipped = 0
             excel_path = st.session_state.excel_path
@@ -650,7 +694,7 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
 
             if imported:
                 lib.guardar_excel_local(excel_path, excel_dfs)
-                st.success(f"✅ {imported} pregunta(s) importada(s). {skipped} duplicada(s) omitida(s).")
+                notify(f"✅ {imported} pregunta(s) importada(s). {skipped} duplicada(s) omitida(s).")
                 st.session_state.import_staging = []
                 _bloques_imp = list({staging[i].get("bloque", bloque_imp) for i in sel_ids})
                 sync_bloques_gsheets(_bloques_imp)

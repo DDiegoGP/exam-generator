@@ -32,7 +32,7 @@ from app_utils import (
     append_historial, save_preset, delete_preset,
     nombre_bloque, nombre_tema, nombre_objetivo,
     OUTPUT_DIR, _nsort,
-    _dialog_editar_pregunta, marcar_preguntas_usadas,
+    _dialog_editar_pregunta, marcar_preguntas_usadas, guardar_hojas,
 )
 from app_theme import get_preview_mode, get_estilo, qtable, qtable_row
 
@@ -1737,6 +1737,66 @@ with tab_dev:
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 3 · PREVIEW
 # ─────────────────────────────────────────────────────────────────────────────
+def _render_checks_prev(cache: list, vista: str):
+    """Avisos rápidos sobre el examen: reparto de respuestas, repeticiones, preguntas incompletas."""
+    from difflib import SequenceMatcher
+    n = len(cache)
+    letras = [str(p.get("letra_correcta", "")).upper() for p in cache]
+    cnt = {L: letras.count(L) for L in "ABCD"}
+    chips, warns = [], 0
+    reparto = " · ".join(f"{L} {cnt[L]}" for L in "ABCD")
+    if vista == "Vista previa" and st.session_state.get("exam_cfg", {}).get("bar", True):
+        chips.append(("", f"Respuestas correctas: {reparto} (se barajan al exportar; mira un modelo)"))
+    else:
+        mal = n >= 8 and any(c > 0.4 * n or c < 0.1 * n for c in cnt.values())
+        warns += mal
+        chips.append(("warn" if mal else "ok", f"Respuestas correctas: {reparto}"))
+        run, best, prev = 0, 0, None
+        for L in letras:
+            run = run + 1 if L == prev else 1
+            prev = L
+            best = max(best, run)
+        if best >= 4:
+            warns += 1
+            chips.append(("warn", f"{best} respuestas seguidas con la misma letra"))
+    ids = [p.get("ID_Pregunta") for p in cache]
+    dups = sorted({i for i in ids if ids.count(i) > 1})
+    if dups:
+        warns += 1
+        chips.append(("err", "Repetidas: " + ", ".join(dups)))
+    norm = [lib._normalizar_texto(p.get("enunciado", "")) for p in cache]
+    pares = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if ids[i] != ids[j] and norm[i] and SequenceMatcher(None, norm[i], norm[j]).quick_ratio() > 0.85 \
+                    and SequenceMatcher(None, norm[i], norm[j]).ratio() > 0.85:
+                pares.append(f"{i + 1}–{j + 1}")
+    if pares:
+        warns += 1
+        chips.append(("warn", "Enunciados muy parecidos: " + ", ".join(pares[:6])))
+    inc = [str(k + 1) for k, p in enumerate(cache)
+           if str(p.get("letra_correcta", "")).upper() not in ("A", "B", "C", "D")
+           or sum(1 for o in (p.get("opciones_list") or [])[:4] if str(o).strip()) < 4]
+    if inc:
+        warns += 1
+        chips.append(("err", "Sin respuesta correcta u opciones vacías: " + ", ".join(inc)))
+    recientes = sum(1 for p in cache if str(p.get("usada", "") or "").strip()
+                    and not es_uso_antiguo(str(p.get("usada", "")), 12))
+    if recientes:
+        chips.append(("warn", f"{recientes} usada(s) en los últimos 12 meses"))
+    sin_sol = sum(1 for p in cache if not str(p.get("solucion", "") or "").strip())
+    if sin_sol:
+        chips.append(("", f"{sin_sol} sin solución desarrollada"))
+    if not warns:
+        chips.insert(0, ("ok", "✓ Sin problemas detectados"))
+    _col = {"ok": "var(--ok-bg);color:var(--ok)", "warn": "var(--warn-bg);color:var(--warn)",
+            "err": "var(--err-bg);color:var(--err)", "": "var(--card2);color:var(--text2)"}
+    html = "".join(f"<span style='display:inline-block;padding:3px 10px;margin:2px 4px 2px 0;border-radius:999px;"
+                   f"font-size:.8rem;font-weight:600;background:{_col[c]}'>{t}</span>" for c, t in chips)
+    st.markdown(f"<div style='margin:2px 0 12px 0'><b style='font-size:.85rem;margin-right:6px'>"
+                f"Comprobaciones</b>{html}</div>", unsafe_allow_html=True)
+
+
 with tab_prev:
 
     # ── Banner de modo recuperación ───────────────────────────────────────────
@@ -1764,9 +1824,20 @@ with tab_prev:
         _locked   = st.session_state.get("recovery_mode", False)
         gen_btn   = ctrl4.button("🎲 Generar", type="primary", key="btn_gen_prev",
                                   use_container_width=True, disabled=_locked)
-        mj_btn    = ctrl5.button("∑ Renderizar LaTeX" if _bit_prev else "∑ MathJax", key="btn_mathjax",
-                                  use_container_width=True,
-                                  help="Vista con fórmulas matemáticas renderizadas")
+        _ef_master = (st.session_state.get("export_files") or {}).get("_master") or []
+        if _bit_prev:
+            _mods_prev = ["Vista previa"] + [f"Modelo {m['letra_version']}" for m in _ef_master]
+            if st.session_state.get("prev_modelo") not in _mods_prev:
+                st.session_state["prev_modelo"] = "Vista previa"
+            vista_mod = ctrl5.selectbox(
+                "Ver", _mods_prev, key="prev_modelo",
+                help="Los modelos A, B… son los de la última exportación, con su orden y sus letras definitivas.")
+            mj_btn = False
+        else:
+            vista_mod = "Vista previa"
+            mj_btn    = ctrl5.button("∑ MathJax", key="btn_mathjax",
+                                      use_container_width=True,
+                                      help="Vista con fórmulas matemáticas renderizadas")
 
     sel_prev  = get_sel_ids()          # manuales fijas
     auto_rec  = st.session_state.get("auto_recipe", {})
@@ -1876,6 +1947,13 @@ with tab_prev:
         st.warning(f"⚠️ {w}")
 
     cache = st.session_state.cache_examen
+    if cache and vista_mod != "Vista previa":
+        # Modelo de la última exportación: orden y letras definitivos
+        _mm = next((m for m in _ef_master if f"Modelo {m['letra_version']}" == vista_mod), None)
+        if _mm:
+            cache = [dict(p, opciones_list=p.get("opciones_finales", p.get("opciones_list")),
+                          letra_correcta=p.get("letra_final", p.get("letra_correcta")))
+                     for p in _mm["preguntas"]]
 
     if not cache:
         n_auto_est = sum(v for tc in auto_rec.values() for d in tc.values() for v in d.values()) if auto_rec else 0
@@ -1904,13 +1982,17 @@ with tab_prev:
             unsafe_allow_html=True,
         )
 
+        # ── Comprobaciones rápidas (Bitácora) ──────────────────────────────────
+        if _bit_prev:
+            _render_checks_prev(cache, vista_mod)
+
         # ── Vista MathJax (iframe) ────────────────────────────────────────────
         if mj_btn:
             st.session_state["prev_mathjax"] = not st.session_state.get("prev_mathjax", False)
             st.rerun()
 
-        if st.session_state.get("prev_mathjax"):
-            # Construir HTML completo con MathJax
+        if st.session_state.get("prev_mathjax") or _bit_prev:
+            # Construir HTML completo con MathJax (en Bitácora, siempre: las fórmulas se ven renderizadas)
             dev_qs = st.session_state.dev_questions
             html_body = ""
             if dev_qs:
@@ -1934,7 +2016,10 @@ with tab_prev:
                 html_body += render_question_card_html(p, show_sol=show_sol, num=q_num)
             full_html = mathjax_html(html_body)
             height_px = max(800, len(cache) * 200)
-            st.caption("Vista MathJax — las fórmulas $...$ se renderizan correctamente.")
+            if _bit_prev:
+                st.caption("Para ver el PDF definitivo: pestaña **Exportar › Compilar PDF**.")
+            else:
+                st.caption("Vista MathJax — las fórmulas $...$ se renderizan correctamente.")
             stcomponents.html(full_html, height=min(height_px, 2200), scrolling=True)
         else:
             # ── Vista nativa Streamlit (cards con colores, sin iframe) ─────────
@@ -2007,7 +2092,8 @@ with tab_prev:
                         cards_html += render_question_card_html(p, show_sol=show_sol, num=q_num)
                     st.markdown(cards_html, unsafe_allow_html=True)
 
-        st.caption("ℹ️ Para fórmulas matemáticas usa el botón **∑ MathJax** arriba. Los bloques se pueden colapsar haciendo clic en su cabecera.")
+        if not _bit_prev:
+            st.caption("ℹ️ Para fórmulas matemáticas usa el botón **∑ MathJax** arriba. Los bloques se pueden colapsar haciendo clic en su cabecera.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 4 · EXPORTAR  (rediseñado)
@@ -2165,6 +2251,8 @@ def _ejecutar_export():
         _arch = nombre_arch + _sfx
         _master = lib.generar_master_examen(_pool, n_mod, _cfg)
 
+        if not _sfx or (partes_modo == "separados" and _sfx == "_TEST"):
+            ef["_master"] = _master   # el mismo que da las claves del CSV
         if not _sfx:  # solo primer run para CSV (no aplica en separados o aplica al test)
             csv_data = lib.exportar_csv_bytes(_master, _arch)
             ef["csv_claves"] = csv_data["claves"]
@@ -2312,6 +2400,20 @@ def _ejecutar_export():
     })
     st.session_state.cache_examen   = pool
     st.session_state["export_files"] = ef
+
+    # Registro del examen para el análisis de ítems (claves, posiciones y orden de opciones por
+    # modelo; ningún dato de alumnos). Mismo nombre de archivo → se actualiza el registro.
+    _mreg = ef.get("_master") or []
+    if _mreg and _mreg[0]["preguntas"]:
+        try:
+            import analisis_lib as _A
+            _A.upsert_examen(st.session_state.excel_dfs, _A.registro_desde_master(
+                _mreg, nombre_arch, convocatoria=cfg.get("tipo", "")))
+            guardar_hojas([_A.SHEET_EXAMENES])
+            ef["_registrado"] = nombre_arch
+        except Exception as _e:
+            st.session_state.setdefault("_sync_errors", []).append(
+                f"⚠️ No se pudo registrar el examen para el análisis: {_e}")
 
 
 @st.dialog("✅ Confirmar exportación", width="small")

@@ -34,6 +34,7 @@ NAV_PAGES = [
     ("gestor",        "pages/1_Gestor_DB.py",     "Gestor DB"),
     ("generador",     "pages/2_Generador.py",     "Generador"),
     ("configuracion", "pages/3_Configuracion.py", "Configuración"),
+    ("analisis",      "pages/5_Analisis.py",      "Análisis"),
     ("ayuda",         "pages/4_Ayuda.py",         "Ayuda"),
 ]
 
@@ -674,6 +675,43 @@ def apply_theme(page: str = ""):
     for _msg in st.session_state.pop("_toasts", []):   # avisos de notify() de la ejecución anterior
         st.toast(re.sub(r"^\W+\s*", "", _msg), icon="✅")
     render_topbar(page, estilo)
+    _pid = st.session_state.pop("_open_q", None)   # resultado del buscador pulsado en la ejecución anterior
+    if _pid:
+        df = st.session_state.get("df_preguntas")
+        if df is not None and _pid in set(df["ID_Pregunta"]):
+            from app_utils import _dialog_editar_pregunta
+            _dialog_editar_pregunta(_pid, dict(df[df["ID_Pregunta"] == _pid].iloc[0]))
+
+
+def _sin_tildes(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(s).lower())
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+
+def _render_busqueda():
+    """Buscador de preguntas de toda la base de datos (ID, enunciado u opciones)."""
+    df = st.session_state.get("df_preguntas")
+    if not st.session_state.get("db_connected") or df is None or df.empty:
+        st.caption("Conecta la base de datos para buscar.")
+        return
+    q = st.text_input("Buscar pregunta", key="gsearch_q", placeholder="ID, palabras del enunciado u opciones")
+    qn = _sin_tildes(q.strip())
+    if len(qn) < 2:
+        st.caption(f"{len(df)} preguntas en la base de datos. Escribe al menos 2 letras.")
+        return
+    hay = (df["ID_Pregunta"].astype(str) + " " + df["enunciado"].astype(str) + " "
+           + df["opciones_list"].apply(lambda o: " ".join(map(str, o or [])))).map(_sin_tildes)
+    words = qn.split()
+    mask = hay.apply(lambda h: all(w in h for w in words))
+    res = df[mask]
+    st.caption(f"{len(res)} resultado(s)" + (" · se muestran los 12 primeros" if len(res) > 12 else ""))
+    for _, r in res.head(12).iterrows():
+        enun = str(r["enunciado"])
+        enun = enun[:80] + "…" if len(enun) > 80 else enun
+        if st.button(f"{r['ID_Pregunta']} · {enun}", key=f"gs_{r['ID_Pregunta']}", use_container_width=True):
+            st.session_state["_open_q"] = r["ID_Pregunta"]
+            st.rerun()
 
 
 # ── Barra superior ────────────────────────────────────────────────────────────
@@ -705,7 +743,7 @@ def render_topbar(page: str = "", estilo: str = ""):
         if str(asig) in ("nan", "None"):
             asig = ""
         title = "Generador de Exámenes" + (f" · {asig}" if asig else "")
-        _c_brand, _c_db = st.columns([5, 1.3], vertical_alignment="center")
+        _c_brand, _c_q, _c_db = st.columns([5, 1.1, 1.3], vertical_alignment="center")
         _c_brand.markdown(
             f'<div class="tb-brand"><div class="tb-logo">{_LOGO_SVG}</div><div>'
             f'<div class="tb-title">{title}</div>'
@@ -717,6 +755,8 @@ def render_topbar(page: str = "", estilo: str = ""):
         _dot = ":green[●]" if st.session_state.get("db_connected") else ":orange[●]"
         with _c_db.popover(f"{_dot} Base de datos", use_container_width=True):
             _render_db_panel("pop_")
+        with _c_q.popover("🔍 Buscar", use_container_width=True):
+            _render_busqueda()
     with st.container(horizontal=True, gap=None, key="topnav"):
         for slug, path, label in NAV_PAGES:
             key = "nav_active" if slug == page else f"nav_{slug}"
