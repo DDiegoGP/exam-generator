@@ -361,6 +361,7 @@ with tab_obj:
         if _c not in cfg_o.columns:
             cfg_o[_c] = ""
         cfg_o[_c] = cfg_o[_c].fillna("").astype(str)
+    cfg_o = cfg_o[cfg_o["Codigo"].str.strip() != ""].reset_index(drop=True)   # filas vacías
 
     # Añadir contador de preguntas asignadas
     if not df_preguntas.empty and "objetivo" in df_preguntas.columns:
@@ -399,6 +400,100 @@ with tab_obj:
         key="editor_objetivos",
         num_rows="dynamic",
     )
+
+    st.caption("Para cambiar textos, edita la tabla y pulsa «Guardar objetivos». "
+               "Para añadir o quitar, usa los apartados de abajo.")
+
+    def _guardar_obj_df(df_o):
+        dfs2 = lib.save_cfg_objetivos(st.session_state.excel_dfs,
+                                      df_o[["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]])
+        dfs2 = _load_cfg(dfs2)
+        st.session_state.excel_dfs   = dfs2
+        st.session_state.excel_bytes = lib.generar_excel_bytes(dfs2)
+        path = st.session_state.get("excel_path", "")
+        if path:
+            lib.guardar_excel_local(path, dfs2)
+        sync_hoja_gsheets(lib.CFG_OBJETIVOS_SHEET)
+
+    def _prefijo_bloque(b: str) -> str:
+        """«BLOQUE III» → «B3»; sin bloque → «G» (general)."""
+        import re as _re
+        b = str(b or "").strip().upper()
+        if not b:
+            return "G"
+        m = _re.search(r"([IVXLC]+|\d+)$", b)
+        if m:
+            v = m.group(1)
+            if v.isdigit():
+                return f"B{int(v)}"
+            val = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
+            n = sum(-val[c] if i + 1 < len(v) and val[c] < val[v[i + 1]] else val[c] for i, c in enumerate(v))
+            return f"B{n}"
+        return _re.sub(r"[^A-Z0-9]", "", b)[:4] or "OBJ"
+
+    def _siguiente_codigo(b: str) -> str:
+        pre = _prefijo_bloque(b)
+        nums = []
+        for c in cfg_o["Codigo"].astype(str):
+            if c.startswith(pre + "-") and c[len(pre) + 1:].isdigit():
+                nums.append(int(c[len(pre) + 1:]))
+        return f"{pre}-{(max(nums) + 1) if nums else 1:02d}"
+
+    _STOP = {"el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "y", "e", "o", "u", "a",
+             "en", "al", "que", "se", "su", "sus", "para", "por", "con", "lo"}
+
+    def _nombre_corto(desc: str) -> str:
+        """Nombre corto a partir de la descripción: quita el verbo inicial y los artículos; 6 palabras."""
+        import re as _re
+        w = _re.findall(r"[\wÀ-ÿ\-·]+", desc or "")
+        if w and _re.search(r"(ar|er|ir)$", w[0].lower()):
+            w = w[1:]
+        while w and w[0].lower() in _STOP:
+            w = w[1:]
+        out = w[:6]
+        while len(out) > 1 and out[-1].lower() in _STOP:   # que no acabe en «de», «la», «a»…
+            out = out[:-1]
+        s = " ".join(out)
+        return (s[:1].upper() + s[1:]) if s else ""
+
+    with st.expander("➕ Añadir un objetivo", expanded=cfg_o.empty):
+        na1, na2 = st.columns([2, 1])
+        n_blq = na1.selectbox("Bloque", [""] + [str(b) for b in bloques_list], key="obj_new_blq",
+                              format_func=lambda b: b or "— Todos los bloques (general) —")
+        _tms = sorted({str(t) for t, d in st.session_state.get("cfg_temas", {}).items()
+                       if not n_blq or (isinstance(d, dict) and d.get("bloque") in ("", n_blq))},
+                      key=lambda t: [int(x) if x.isdigit() else x for x in __import__("re").split(r"(\d+)", t)])
+        n_tem = na2.selectbox("Tema (opcional)", [""] + _tms, key="obj_new_tem",
+                              format_func=lambda t: "— Todos —" if not t else f"Tema {t}")
+        n_desc = st.text_area("Descripción", key="obj_new_desc", height=70,
+                              placeholder="Ej: Calcular la dosis absorbida a partir de la fluencia de energía")
+        n_nom = st.text_input("Nombre corto (opcional)", key="obj_new_nom",
+                              placeholder=_nombre_corto(n_desc) or "Se genera a partir de la descripción")
+        _cod = _siguiente_codigo(n_blq)
+        st.caption(f"Se creará con el código **{_cod}** y el nombre corto "
+                   f"**{n_nom.strip() or _nombre_corto(n_desc) or '—'}**.")
+        if st.button("Añadir objetivo", type="primary", key="btn_obj_add", disabled=not n_desc.strip()):
+            _new = pd.concat([cfg_o, pd.DataFrame([{
+                "Codigo": _cod, "Nombre_corto": n_nom.strip() or _nombre_corto(n_desc),
+                "Descripcion": n_desc.strip(), "Bloque": n_blq, "Tema": n_tem}])], ignore_index=True)
+            _guardar_obj_df(_new)
+            for _k in ("obj_new_desc", "obj_new_nom"):
+                st.session_state.pop(_k, None)
+            notify(f"✅ Objetivo {_cod} añadido.")
+            st.rerun()
+
+    if not cfg_o.empty:
+        with st.expander("🗑️ Quitar un objetivo"):
+            q_cod = st.selectbox("Objetivo", cfg_o["Codigo"].tolist(), key="obj_del_cod",
+                                 format_func=lambda c: f"{c} — {cfg_o.loc[cfg_o['Codigo'] == c, 'Nombre_corto'].iloc[0]}")
+            _n_asig = int(cfg_o.loc[cfg_o["Codigo"] == q_cod, "N preg."].iloc[0])
+            if _n_asig:
+                st.warning(f"{_n_asig} pregunta(s) tienen asignado este objetivo. Seguirán teniendo el código "
+                           "guardado, pero ya no aparecerá en la lista.")
+            if st.button("Quitar objetivo", key="btn_obj_del"):
+                _guardar_obj_df(cfg_o[cfg_o["Codigo"] != q_cod])
+                notify(f"🗑️ Objetivo {q_cod} quitado.")
+                st.rerun()
 
     if st.button("💾 Guardar objetivos", type="primary", key="btn_save_obj"):
         save_o = edited_o[["Codigo", "Nombre_corto", "Descripcion", "Bloque", "Tema"]].copy()

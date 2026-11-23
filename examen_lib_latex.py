@@ -952,17 +952,25 @@ def get_cfg_objetivos(dfs: dict) -> dict:
     if df is None or df.empty:
         return {}
     result = {}
+    def _v(row, *names):
+        # Configuración guarda «Codigo / Nombre_corto / Descripcion»; versiones antiguas, con tildes
+        for n in names:
+            if n in row.index:
+                s = str(row.get(n, "") or "").strip()
+                if s not in ("nan", "None"):
+                    return s
+        return ""
     for _, row in df.iterrows():
-        cod = str(row.get("Código", "")).strip()
-        if not cod or cod in ("nan", "None"):
+        cod = _v(row, "Codigo", "Código")
+        if not cod:
             continue
-        t = str(row.get("Tema", "") or "").strip()
+        t = _v(row, "Tema")
         if t.endswith(".0"):
             t = t[:-2]
         result[cod] = {
-            "nombre_corto": str(row.get("Nombre_Corto", "") or "").strip(),
-            "descripcion":  str(row.get("Descripción",  "") or "").strip(),
-            "bloque":       str(row.get("Bloque", "")   or "").strip(),
+            "nombre_corto": _v(row, "Nombre_corto", "Nombre_Corto"),
+            "descripcion":  _v(row, "Descripcion", "Descripción"),
+            "bloque":       _v(row, "Bloque"),
             "tema":         t,
         }
     return result

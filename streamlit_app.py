@@ -240,6 +240,12 @@ _HOME_CSS = """<style>
 .hm-tema .t small { color:var(--muted); margin-left:6px; }
 .hm-tema .n { font-family:var(--mono); font-size:.82rem; color:var(--muted); text-align:right; }
 [class*="st-key-card_home_k"] [data-testid="stButton"] button { padding:0; min-height:0; }
+.hm-blqs { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px; }
+.hm-blq { background:var(--card2); border-radius:10px; padding:10px 13px 11px 13px; display:flex; flex-direction:column; gap:5px; }
+.hm-blq .k { font-family:var(--mono); font-size:.72rem; font-weight:600; color:var(--muted); letter-spacing:.04em; }
+.hm-blq .n { font-weight:600; color:var(--text); font-size:.9rem; line-height:1.3; min-height:2.6em;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.hm-blq .s { font-size:.76rem; color:var(--muted); } .hm-blq .s b { color:var(--text); }
 </style>"""
 
 
@@ -365,16 +371,31 @@ def _home_bitacora():
     # ── Fila 3: cobertura por bloque · temas con pocas preguntas ─────────────
     c3, c4 = st.columns([1.2, 1], gap="medium")
     with c3.container(border=True, key="card_home_cov"):
-        rows = ""
+        cfg_b = ss.get("cfg_bloques", {}) or {}
+        cfg_t = ss.get("cfg_temas", {}) or {}
+        tiles = ""
         for blq in sorted(df["bloque"].dropna().unique().tolist(), key=_nsort):
             d_b = df[df["bloque"] == blq]
             tot = len(d_b)
-            usa = int((d_b["usada"].astype(str).str.strip() != "").sum())
-            rows += (f'<div class="cov-row"><span class="cov-name" title="{nombre_bloque(str(blq))}">'
-                     f'{nombre_bloque(str(blq))}</span>{bar_html(usa / tot * 100 if tot else 0)}'
-                     f'<span class="cov-num">{usa}/{tot}</span></div>')
-        st.markdown('<div class="sec-title">Cobertura por bloque<span class="sec-meta">usadas / total</span></div>'
-                    f'<div class="cov-2col">{rows}</div>', unsafe_allow_html=True)
+            frescas = int(d_b["usada"].astype(str).apply(
+                lambda v: not v.strip() or v in ("nan", "None") or es_uso_antiguo(v, 12)).sum())
+            temas_b = sorted({str(t).removesuffix(".0") for t in d_b["Tema"].astype(str)}, key=_nsort)
+            desc = str(cfg_b.get(blq, "") or "").strip()
+            if desc in ("nan", "None"):
+                desc = ""
+            if not desc:   # sin descripción del bloque: los nombres de sus temas, si los hay
+                noms = [cfg_t.get(t, {}).get("nombre", "") for t in temas_b if isinstance(cfg_t.get(t), dict)]
+                noms = [n for n in noms if n and n not in ("nan", "None")]
+                desc = " · ".join(noms[:2]) if noms else "Temas " + ", ".join(temas_b[:6])
+            tiles += (f"<div class='hm-blq'><div class='k'>{blq}</div><div class='n' title='{desc}'>{desc}</div>"
+                      f"<div class='s'><b>{tot}</b> preguntas · {len(temas_b)} tema{'s' if len(temas_b) != 1 else ''}</div>"
+                      f"{bar_html(100 * frescas / tot if tot else 0)}"
+                      f"<div class='s'>{frescas} sin usar en el último año</div></div>")
+        st.markdown("<div class='sec-title'>Bloques<span class='sec-meta'>la barra indica las preguntas "
+                    "disponibles (sin usar en 12 meses)</span></div>"
+                    f"<div class='hm-blqs'>{tiles}</div>", unsafe_allow_html=True)
+        if not any(str(v).strip() not in ("", "nan", "None") for v in cfg_b.values()):
+            st.caption("Pon un nombre a cada bloque en Configuración › Bloques y aparecerá aquí.")
 
     with c4.container(border=True, key="card_home_temas"):
         cnt = df["Tema"].astype(str).str.replace(r"\.0$", "", regex=True).value_counts().to_dict() \
