@@ -864,6 +864,52 @@ with tab_man:
     )
 
     # ── Vista previa de una pregunta (panel derecho o ventana) ────────────────
+    def _duplicar_pregunta(sel_pid, row_d):
+        """Crea una copia de la pregunta (sin solución ni fecha de uso) en su mismo bloque y tema."""
+        blk    = row_d["bloque"]
+        tema_d = str(row_d.get("Tema", "1"))
+        nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
+        blk_df = st.session_state.excel_dfs.get(blk)
+        if blk_df is not None:
+            new_row_dup = _fill_row(blk_df, {
+                "tema": tema_d,
+                "dificultad": row_d.get("dificultad", "Media"),
+                "letra_correcta": row_d.get("letra_correcta", "A"),
+                "enunciado": str(row_d.get("enunciado", "")) + " (COPIA)",
+                "opciones_list": row_d.get("opciones_list", []) or [],
+                "usada": "",
+                "notas": row_d.get("notas", "") or "",
+                "solucion": "",
+            }, nid)
+            st.session_state.excel_dfs[blk] = pd.concat(
+                [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
+            lib.guardar_excel_local(st.session_state.excel_path,
+                                    st.session_state.excel_dfs)
+            notify(f"✅ Duplicada como **{nid}**")
+            _renovar_tabla(); sync_bloques_gsheets([blk]); reload_db(); st.rerun()
+
+    def _acciones_editor(sel_pid, row_d):
+        """Duplicar / Eliminar dentro del editor (Bitácora)."""
+        e1, e2 = st.columns(2)
+        if e1.button("Duplicar", key="dlg_dup", use_container_width=True):
+            _duplicar_pregunta(sel_pid, row_d)
+        _dk = f"dlg_del_conf_{sel_pid}"
+        if e2.button("Eliminar", key="dlg_del", use_container_width=True):
+            st.session_state[_dk] = not st.session_state.get(_dk, False)
+        if st.session_state.get(_dk):
+            st.warning(f"¿Eliminar {sel_pid} de forma permanente?")
+            if st.button("Sí, eliminar", type="primary", key="dlg_del_ok", use_container_width=True):
+                ok, msg = lib.eliminar_preguntas_excel_local(
+                    st.session_state.excel_path, st.session_state.excel_dfs, [sel_pid])
+                if ok:
+                    sync_bloques_gsheets([row_d["bloque"]])
+                    st.session_state.pop(_dk, None)
+                    st.session_state.pop("man_open_pid", None)
+                    notify(f"🗑️ {sel_pid} eliminada.")
+                    _renovar_tabla(); reload_db(); st.rerun()
+                else:
+                    st.error(msg)
+
     def _render_gest_preview(sel_pid, row_d, in_dialog=False):
         """Tarjeta + acciones. En ventana, editar/solución se abren al recargar la página
         y borrar/duplicar renuevan la tabla para no abrir sola otra pregunta."""
@@ -925,27 +971,7 @@ with tab_man:
             _dialog_solucion(sel_pid, row_d)
         if ba3.button("📋 Duplicar" if _bt else "📋", use_container_width=True, key="btn_dup_q",
                       help="Duplicar pregunta"):
-            blk    = row_d["bloque"]
-            tema_d = str(row_d.get("Tema", "1"))
-            nid, _ = lib.generar_siguiente_id(df_total, blk, tema_d)
-            blk_df = st.session_state.excel_dfs.get(blk)
-            if blk_df is not None:
-                new_row_dup = _fill_row(blk_df, {
-                    "tema": tema_d,
-                    "dificultad": row_d.get("dificultad", "Media"),
-                    "letra_correcta": row_d.get("letra_correcta", "A"),
-                    "enunciado": str(row_d.get("enunciado", "")) + " (COPIA)",
-                    "opciones_list": row_d.get("opciones_list", []) or [],
-                    "usada": "",
-                    "notas": row_d.get("notas", "") or "",
-                    "solucion": "",
-                }, nid)
-                st.session_state.excel_dfs[blk] = pd.concat(
-                    [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
-                lib.guardar_excel_local(st.session_state.excel_path,
-                                        st.session_state.excel_dfs)
-                notify(f"✅ Duplicada como **{nid}**")
-                _renovar_tabla(); sync_bloques_gsheets([blk]); reload_db(); st.rerun()
+            _duplicar_pregunta(sel_pid, row_d)
 
         # Borrar con confirmación inline
         _del_key = f"del_confirm_{sel_pid}"
@@ -1221,9 +1247,17 @@ with tab_man:
                 _kind, _pid = _pend
                 _r = df_total[df_total["ID_Pregunta"] == _pid]
                 if not _r.empty:
-                    (_dialog_editar_pregunta if _kind == "edit" else _dialog_solucion)(_pid, dict(_r.iloc[0]))
+                    if _kind == "edit":
+                        _dialog_editar_pregunta(_pid, dict(_r.iloc[0]), _acciones_editor)
+                    else:
+                        _dialog_solucion(_pid, dict(_r.iloc[0]))
             elif _man_open_pid:
-                _dialog_gest_preview(_man_open_pid)
+                if _bit:   # Bitácora: la fila abre directamente el editor (con Duplicar / Eliminar)
+                    _r = df_total[df_total["ID_Pregunta"] == _man_open_pid]
+                    if not _r.empty:
+                        _dialog_editar_pregunta(_man_open_pid, dict(_r.iloc[0]), _acciones_editor)
+                else:
+                    _dialog_gest_preview(_man_open_pid)
 
     # ── Export/Import JSON ───────────────────────────────────────────────────
     sel_ids_for_json = [sel_pid] if sel_pid else []

@@ -1125,7 +1125,7 @@ def _vista_formulas(html: str, height: int = 240):
     _stc.html(mathjax_html(html), height=height, scrolling=True)
 
 
-def _editor_bitacora(pid: str, row: dict):
+def _editor_bitacora(pid: str, row: dict, extra=None):
     """Editor en 4 pestañas (Pregunta · Solución · Clasificación · Notas y datos) con un solo «Guardar»."""
     bloques_list = st.session_state.bloques or []
     ss = st.session_state
@@ -1133,7 +1133,7 @@ def _editor_bitacora(pid: str, row: dict):
     t_p, t_s, t_c, t_n = st.tabs(["Pregunta", "Solución", "Clasificación", "Notas y datos"])
 
     with t_p:
-        ed_enun = st.text_area("Enunciado", value=_txt(row.get("enunciado")), height=110, key="dlg_enun")
+        ed_enun = st.text_area("Enunciado", value=_txt(row.get("enunciado")), height=90, key="dlg_enun")
         ops_orig = list(row.get("opciones_list", []) or []) + ["", "", "", ""]
         corr_cur = _txt(row.get("letra_correcta")).upper() or "A"
         ed_corr = st.radio("Respuesta correcta", ["A", "B", "C", "D"], horizontal=True, key="dlg_corr",
@@ -1146,7 +1146,7 @@ def _editor_bitacora(pid: str, row: dict):
         if st.toggle("Vista previa con fórmulas", value=True, key="dlg_prev_on"):
             prev = dict(row)
             prev.update({"enunciado": ed_enun, "opciones_list": ed_ops, "letra_correcta": ed_corr})
-            _vista_formulas(render_question_card_html(prev, show_sol=True, include_notas=False), 230)
+            _vista_formulas(render_question_card_html(prev, show_sol=True, include_notas=False), 190)
 
     with t_s:
         sk = f"dlg_sol_{pid}"
@@ -1158,7 +1158,7 @@ def _editor_bitacora(pid: str, row: dict):
         for i, (nom, tpl) in enumerate(_PLANTILLAS_SOL.items()):
             if pc[i].button(nom, key=f"dlg_tpl_{i}", use_container_width=True):
                 ss[sk] = tpl.replace("{c}", ed_corr)
-        ed_sol = st.text_area("Solución — LaTeX: $...$ en línea · $$...$$ en bloque", key=sk, height=170)
+        ed_sol = st.text_area("Solución — LaTeX: $...$ en línea · $$...$$ en bloque", key=sk, height=150)
         if ed_sol.strip():
             _vista_formulas(
                 "<div style='font-size:14px;line-height:1.65;padding:12px 14px;border-left:3px solid var(--primary);"
@@ -1222,8 +1222,10 @@ def _editor_bitacora(pid: str, row: dict):
                     if st.checkbox(_lbl, value=(_did in _cur), key=f"dlgdat_{pid}_{_did}"):
                         sel_ids.append(_did)
 
-    st.divider()
-    sc1, sc2, _ = st.columns([2, 1, 2])
+    sc1, sc2, sc3 = st.columns([1.6, 1, 2.4], vertical_alignment="center")
+    if extra is not None:
+        with sc3:
+            extra(pid, row)
     if sc1.button("Guardar cambios", type="primary", use_container_width=True, key="dlg_save"):
         datos = {
             "bloque": ed_blq, "tema": ed_tema, "enunciado": ed_enun.strip(), "opciones": ed_ops,
@@ -1248,10 +1250,11 @@ def _editor_bitacora(pid: str, row: dict):
 
 # ── Dialog compartido: editor de pregunta individual ─────────────────────────
 @st.dialog("✏️ Editar pregunta", width="large")
-def _dialog_editar_pregunta(pid: str, row: dict):
-    """Modal de edición de una pregunta. Llama a st.rerun() para cerrar."""
+def _dialog_editar_pregunta(pid: str, row: dict, extra=None):
+    """Modal de edición de una pregunta. Llama a st.rerun() para cerrar.
+    `extra(pid, row)`: botones adicionales junto a «Guardar» (p. ej. Duplicar / Eliminar en el Gestor)."""
     if get_estilo() == "bitacora":
-        _editor_bitacora(pid, row)
+        _editor_bitacora(pid, row, extra)
         return
     bloques_list = st.session_state.bloques or []
 

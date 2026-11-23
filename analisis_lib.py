@@ -70,7 +70,10 @@ def parse_corrector(data: bytes) -> dict:
     grupo, asignatura, estadísticos) y una fila de títulos que contiene «Respuestas».
     En «Respuestas» cada carácter es una pregunta; un espacio es una respuesta en blanco
     y los blancos finales pueden faltar."""
-    raw = pd.read_excel(io.BytesIO(data), header=None, dtype=str)
+    # .xls antiguo (OLE2) → xlrd; .xlsx (zip) → openpyxl. Explícito: las versiones nuevas de
+    # pandas eligen otro motor por defecto que no está instalado.
+    engine = "xlrd" if data[:4] == b"\xd0\xcf\x11\xe0" else "openpyxl"
+    raw = pd.read_excel(io.BytesIO(data), header=None, dtype=str, engine=engine)
     hdr = None
     for i in range(min(len(raw), 60)):
         if any(_norm(v) == "respuestas" for v in raw.iloc[i].tolist()):

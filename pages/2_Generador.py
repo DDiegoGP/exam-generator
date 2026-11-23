@@ -1737,6 +1737,16 @@ with tab_dev:
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 3 · PREVIEW
 # ─────────────────────────────────────────────────────────────────────────────
+def _alto_texto(t: str, cpl: int = 120) -> int:
+    """Altura aproximada (px) de un texto en la vista con fórmulas."""
+    return 22 * max(1, -(-len(str(t or "")) // cpl))
+
+
+def _alto_tarjeta(p: dict) -> int:
+    ops = (p.get("opciones_list") or [])[:4]
+    return 70 + _alto_texto(p.get("enunciado", "")) + sum(_alto_texto(o, 130) + 6 for o in ops)
+
+
 def _render_checks_prev(cache: list, vista: str):
     """Avisos rápidos sobre el examen: reparto de respuestas, repeticiones, preguntas incompletas."""
     from difflib import SequenceMatcher
@@ -1970,8 +1980,8 @@ with tab_prev:
         inst = cfg.get("inst", "UCM")
         asig = cfg.get("asig", "FÍSICA MÉDICA")
 
-        # ── Cabecera del examen ───────────────────────────────────────────────
-        st.markdown(
+        # ── Cabecera del examen (Clásico; en Bitácora el recuento va debajo) ───
+        if not _bit_prev: st.markdown(
             f"<div style='background:linear-gradient(90deg,var(--chip, #2c3e50),var(--chip, #1a252f));color:var(--chip-ink, white);"
             f"padding:14px 18px;border-radius:8px;margin-bottom:16px'>"
             f"<h3 style='margin:0;font-size:1.1em'>{inst} · {asig}</h3>"
@@ -1991,8 +2001,8 @@ with tab_prev:
             st.session_state["prev_mathjax"] = not st.session_state.get("prev_mathjax", False)
             st.rerun()
 
-        if st.session_state.get("prev_mathjax") or _bit_prev:
-            # Construir HTML completo con MathJax (en Bitácora, siempre: las fórmulas se ven renderizadas)
+        if st.session_state.get("prev_mathjax") and not _bit_prev:
+            # Construir HTML completo con MathJax (Clásico, botón ∑ MathJax)
             dev_qs = st.session_state.dev_questions
             html_body = ""
             if dev_qs:
@@ -2040,7 +2050,14 @@ with tab_prev:
                         "<b style='color:var(--text, #2c3e50)'>PARTE I — DESARROLLO</b></div>",
                         unsafe_allow_html=True
                     )
-                for i, q in enumerate(dev_qs):
+                if _bit_prev:   # con fórmulas renderizadas
+                    _dev_html = "".join(
+                        f"<div class='q-card'><div class='q-enun'>{i+1}. {q['txt']}</div>"
+                        f"<div style='font-size:.85em;color:var(--muted)'>{q['pts']} pts · {q['espacio']}</div></div>"
+                        for i, q in enumerate(dev_qs))
+                    stcomponents.html(mathjax_html(_dev_html), height=min(900, 40 + sum(
+                        _alto_texto(q.get("txt", "")) + 40 for q in dev_qs)), scrolling=True)
+                for i, q in enumerate(dev_qs if not _bit_prev else []):
                     st.markdown(
                         f"<div style='padding:6px 14px;margin-bottom:4px;border-left:3px solid var(--primary, #3498db)'>"
                         f"<b>{i+1}.</b> {q['txt']} <span style='color:var(--muted, #888);font-size:0.85em'>({q['pts']} pts · {q['espacio']})</span>"
@@ -2090,9 +2107,16 @@ with tab_prev:
                     for p in preg_list:
                         q_num += 1
                         cards_html += render_question_card_html(p, show_sol=show_sol, num=q_num)
-                    st.markdown(cards_html, unsafe_allow_html=True)
+                    if _bit_prev:   # fórmulas renderizadas dentro de cada bloque plegable
+                        stcomponents.html(mathjax_html(cards_html), scrolling=True,
+                                          height=min(1600, 24 + sum(_alto_tarjeta(p) for p in preg_list)))
+                    else:
+                        st.markdown(cards_html, unsafe_allow_html=True)
 
-        if not _bit_prev:
+        if _bit_prev:
+            st.caption("Pulsa la cabecera de un bloque para plegarlo. Para ver el PDF definitivo: "
+                       "pestaña **Exportar › Compilar PDF**.")
+        else:
             st.caption("ℹ️ Para fórmulas matemáticas usa el botón **∑ MathJax** arriba. Los bloques se pueden colapsar haciendo clic en su cabecera.")
 
 # ─────────────────────────────────────────────────────────────────────────────
