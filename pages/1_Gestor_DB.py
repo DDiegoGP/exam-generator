@@ -8,7 +8,7 @@ Pestañas:
   4. Estadísticas  – Dashboard de cobertura y dificultad
 """
 import streamlit as st
-from app_theme import initial_sidebar
+from app_theme import initial_sidebar, notify
 import streamlit.components.v1 as stcomponents
 import pandas as pd
 import datetime
@@ -300,7 +300,7 @@ def _dialog_solucion(pid: str, row: dict):
         if ok:
             sync_bloques_gsheets([datos["bloque"]])
             reload_db()
-            st.success("✅ Solución guardada.")
+            notify("✅ Solución guardada.")
             st.rerun()
         else:
             st.error(f"❌ {msg}")
@@ -473,7 +473,7 @@ with tab_add:
                     [blk_df, pd.DataFrame([new_row])], ignore_index=True
                 )
                 lib.guardar_excel_local(excel_path, excel_dfs)
-                st.success(f"✅ Pregunta guardada con ID: **{nid}**")
+                notify(f"✅ Pregunta guardada con ID: **{nid}**")
                 sync_bloques_gsheets([bloque_add])
                 reload_db()
                 st.rerun()
@@ -900,7 +900,7 @@ with tab_man:
                     [blk_df, pd.DataFrame([new_row_dup])], ignore_index=True)
                 lib.guardar_excel_local(st.session_state.excel_path,
                                         st.session_state.excel_dfs)
-                st.success(f"✅ Duplicada como **{nid}**")
+                notify(f"✅ Duplicada como **{nid}**")
                 _renovar_tabla(); sync_bloques_gsheets([blk]); reload_db(); st.rerun()
 
         # Borrar con confirmación inline
@@ -1086,7 +1086,7 @@ with tab_man:
                         if msgs:
                             sync_bloques_gsheets(list(
                                 df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                            st.success(" | ".join(msgs)); reload_db(); st.rerun()
+                            notify(" | ".join(msgs)); reload_db(); st.rerun()
                         else:
                             st.warning("No hay cambios que aplicar.")
                 with bt2:
@@ -1103,7 +1103,7 @@ with tab_man:
                             if ok:
                                 sync_bloques_gsheets(list(
                                     df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                                st.success(msg); reload_db(); st.rerun()
+                                notify(msg); reload_db(); st.rerun()
                             else:
                                 st.error(msg)
 
@@ -1143,7 +1143,7 @@ with tab_man:
                             df_total[df_total["ID_Pregunta"].isin(sel_pids_multi)]["bloque"].unique()))
                         st.session_state["man_checked"] = []
                         st.session_state["_man_chk_reset"] = st.session_state.get("_man_chk_reset", 0) + 1
-                        st.success(msg); reload_db(); st.rerun()
+                        notify(msg); reload_db(); st.rerun()
                     else:
                         st.error(msg)
 
@@ -1228,7 +1228,7 @@ with tab_man:
                         blk_df = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
                     st.session_state.excel_dfs[bloque_json] = blk_df
                     lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
-                    st.success(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
+                    notify(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
                     sync_bloques_gsheets([bloque_json])
                     reload_db()
                     st.rerun()
@@ -1791,7 +1791,7 @@ with tab_sol:
                 # En modo "Sin solución", la pregunta desaparece del filtro.
                 # Mantener el mismo índice (apuntará a la siguiente).
                 st.session_state.sol_edit_idx = sol_idx
-                st.success("✅ Solución guardada.")
+                notify("✅ Solución guardada.")
                 st.rerun()
             else:
                 st.error(f"❌ {msg_s}")
@@ -1899,7 +1899,7 @@ with tab_const:
                     _save_datos_state(_datos_df)
                     for _k in ["nc_nombre","nc_id","nc_sym","nc_val","nc_uni","nc_cat_new"]:
                         st.session_state.pop(_k, None)
-                    st.success(f"✅ Constante `{_nc_id}` añadida.")
+                    notify(f"✅ Constante `{_nc_id}` añadida.")
                     st.rerun()
 
         # ── Lista de constantes por categoría ─────────────────────────────────
@@ -2062,7 +2062,7 @@ with tab_obj:
                     _save_obj_df(_obj_df)
                     for _k in ["nobj_nombre","nobj_cod","nobj_desc","nobj_blq","nobj_tema"]:
                         st.session_state.pop(_k, None)
-                    st.success(f"✅ Objetivo `{_ncod}` añadido.")
+                    notify(f"✅ Objetivo `{_ncod}` añadido.")
                     st.rerun()
 
         # ── Lista de objetivos ────────────────────────────────────────────────

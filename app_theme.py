@@ -83,6 +83,16 @@ def get_estilo() -> str:
     return _pref("ui_estilo", ESTILOS, ESTILO_DEFAULT)
 
 
+def notify(msg: str):
+    """Aviso tras una acción que recarga la página. En Bitácora se muestra como mensaje
+    flotante en la siguiente ejecución (si no, se perdería con el st.rerun()); en Clásico,
+    el recuadro verde de siempre."""
+    if get_estilo() == "bitacora":
+        st.session_state.setdefault("_toasts", []).append(msg)
+    else:
+        st.success(msg)
+
+
 def initial_sidebar(default: str = "auto") -> str:
     """Opción A: en Bitácora la barra lateral arranca plegada (la conexión está en
     «Base de datos ▾»); en Clásico se mantiene como siempre."""
@@ -578,6 +588,27 @@ hr { border-color: var(--border) !important; }
 [class*="st-key-seg_"] label[data-baseweb="radio"]:has(input:checked) { background: var(--btn); border-color: var(--btn); }
 [class*="st-key-seg_"] label[data-baseweb="radio"]:has(input:checked) p { color: #ffffff !important; font-weight: 600; }
 
+/* ── Píldoras para cualquier radio dentro de un contenedor con clave pill_* ── */
+[class*="st-key-pill_"] [role="radiogroup"] { gap: 8px !important; flex-wrap: wrap; }
+[class*="st-key-pill_"] label[data-baseweb="radio"] { margin: 0 !important; padding: 5px 13px !important; background: var(--card);
+  border: 1px solid var(--border2); border-radius: 999px; cursor: pointer; }
+[class*="st-key-pill_"] label[data-baseweb="radio"] > div:first-child { display: none; }
+[class*="st-key-pill_"] label[data-baseweb="radio"] > div:last-child { padding-left: 0 !important; margin-left: 0 !important; }
+[class*="st-key-pill_"] label[data-baseweb="radio"] p { margin: 0; font-size: 0.9rem; }
+[class*="st-key-pill_"] label[data-baseweb="radio"]:has(input:checked) { background: var(--chip); border-color: var(--chip); }
+[class*="st-key-pill_"] label[data-baseweb="radio"]:has(input:checked) p { color: var(--chip-ink) !important; font-weight: 600; }
+
+/* ── Índice lateral de Ayuda (radio con forma de menú) y secciones ocultas ── */
+.st-key-ayuda_menu { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
+.st-key-ayuda_menu [role="radiogroup"] { gap: 2px !important; width: 100%; }
+.st-key-ayuda_menu label[data-baseweb="radio"] { margin: 0 !important; padding: 9px 12px !important; border-radius: 8px; width: 100%; cursor: pointer; }
+.st-key-ayuda_menu label[data-baseweb="radio"] > div:first-child { display: none; }
+.st-key-ayuda_menu label[data-baseweb="radio"] > div:last-child { padding-left: 0 !important; margin-left: 0 !important; }
+.st-key-ayuda_menu label[data-baseweb="radio"] p { margin: 0; color: var(--text2); }
+.st-key-ayuda_menu label[data-baseweb="radio"]:has(input:checked) { background: var(--primary-soft); }
+.st-key-ayuda_menu label[data-baseweb="radio"]:has(input:checked) p { color: var(--primary) !important; font-weight: 600; }
+[class*="st-key-ay_hide_"] { display: none !important; }
+
 /* ── Tarjetas: contenedores con borde y clave card_* ── */
 [class*="st-key-card_"] { background: var(--card); border-color: var(--border) !important; border-radius: 12px !important; }
 [class*="st-key-dev_del_"] button { color: var(--err) !important; border-color: var(--err-bg) !important; }
@@ -640,6 +671,8 @@ def apply_theme(page: str = ""):
     else:
         css = f"<style>{_tokens_css()}{_BASE_CSS}{_BITACORA_CSS}</style>"
     st.html(css + _MODE_SCRIPT, unsafe_allow_javascript=True)
+    for _msg in st.session_state.pop("_toasts", []):   # avisos de notify() de la ejecución anterior
+        st.toast(re.sub(r"^\W+\s*", "", _msg), icon="✅")
     render_topbar(page, estilo)
 
 

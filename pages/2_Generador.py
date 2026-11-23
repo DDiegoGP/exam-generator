@@ -9,7 +9,7 @@ Pestañas:
   5. Historial    – Últimos exámenes generados
 """
 import streamlit as st
-from app_theme import initial_sidebar
+from app_theme import initial_sidebar, notify
 import pandas as pd
 import datetime
 import random
@@ -420,7 +420,24 @@ with tab_sel:
             st.rerun()
 
     # ── Filtros (colapsables para maximizar espacio) ──────────────────────────
-    with st.expander("🔍 Filtros", expanded=False):
+    _bit_f = get_estilo() == "bitacora"
+    if _bit_f:
+        # Uso y dificultad como píldoras; el resto de filtros en «Más filtros»
+        _u = df_total["usada"]
+        _uso_lbl = {"Todos": "Todas", "Nunca usada": "Nunca", "Usada": "Usadas",
+                    "Usada >6 meses": "> 6 meses", "Usada >12 meses": "> 12 meses"}
+        _uso_n = {"Todos": len(df_total), "Nunca usada": int((_u == "").sum()), "Usada": int((_u != "").sum()),
+                  "Usada >6 meses": int(_u.apply(lambda v: es_uso_antiguo(v, 6)).sum()),
+                  "Usada >12 meses": int(_u.apply(lambda v: es_uso_antiguo(v, 12)).sum())}
+        _pf1, _pf2 = st.columns([3, 1.3], vertical_alignment="bottom")
+        with _pf1.container(key="pill_sel_uso"):
+            f_uso = st.radio("Uso", list(_uso_lbl), key="sel_f_uso", horizontal=True,
+                             format_func=lambda o: f"{_uso_lbl[o]} · {_uso_n[o]}")
+        with _pf2.container(key="seg_sel_dif"):
+            f_dif = st.radio("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="sel_f_dif",
+                             horizontal=True,
+                             format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
+    with st.expander("🔍 Más filtros" if _bit_f else "🔍 Filtros", expanded=False):
         fc1, fc2, fc3, fc4, fc5 = st.columns(5)
         f_bloque = fc1.selectbox("Bloque", ["Todos"] + bloques, key="sel_f_bloque")
         temas_disp = (temas_de_bloque(f_bloque) if f_bloque != "Todos"
@@ -428,12 +445,13 @@ with tab_sel:
         f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disp],
                                   key="sel_f_tema",
                                   format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
-        f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"],
-                                  key="sel_f_dif")
-        f_uso    = fc4.selectbox(
-            "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"],
-            key="sel_f_uso"
-        )
+        if not _bit_f:
+            f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"],
+                                      key="sel_f_dif")
+            f_uso    = fc4.selectbox(
+                "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"],
+                key="sel_f_uso"
+            )
         f_search = fc5.text_input("Buscar", placeholder="Texto...", key="sel_search")
         _coms_disp = sorted({c for c in df_total.get("comentario", pd.Series(dtype=str)).dropna() if c})
         _objs_disp = sorted({str(o) for o in df_total.get("objetivo", pd.Series(dtype=str)).dropna() if str(o).strip()})
@@ -1021,7 +1039,7 @@ with tab_dev:
             dev_qs.extend(_imported)
             st.session_state.dev_questions = dev_qs
             st.session_state["_dev_json_upload_name"] = _imp_up.name
-            st.success(f"✅ {len(_imported)} pregunta(s) importada(s)")
+            notify(f"✅ {len(_imported)} pregunta(s) importada(s)")
             st.rerun()
         except Exception as _ie:
             st.error(f"Error al importar: {_ie}")
@@ -3248,7 +3266,7 @@ with tab_exp:
                 _sel_pr   = pr1.selectbox("Preset", ["— Seleccionar —"] + list(_presets.keys()), key="preset_sel")
                 if pr2.button("📂 Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
                     st.session_state.exam_cfg = _presets.get(_sel_pr, {})
-                    st.success(f"Preset '{_sel_pr}' cargado.")
+                    notify(f"Preset '{_sel_pr}' cargado.")
                     st.rerun()
                 pr3, pr4  = st.columns([3, 1])
                 _pr_name  = pr3.text_input("Nombre del preset", placeholder="Ej: FM I Ordinario 2026",
@@ -3256,7 +3274,7 @@ with tab_exp:
                 if pr4.button("💾 Guardar", key="btn_save_preset", use_container_width=True):
                     if _pr_name.strip():
                         save_preset(_pr_name.strip(), st.session_state.get("exam_cfg", {}))
-                        st.success(f"Preset '{_pr_name}' guardado.")
+                        notify(f"Preset '{_pr_name}' guardado.")
                         st.rerun()
                 if _sel_pr != "— Seleccionar —":
                     if st.button(f"🗑️ Eliminar '{_sel_pr}'", key="btn_del_preset"):
@@ -3633,7 +3651,11 @@ with tab_exp:
 # TAB 5 · HISTORIAL
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_hist:
-    st.subheader("Historial de exámenes generados")
+    if get_estilo() == "clasico":
+        st.subheader("Historial de exámenes generados")
+    else:
+        st.markdown("<div class='sec-title'>Exámenes generados<span class='sec-meta'>los 20 más recientes</span></div>",
+                    unsafe_allow_html=True)
 
     hist = st.session_state.historial
     if not hist:
@@ -3652,6 +3674,9 @@ with tab_hist:
             if len(bloques_e) > 4: _blq_str += "…"
 
             with st.expander(
+                (f"{entry.get('fecha','?')} · {entry.get('nombre','?')} · {n_total_e} preguntas · "
+                 f"{entry.get('n_modelos','—')} modelo(s) · {n_f} F / {n_m} M / {n_d} D")
+                if get_estilo() == "bitacora" else
                 f"📄 {entry.get('nombre','?')} · {entry.get('fecha','?')} · {n_total_e} pregs",
                 expanded=(i == 0)
             ):
@@ -3692,13 +3717,13 @@ with tab_hist:
                                use_container_width=True, help="Restaura las preguntas en la pestaña Selección"):
                     valid = [pid for pid in ids if pid in df_total["ID_Pregunta"].values]
                     set_sel_ids(valid)
-                    st.success(f"Recargadas {len(valid)} preguntas. Ve a la pestaña Selección.")
+                    notify(f"Recargadas {len(valid)} preguntas. Ve a la pestaña Selección.")
                     st.rerun()
                 if exam_cfg_e and _ha2.button("↺ Restaurar configuración", key=f"hist_cfg_{i}",
                                                use_container_width=True,
                                                help="Recupera toda la configuración de exportación (institución, tipo, fecha, estilo…)"):
                     st.session_state.exam_cfg = dict(exam_cfg_e)
-                    st.success("Configuración restaurada. Ve a la pestaña Exportar.")
+                    notify("Configuración restaurada. Ve a la pestaña Exportar.")
                     st.rerun()
                 if _ha3.button("↩️+↺ Ambos", key=f"hist_both_{i}",
                                use_container_width=True,
@@ -3707,7 +3732,7 @@ with tab_hist:
                     set_sel_ids(valid)
                     if exam_cfg_e:
                         st.session_state.exam_cfg = dict(exam_cfg_e)
-                    st.success(f"Restauradas {len(valid)} preguntas y configuración. Ve a Selección o Exportar.")
+                    notify(f"Restauradas {len(valid)} preguntas y configuración. Ve a Selección o Exportar.")
                     st.rerun()
 
     # ── Recuperar desde CSV ────────────────────────────────────────────────

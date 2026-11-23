@@ -4,6 +4,8 @@ maxUploadSize = 50
 [client]
 # La navegación entre páginas se dibuja arriba (app_theme.render_topbar)
 showSidebarNavigation = false
+# Sin «Deploy»: solo el menú ⋮ (Settings → claro / oscuro)
+toolbarMode = "viewer"
 
 # ── Tema base (común a claro y oscuro) ────────────────────────────────────────
 [theme]

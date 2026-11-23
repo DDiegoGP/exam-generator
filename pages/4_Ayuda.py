@@ -4,6 +4,7 @@ pages/4_Ayuda.py  –  Manual de uso y referencia de la aplicación.
 import streamlit as st
 from app_theme import initial_sidebar
 from app_utils import init_session_state, render_sidebar, apply_theme
+from app_theme import get_estilo
 
 st.set_page_config(page_title="Ayuda · ExamGen UCM", page_icon="📖", layout="wide",
                    initial_sidebar_state=initial_sidebar())
@@ -76,7 +77,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-tab_inicio, tab_gestor, tab_gen, tab_export, tab_latex, tab_faq = st.tabs([
+_AY_SECS = ["Inicio rápido", "Gestor DB", "Generador", "Exportación", "LaTeX / Word", "Preguntas frecuentes"]
+if get_estilo() == "bitacora":
+    # Índice a la izquierda; solo se muestra la sección elegida (las demás se ocultan con CSS)
+    _ay_idx, _ay_body = st.columns([1, 4.2], gap="medium")
+    with _ay_idx.container(key="ayuda_menu"):
+        _ay_sel = st.radio("Sección", _AY_SECS, key="ayuda_sec", label_visibility="collapsed")
+    tab_inicio, tab_gestor, tab_gen, tab_export, tab_latex, tab_faq = [
+        _ay_body.container(key=f"ay_sec_{i}" if s == _ay_sel else f"ay_hide_{i}") for i, s in enumerate(_AY_SECS)]
+else:
+  tab_inicio, tab_gestor, tab_gen, tab_export, tab_latex, tab_faq = st.tabs([
     "🚀 Inicio rápido",
     "🗄️ Gestor DB",
     "🎲 Generador",

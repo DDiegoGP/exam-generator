@@ -10,7 +10,7 @@ Pestañas:
 import json
 import io
 import streamlit as st
-from app_theme import initial_sidebar
+from app_theme import initial_sidebar, notify
 import pandas as pd
 import os
 import sys
@@ -48,7 +48,8 @@ bloques_list  = st.session_state.bloques
 df_preguntas  = st.session_state.df_preguntas
 
 tab_gen, tab_bloques, tab_temas, tab_obj, tab_backup, tab_ui = st.tabs(
-    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos", "💾 Backup config", "🎨 Apariencia"]
+    ["📋 General", "📦 Bloques", "📌 Temas", "🎯 Objetivos",
+     "💾 Copia de seguridad" if get_estilo() == "bitacora" else "💾 Backup config", "🎨 Apariencia"]
 )
 
 
@@ -103,7 +104,7 @@ with tab_gen:
         if path:
             lib.guardar_excel_local(path, dfs)
         sync_hoja_gsheets(lib.CFG_GENERAL_SHEET)
-        st.success("✅ Datos generales guardados.")
+        notify("✅ Datos generales guardados.")
         st.rerun()
 
     # Vista previa del encabezado de examen
@@ -178,7 +179,7 @@ with tab_bloques:
         if path:
             lib.guardar_excel_local(path, dfs)
         sync_hoja_gsheets(lib.CFG_BLOQUES_SHEET)
-        st.success("✅ Nombres de bloques guardados.")
+        notify("✅ Nombres de bloques guardados.")
         st.rerun()
 
 
@@ -282,7 +283,7 @@ with tab_temas:
         if path:
             lib.guardar_excel_local(path, dfs)
         sync_hoja_gsheets(lib.CFG_TEMAS_SHEET)
-        st.success("✅ Nombres de temas guardados.")
+        notify("✅ Nombres de temas guardados.")
         st.rerun()
 
 
@@ -357,7 +358,7 @@ with tab_obj:
         if path:
             lib.guardar_excel_local(path, dfs2)
         sync_hoja_gsheets(lib.CFG_OBJETIVOS_SHEET)
-        st.success("✅ Objetivos guardados.")
+        notify("✅ Objetivos guardados.")
         st.rerun()
 
 
@@ -532,7 +533,7 @@ with tab_backup:
                 sync_hoja_gsheets(lib.CFG_TEMAS_SHEET)
                 sync_hoja_gsheets(lib.CFG_GENERAL_SHEET)
                 sync_hoja_gsheets(lib.CFG_OBJETIVOS_SHEET)
-                st.success("✅ Configuración importada correctamente.")
+                notify("✅ Configuración importada correctamente.")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error al importar: {e}")
