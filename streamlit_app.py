@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 from app_utils import (init_session_state, render_sidebar, handle_oauth_callback, apply_theme,
-                       nombre_bloque, _nsort)
+                       nombre_bloque, nombre_tema, es_uso_antiguo, _nsort)
 from app_theme import get_estilo, kpi_html, bar_html
 import os
 
@@ -217,89 +217,191 @@ _MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
           "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
 
+_HOME_CSS = """<style>
+.hm-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin:2px 0 14px 0; }
+.hm-stat { background:var(--card2); border-radius:10px; padding:10px 14px; }
+.hm-stat .n { font-size:1.45rem; font-weight:700; color:var(--text); line-height:1.2; font-variant-numeric:tabular-nums; }
+.hm-stat .l { font-size:.78rem; color:var(--muted); }
+.hm-empty { color:var(--muted); font-size:.92rem; padding:6px 0 12px 0; }
+.hm-line { font-size:.86rem; color:var(--text2); margin:-4px 0 12px 0; }
+.hm-line b { color:var(--text); }
+.hm-ex { display:grid; grid-template-columns:86px minmax(0,1fr) auto; gap:12px; align-items:center; padding:9px 0;
+  border-bottom:1px solid var(--border); }
+.hm-ex:last-child { border-bottom:none; }
+.hm-ex .d { font-family:var(--mono); font-size:.8rem; color:var(--muted); }
+.hm-ex .t { color:var(--text); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hm-ex .t small { display:block; font-weight:400; color:var(--muted); font-size:.78rem; }
+.hm-chip { font-size:.74rem; font-weight:600; border-radius:999px; padding:2px 9px; white-space:nowrap; }
+.hm-chip.ok { background:var(--ok-bg); color:var(--ok); } .hm-chip.warn { background:var(--warn-bg); color:var(--warn); }
+.hm-chip.mut { background:var(--card2); color:var(--muted); }
+.hm-tile .kpi-val { font-size:1.75rem; }
+.hm-tema { display:grid; grid-template-columns:minmax(0,1fr) 90px 34px; gap:12px; align-items:center; padding:7px 0; }
+.hm-tema .t { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hm-tema .t small { color:var(--muted); margin-left:6px; }
+.hm-tema .n { font-family:var(--mono); font-size:.82rem; color:var(--muted); text-align:right; }
+[class*="st-key-card_home_k"] [data-testid="stButton"] button { padding:0; min-height:0; }
+</style>"""
+
+
+def _ir_gestor(preset: dict):
+    """Abre el Gestor con los filtros indicados (se aplican antes de dibujar sus controles)."""
+    st.session_state["_gestor_preset"] = preset
+    st.switch_page("pages/1_Gestor_DB.py")
+
+
 def _home_bitacora():
+    import analisis_lib as _A
     ss    = st.session_state
     hoy   = datetime.date.today()
     fecha = f"{_DIAS[hoy.weekday()]} {hoy.day} de {_MESES[hoy.month - 1]}"
-    n_sel = len(ss.get("sel_ids", []))
+    st.markdown(_HOME_CSS, unsafe_allow_html=True)
 
-    if ss.db_connected:
-        sub = (f"{n_sel} preguntas seleccionadas en el Generador" if n_sel
-               else "Ninguna pregunta seleccionada todavía")
-    else:
-        sub = "Base de datos no conectada"
+    # ── Sin base de datos: solo cómo empezar ─────────────────────────────────
+    if not ss.db_connected:
+        st.markdown(f'<div class="pg-head"><div class="pg-title">{fecha}</div>'
+                    f'<div class="pg-sub">Base de datos no conectada</div></div>', unsafe_allow_html=True)
+        with st.container(border=True, key="card_home_conn"):
+            st.markdown(
+                "<div class='sec-title'>Conecta tu base de datos para empezar</div>"
+                "<div class='steps-inline' style='flex-direction:column;gap:8px'>"
+                "<span><b>1</b>Pulsa <b style='font-family:inherit;color:var(--text)'>Base de datos</b>, "
+                "arriba a la derecha.</span>"
+                "<span><b>2</b>Entra con tu cuenta de Google y elige la hoja, o sube el archivo Excel.</span>"
+                "<span><b>3</b>Ya puedes gestionar preguntas, generar exámenes y analizarlos.</span></div>",
+                unsafe_allow_html=True)
+        st.caption(f"Generador de Exámenes · Unidad de Física Médica · UCM · {hoy.year} — Diego García Pinto")
+        return
 
-    # Título + accesos directos (mismas claves que los botones de las tarjetas de Clásico)
-    h1, h2, h3, h4, h5 = st.columns([4.2, 1.1, 1.3, 0.9, 1.5], vertical_alignment="bottom")
+    df     = ss.df_preguntas
+    n_bloq = df["bloque"].nunique() if "bloque" in df.columns else 0
+    origen = ss.get("_upload_name") or os.path.basename(ss.get("excel_path", "") or "")
+    h1, h2 = st.columns([5, 1.4], vertical_alignment="bottom")
     h1.markdown(f'<div class="pg-head" style="margin:0"><div class="pg-title">{fecha}</div>'
-                f'<div class="pg-sub">{sub}</div></div>', unsafe_allow_html=True)
-    if h2.button("Gestor DB", use_container_width=True, key="btn_home_gestor"):
-        st.switch_page("pages/1_Gestor_DB.py")
-    if h3.button("Configuración", use_container_width=True, key="btn_home_cfg"):
-        st.switch_page("pages/3_Configuracion.py")
-    if h4.button("Ayuda", use_container_width=True, key="btn_home_help"):
-        st.switch_page("pages/4_Ayuda.py")
-    if h5.button("Ir al Generador", use_container_width=True, type="primary", key="btn_home_gen"):
+                f'<div class="pg-sub">{len(df)} preguntas · {n_bloq} bloques'
+                f'{" · " + origen if origen else ""}</div></div>', unsafe_allow_html=True)
+    if h2.button("Ir al Generador", use_container_width=True, type="primary", key="btn_home_gen"):
         st.switch_page("pages/2_Generador.py")
+    st.write("")
 
-    if ss.db_connected:
-        df     = ss.df_preguntas
-        nunca  = int((df["usada"] == "").sum())
-        usadas = len(df) - nunca
-        pct    = int(usadas / len(df) * 100) if len(df) else 0
-        n_bloq = df["bloque"].nunique() if "bloque" in df.columns else 0
-        if "solucion" in df.columns:
-            _con_sol = (~df["solucion"].astype(str).str.strip().isin(["", "nan", "None"])).sum()
-            sin_sol  = int(len(df) - _con_sol)
+    # ── Fila 1: seguir trabajando · últimos exámenes ─────────────────────────
+    c1, c2 = st.columns([1.2, 1], gap="medium")
+    with c1.container(border=True, key="card_home_curso"):
+        st.markdown("<div class='sec-title'>Seguir trabajando</div>", unsafe_allow_html=True)
+        n_fij = len(ss.get("sel_ids", []) or [])
+        rec   = ss.get("auto_recipe", {}) or {}
+        n_aut = sum(int(v) for bd in rec.values() if isinstance(bd, dict) for sd in bd.values()
+                    if isinstance(sd, dict) for v in sd.values() if isinstance(v, (int, float)))
+        n_dev = len(ss.get("dev_questions", []) or [])
+        n_gen = len(ss.get("cache_examen", []) or [])
+        ef    = ss.get("export_files") or {}
+        if n_fij or n_aut or n_dev or n_gen:
+            stats = [(n_fij, "fijas"), (n_aut, "por auto-relleno"), (n_dev, "de desarrollo"),
+                     (n_gen, "en la vista previa")]
+            st.markdown("<div class='hm-stats'>" + "".join(
+                f"<div class='hm-stat'><div class='n'>{n}</div><div class='l'>{l}</div></div>" for n, l in stats)
+                + "</div>", unsafe_allow_html=True)
+            if ef.get("nombre"):
+                st.markdown(f"<div class='hm-line'>Última exportación: <b>{ef['nombre']}</b></div>",
+                            unsafe_allow_html=True)
+            if st.button("Continuar con el examen", type="primary", key="btn_home_cont"):
+                st.switch_page("pages/2_Generador.py")
         else:
-            sin_sol = len(df)
-        st.markdown(kpi_html([
-            ("Total preguntas", len(df),   f"{n_bloq} bloques", False),
-            ("Usadas",          usadas,    f"{pct} %", False),
-            ("Sin usar",        nunca,     "nunca en examen", False),
-            ("Sin solución",    sin_sol,   "pendientes", False),
-            ("Seleccionadas",   n_sel,     "en el Generador", True),
-        ], compact=True), unsafe_allow_html=True)
+            st.markdown("<div class='hm-empty'>No hay ningún examen en preparación. En el Generador eliges "
+                        "las preguntas (a mano o con auto-relleno), las revisas en la vista previa y exportas "
+                        "a Word o LaTeX.</div>", unsafe_allow_html=True)
+            if st.button("Empezar un examen", type="primary", key="btn_home_new"):
+                st.switch_page("pages/2_Generador.py")
+
+    with c2.container(border=True, key="card_home_exams"):
+        st.markdown("<div class='sec-title'>Últimos exámenes<span class='sec-meta'>registrados</span></div>",
+                    unsafe_allow_html=True)
+        exs = _A.get_examenes(ss.get("excel_dfs", {}))
+        if exs.empty:
+            st.markdown("<div class='hm-empty'>Aún no hay exámenes registrados. Se registran solos al exportar, "
+                        "y los anteriores se pueden añadir en Análisis.</div>", unsafe_allow_html=True)
+        else:
+            rows = ""
+            for _, r in exs.sort_values("Fecha", ascending=False).head(4).iterrows():
+                if str(r["KR20"]).strip():
+                    try:
+                        chip = (f"<span class='hm-chip ok'>media {float(r['Media']):.2f} · "
+                                f"KR-20 {float(r['KR20']):.2f}</span>").replace(".", ",")
+                    except ValueError:
+                        chip = "<span class='hm-chip ok'>analizado</span>"
+                else:
+                    chip = "<span class='hm-chip mut'>sin analizar</span>"
+                sub = " · ".join(x for x in (r["Curso"], r["Convocatoria"], f"{r['N_Preguntas']} preguntas") if x)
+                rows += (f"<div class='hm-ex'><span class='d'>{r['Fecha'][:10]}</span>"
+                         f"<span class='t'>{r['Nombre']}<small>{sub}</small></span>{chip}</div>")
+            st.markdown(rows, unsafe_allow_html=True)
+        if st.button("Analizar un examen", key="btn_home_an"):
+            st.switch_page("pages/5_Analisis.py")
+
+    # ── Fila 2: estado del banco (cada dato lleva al Gestor ya filtrado) ──────
+    st.markdown("<div class='sec-title' style='margin-top:6px'>Estado del banco</div>", unsafe_allow_html=True)
+    _u = df["usada"].astype(str)
+    nunca = int((_u.str.strip() == "").sum())
+    viejas = int(_u.apply(lambda v: es_uso_antiguo(v, 12)).sum())
+    if "solucion" in df.columns:
+        sin_sol = int(df["solucion"].astype(str).str.strip().isin(["", "nan", "None"]).sum())
     else:
-        st.warning("**Base de datos no conectada.** Sube tu archivo Excel desde la barra lateral para empezar.")
+        sin_sol = len(df)
+    n_tem = df["Tema"].astype(str).nunique() if "Tema" in df.columns else 0
+    pct = lambda n: f"{round(100 * n / len(df))} % del banco" if len(df) else ""
+    tiles = [
+        ("Preguntas", len(df), f"{n_bloq} bloques · {n_tem} temas", {}),
+        ("Sin solución", sin_sol, pct(sin_sol), {"man_filter_sin_sol": True}),
+        ("Nunca usadas", nunca, pct(nunca), {"man_f_uso": "Nunca usada"}),
+        ("Sin usar hace +12 meses", viejas, "usadas por última vez hace más de un año", {"man_f_uso": "Usada >12m"}),
+    ]
+    tcols = st.columns(len(tiles), gap="small")
+    for i, (lbl, val, sub, pre) in enumerate(tiles):
+        with tcols[i].container(border=True, key=f"card_home_k{i}"):
+            st.markdown(f"<div class='hm-tile'><div class='kpi-lbl'>{lbl}</div><div class='kpi-val'>{val}</div>"
+                        f"<div class='kpi-sub'>{sub}</div></div>", unsafe_allow_html=True)
+            if st.button("Ver en el Gestor →", key=f"btn_home_k{i}", type="tertiary", disabled=not val):
+                _ir_gestor(pre)
 
-    col_l, col_r = st.columns([1.55, 1], gap="medium")
-    with col_l:
-        if ss.db_connected and "bloque" in ss.df_preguntas.columns:
-            df = ss.df_preguntas
-            rows = ""
-            for blq in sorted(df["bloque"].dropna().unique().tolist(), key=_nsort):
-                d_b = df[df["bloque"] == blq]
-                tot = len(d_b)
-                usa = int((d_b["usada"] != "").sum())
-                rows += (f'<div class="cov-row"><span class="cov-name" title="{nombre_bloque(str(blq))}">'
-                         f'{nombre_bloque(str(blq))}</span>{bar_html(usa / tot * 100 if tot else 0)}'
-                         f'<span class="cov-num">{usa}/{tot}</span></div>')
-            st.markdown('<div class="card"><div class="sec-title">Cobertura por bloque'
-                        '<span class="sec-meta">usadas / total</span></div>'
-                        f'<div class="cov-2col">{rows}</div></div>', unsafe_allow_html=True)
+    # ── Fila 3: cobertura por bloque · temas con pocas preguntas ─────────────
+    c3, c4 = st.columns([1.2, 1], gap="medium")
+    with c3.container(border=True, key="card_home_cov"):
+        rows = ""
+        for blq in sorted(df["bloque"].dropna().unique().tolist(), key=_nsort):
+            d_b = df[df["bloque"] == blq]
+            tot = len(d_b)
+            usa = int((d_b["usada"].astype(str).str.strip() != "").sum())
+            rows += (f'<div class="cov-row"><span class="cov-name" title="{nombre_bloque(str(blq))}">'
+                     f'{nombre_bloque(str(blq))}</span>{bar_html(usa / tot * 100 if tot else 0)}'
+                     f'<span class="cov-num">{usa}/{tot}</span></div>')
+        st.markdown('<div class="sec-title">Cobertura por bloque<span class="sec-meta">usadas / total</span></div>'
+                    f'<div class="cov-2col">{rows}</div>', unsafe_allow_html=True)
 
-    with col_r:
-        historial = ss.historial
-        if historial:
-            rows = ""
-            for entry in reversed(historial[-3:]):
-                rows += (f'<div class="list-row"><span class="list-date">{entry.get("fecha", "")}</span>'
-                         f'<span class="list-title">{entry.get("titulo", "Sin título")}</span>'
-                         f'<span class="list-meta">{entry.get("n_preguntas", "?")} preg · '
-                         f'{entry.get("n_modelos", "?")} mod.</span></div>')
-            st.markdown(f'<div class="card"><div class="sec-title">Últimos exámenes</div>{rows}</div>',
+    with c4.container(border=True, key="card_home_temas"):
+        cnt = df["Tema"].astype(str).str.replace(r"\.0$", "", regex=True).value_counts().to_dict() \
+            if "Tema" in df.columns else {}
+        temas = {str(t): d for t, d in (ss.get("cfg_temas", {}) or {}).items()}
+        for t in cnt:
+            temas.setdefault(t, {})
+        pocos = sorted(((t, cnt.get(t, 0)) for t in temas if cnt.get(t, 0) < 4), key=lambda x: (x[1], _nsort(x[0])))
+        st.markdown("<div class='sec-title'>Temas con pocas preguntas<span class='sec-meta'>menos de 4</span></div>",
+                    unsafe_allow_html=True)
+        if not pocos:
+            st.markdown("<div class='hm-empty'>Todos los temas tienen al menos 4 preguntas.</div>",
                         unsafe_allow_html=True)
-        pasos = ["Conecta la base de datos", "Configura bloques y temas", "Añade o importa preguntas",
-                 "Selecciona o auto-rellena", "Exporta a Word / LaTeX"]
-        st.markdown('<div class="card"><div class="sec-title">Inicio rápido</div><div class="steps-inline">'
-                    + "".join(f"<span><b>{i}</b>{t}</span>" for i, t in enumerate(pasos, 1))
-                    + "</div></div>", unsafe_allow_html=True)
+        else:
+            mx = max(4, max(n for _, n in pocos))
+            rows = ""
+            for t, n in pocos[:7]:
+                d = temas.get(t) if isinstance(temas.get(t), dict) else {}
+                blq = nombre_bloque(str(d.get("bloque", ""))) if d.get("bloque") else ""
+                rows += (f"<div class='hm-tema'><span class='t'>{nombre_tema(t)}<small>{blq}</small></span>"
+                         f"{bar_html(100 * n / mx)}<span class='n'>{n}</span></div>")
+            st.markdown(rows, unsafe_allow_html=True)
+            if len(pocos) > 7:
+                st.caption(f"y {len(pocos) - 7} más")
 
-    st.caption(
-        f"Generador Exámenes · Unidad de Física Médica · Facultad de Medicina · UCM · {hoy.year}"
-        "  —  Desarrollado por Diego García Pinto"
-    )
+    st.caption(f"Generador de Exámenes · Unidad de Física Médica · Facultad de Medicina · UCM · {hoy.year}"
+               "  —  Desarrollado por Diego García Pinto")
 
 if get_estilo() == "bitacora":
     _home_bitacora()

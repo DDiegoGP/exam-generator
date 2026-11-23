@@ -1221,11 +1221,15 @@ def _editor_bitacora(pid: str, row: dict, extra=None):
         prev.update({"enunciado": ed_enun, "opciones_list": ed_ops, "letra_correcta": ed_corr,
                      "dificultad": ed_dif, "notas": ed_notas})
         _html = render_question_card_html(prev, show_sol=True, include_notas=True)
+        _html += ("<div style='font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.06em;"
+                  "margin:12px 0 4px 2px'>SOLUCIÓN</div>")
         if ed_sol.strip():
-            _html += ("<div style='font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.06em;"
-                      "margin:12px 0 4px 2px'>SOLUCIÓN</div>"
-                      "<div style='line-height:1.6;padding:10px 14px;border-left:3px solid var(--primary);"
+            _html += ("<div style='line-height:1.6;padding:10px 14px;border-left:3px solid var(--primary);"
                       f"background:var(--primary-soft);border-radius:0 8px 8px 0'>{ed_sol}</div>")
+        else:
+            _html += ("<div style='padding:10px 14px;border:1px dashed var(--border2);border-radius:8px;"
+                      "color:var(--muted);font-size:.9em'>Sin solución todavía. Escríbela en la pestaña "
+                      "«Solución» y aparecerá aquí con las fórmulas renderizadas.</div>")
         _vista_formulas(_html, 470)
 
     sc1, sc2, sc3 = st.columns([1.6, 1, 2.4], vertical_alignment="center")

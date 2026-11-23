@@ -726,6 +726,12 @@ with tab_man:
         st.session_state["man_search_global"]  = False
         st.session_state["man_filter_sin_sol"] = False
         st.session_state["_man_prev_bloque"]   = "Todos"
+    _preset = st.session_state.pop("_gestor_preset", None)   # filtros pedidos desde Inicio
+    if _preset:
+        for _k, _v in {"man_f_bloque": "Todos", "man_f_tema": "Todos", "man_f_dif": "Todas",
+                       "man_f_uso": "Todos", "man_search": "", "man_filter_sin_sol": False,
+                       "_man_prev_bloque": "Todos", **_preset}.items():
+            st.session_state[_k] = _v
 
     if _bit:
         # Uso y dificultad como píldoras (radios con estilo); mismas claves y valores
