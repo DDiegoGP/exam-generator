@@ -1381,6 +1381,159 @@ def _dialog_editar_pregunta(pid: str, row: dict, extra=None):
         st.rerun()
 
 
+# ── Filtros comunes (Bitácora): Gestor › Gestionar y Generador › Selección ────
+_USO_LBL = {"Todos": "Todas", "Nunca usada": "Nunca", "Usada": "Usadas",
+            "Usada >6m": "> 6 meses", "Usada >12m": "> 12 meses"}
+_USO_LEGACY = {"Usada >6 meses": "Usada >6m", "Usada >12 meses": "Usada >12m"}
+_FDEF = dict(search="", bloque="Todos", tema="Todos", obj="Todos", uso="Todos", dif="Todas",
+             sol="Todas", com="Todas", glob=False)
+
+
+def _fkeys(p: str) -> dict:
+    return dict(search=f"{p}search", bloque=f"{p}f_bloque", tema=f"{p}f_tema", obj=f"{p}f_obj",
+                uso=f"{p}f_uso", dif=f"{p}f_dif", sol=f"{p}f_sol", com=f"{p}f_com", glob=f"{p}search_global")
+
+
+def limpiar_filtros(p: str, nombres=None):
+    """Pide limpiar filtros (se aplica en la siguiente ejecución, antes de dibujarlos)."""
+    st.session_state[f"_{p}fclear"] = list(nombres or _FDEF)
+
+
+def filtros_bitacora(p: str, df: pd.DataFrame, bloques: list, contar_en: pd.DataFrame = None) -> pd.DataFrame:
+    """Dibuja los filtros (buscador, bloque, tema, objetivo, uso, dificultad, solución, etiqueta),
+    las etiquetas de filtros activos y el recuento; devuelve `df` filtrado.
+    `p` es el prefijo de las claves ('man_' en el Gestor, 'sel_' en el Generador)."""
+    ss = st.session_state
+    K = _fkeys(p)
+    for n in ss.pop(f"_{p}fclear", []):
+        ss[K[n]] = _FDEF[n]
+    if ss.get(K["uso"]) in _USO_LEGACY:
+        ss[K["uso"]] = _USO_LEGACY[ss[K["uso"]]]
+
+    def _guard(name, opts):
+        if K[name] in ss and ss[K[name]] not in opts:
+            ss[K[name]] = _FDEF[name]
+
+    blq_opts = ["Todos"] + [str(b) for b in bloques]
+    _guard("bloque", blq_opts)
+    _guard("uso", list(_USO_LBL))
+    _guard("dif", ["Todas", "Facil", "Media", "Dificil"])
+    _guard("sol", ["Todas", "Con", "Sin"])
+    base = df if contar_en is None else contar_en
+
+    with st.container(border=True, key=f"card_{p}filtros"):
+        c = st.columns([2.2, 1.1, 1.1, 1.3, 1.1], vertical_alignment="bottom")
+        f_search = c[0].text_input("Buscar", key=K["search"], placeholder="Enunciado, opciones, notas o ID…")
+        f_bloque = c[1].selectbox("Bloque", blq_opts, key=K["bloque"],
+                                  format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b))
+        if ss.get(f"_{p}prev_bloque", f_bloque) != f_bloque:
+            ss[K["tema"]] = "Todos"
+        ss[f"_{p}prev_bloque"] = f_bloque
+        src = df if f_bloque == "Todos" else df[df["bloque"] == f_bloque]
+        temas = sorted({str(t).removesuffix(".0") for t in src["Tema"].astype(str) if str(t) not in ("", "nan")},
+                       key=_nsort)
+        _guard("tema", ["Todos"] + temas)
+        f_tema = c[2].selectbox("Tema", ["Todos"] + temas, key=K["tema"],
+                                format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
+        objs = sorted(set(ss.get("cfg_objetivos", {}) or {})
+                      | {str(o) for o in df.get("objetivo", pd.Series(dtype=str)).astype(str)
+                         if str(o).strip() not in ("", "nan", "None")}, key=_nsort)
+        obj_opts = ["Todos"] + objs + ["__none__"]
+        _guard("obj", obj_opts)
+        f_obj = c[3].selectbox("Objetivo", obj_opts, key=K["obj"],
+                               format_func=lambda o: {"Todos": "Todos", "__none__": "Sin objetivo"}.get(o) or nombre_objetivo(o))
+
+        _u = base["usada"].astype(str).replace({"nan": "", "None": ""})
+        _n = {"Todos": len(base), "Nunca usada": int((_u.str.strip() == "").sum()),
+              "Usada": int((_u.str.strip() != "").sum()),
+              "Usada >6m": int(_u.apply(lambda v: es_uso_antiguo(v, 6)).sum()),
+              "Usada >12m": int(_u.apply(lambda v: es_uso_antiguo(v, 12)).sum())}
+        c2 = st.columns([3.3, 1.9, 1.3, 0.6], vertical_alignment="bottom")
+        with c2[0].container(key=f"pill_{p}uso"):
+            f_uso = st.radio("Uso", list(_USO_LBL), key=K["uso"], horizontal=True,
+                             format_func=lambda o: f"{_USO_LBL[o]} · {_n[o]}")
+        with c2[1].container(key=f"seg_{p}dif"):
+            f_dif = st.radio("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key=K["dif"], horizontal=True,
+                             format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
+        with c2[2].container(key=f"seg_{p}sol"):
+            f_sol = st.radio("Solución", ["Todas", "Con", "Sin"], key=K["sol"], horizontal=True)
+        coms = sorted({str(x).strip() for x in df.get("comentario", pd.Series(dtype=str)).astype(str)
+                       if str(x).strip() not in ("", "nan", "None")})
+        _guard("com", ["Todas"] + coms)
+        f_com = c[4].selectbox("Etiqueta", ["Todas"] + coms, key=K["com"])
+
+        # ── aplicar ──
+        f_glob = bool(ss.get(K["glob"], False)) and bool(f_search.strip())
+        d = df
+        if f_bloque != "Todos" and not f_glob:
+            d = d[d["bloque"] == f_bloque]
+        if f_tema != "Todos" and not f_glob:
+            d = d[d["Tema"].astype(str).str.removesuffix(".0") == f_tema]
+        if f_obj == "__none__":
+            d = d[d.get("objetivo", pd.Series("", index=d.index)).astype(str).str.strip().isin(["", "nan", "None"])]
+        elif f_obj != "Todos":
+            d = d[d.get("objetivo", pd.Series("", index=d.index)).astype(str) == f_obj]
+        du = d["usada"].astype(str).replace({"nan": "", "None": ""}).str.strip()
+        if f_uso == "Nunca usada":
+            d = d[du == ""]
+        elif f_uso == "Usada":
+            d = d[du != ""]
+        elif f_uso in ("Usada >6m", "Usada >12m"):
+            d = d[du.apply(lambda v: es_uso_antiguo(v, 6 if f_uso == "Usada >6m" else 12))]
+        if f_dif != "Todas":
+            d = d[d["dificultad"].astype(str).str.lower() == f_dif.lower()]
+        if f_sol != "Todas":
+            _con = d.get("solucion", pd.Series("", index=d.index)).astype(str).str.strip().apply(
+                lambda v: v not in ("", "nan", "None"))
+            d = d[_con] if f_sol == "Con" else d[~_con]
+        if f_com != "Todas":
+            d = d[d.get("comentario", pd.Series("", index=d.index)).astype(str).str.strip() == f_com]
+        if f_search.strip():
+            q = f_search.strip().lower()
+            m = (d["ID_Pregunta"].astype(str).str.lower().str.contains(q, regex=False)
+                 | d["enunciado"].astype(str).str.lower().str.contains(q, regex=False)
+                 | d.get("notas", pd.Series("", index=d.index)).astype(str).str.lower().str.contains(q, regex=False)
+                 | d["opciones_list"].apply(lambda ops: any(q in str(o).lower() for o in (ops or []))))
+            d = d[m]
+
+        # ── filtros activos + recuento ──
+        act = []
+        if f_search.strip():
+            act.append(("search", f"Buscar: «{f_search.strip()[:24]}»"))
+        if f_bloque != "Todos":
+            act.append(("bloque", f"Bloque: {f_bloque}"))
+        if f_tema != "Todos":
+            act.append(("tema", f"Tema {f_tema}"))
+        if f_obj != "Todos":
+            act.append(("obj", "Sin objetivo" if f_obj == "__none__" else f"Objetivo: {f_obj}"))
+        if f_uso != "Todos":
+            act.append(("uso", f"Uso: {_USO_LBL[f_uso]}"))
+        if f_dif != "Todas":
+            act.append(("dif", {"Facil": "Fácil", "Dificil": "Difícil"}.get(f_dif, f_dif)))
+        if f_sol != "Todas":
+            act.append(("sol", "Con solución" if f_sol == "Con" else "Sin solución"))
+        if f_com != "Todas":
+            act.append(("com", f"Etiqueta: {f_com}"))
+        r = st.columns([6, 1.6], vertical_alignment="center")
+        with r[0].container(horizontal=True, gap="small", key=f"chips_{p}"):
+            if act:
+                st.markdown("<span class='chips-lbl'>Filtros activos:</span>", unsafe_allow_html=True)
+                for name, lbl in act:
+                    if st.button(f"{lbl}  ×", key=f"{p}chip_{name}", help="Quitar este filtro"):
+                        limpiar_filtros(p, [name] + (["glob"] if name == "search" else []))
+                        st.rerun()
+                if len(act) > 1 and st.button("Limpiar filtros", key=f"{p}chip_all", type="tertiary"):
+                    limpiar_filtros(p)
+                    st.rerun()
+            else:
+                st.markdown("<span class='chips-lbl'>Sin filtros</span>", unsafe_allow_html=True)
+            if f_search.strip() and (f_bloque != "Todos" or f_tema != "Todos"):
+                st.checkbox("Buscar en todos los bloques", key=K["glob"])
+        r[1].markdown(f"<div class='chips-count'><b>{len(d)}</b> de {len(base)} preguntas</div>",
+                      unsafe_allow_html=True)
+    return d
+
+
 def marcar_preguntas_usadas(pids: list, fecha_str: str) -> int:
     """Marca una lista de IDs de pregunta como usadas con la fecha dada.
     Devuelve el número de preguntas actualizadas correctamente."""

@@ -356,7 +356,7 @@ def _home_bitacora():
     pct = lambda n: f"{round(100 * n / len(df))} % del banco" if len(df) else ""
     tiles = [
         ("Preguntas", len(df), f"{n_bloq} bloques · {n_tem} temas", {}),
-        ("Sin solución", sin_sol, pct(sin_sol), {"man_filter_sin_sol": True}),
+        ("Sin solución", sin_sol, pct(sin_sol), {"man_filter_sin_sol": True, "man_f_sol": "Sin"}),
         ("Nunca usadas", nunca, pct(nunca), {"man_f_uso": "Nunca usada"}),
         ("Sin usar hace +12 meses", viejas, "usadas por última vez hace más de un año", {"man_f_uso": "Usada >12m"}),
     ]

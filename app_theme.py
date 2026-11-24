@@ -265,7 +265,8 @@ _QTABLE = _components.declare_component(
 
 
 def qtable(rows: list, mode: str, key: str, height: int = 460,
-           checked=None, reset=0, foot: str = "", empty: str = ""):
+           checked=None, reset=0, foot: str = "", empty: str = "",
+           collapse_default: bool = False, toolbar: bool = False):
     """Dibuja la tabla a medida y devuelve la acción pulsada, solo una vez:
     {"action": "open"|"add"|"remove"|"up"|"down"|"check", "id": ..., "ids": [...]} o None.
 
@@ -275,7 +276,8 @@ def qtable(rows: list, mode: str, key: str, height: int = 460,
         st.caption(f"[tabla {mode}: {len(rows)} filas]")
         return None
     val = _QTABLE(rows=rows, mode=mode, height=height, checked=list(checked or []), reset=reset,
-                  foot=foot, empty=empty, key=key, default=None)
+                  foot=foot, empty=empty, collapse_default=collapse_default, toolbar=toolbar,
+                  key=key, default=None)
     if isinstance(val, dict) and val.get("nonce") != st.session_state.get(f"_qt_{key}"):
         st.session_state[f"_qt_{key}"] = val.get("nonce")
         return val
@@ -293,6 +295,7 @@ def qtable_row(r: dict, sel: bool = False, grp: str = "", grp_meta: str = "") ->
         "difk": {"facil": "f", "media": "m", "dificil": "d"}.get(dl, "n"),
         "uso": _txt(r.get("usada")).split(" ")[0],
         "sol": bool(_txt(r.get("solucion"))),
+        "obj": _txt(r.get("objetivo")),
         "sel": bool(sel), "grp": grp, "grp_meta": grp_meta,
     }
 
@@ -598,6 +601,33 @@ hr { border-color: var(--border) !important; }
 [class*="st-key-pill_"] label[data-baseweb="radio"] p { margin: 0; font-size: 0.9rem; }
 [class*="st-key-pill_"] label[data-baseweb="radio"]:has(input:checked) { background: var(--chip); border-color: var(--chip); }
 [class*="st-key-pill_"] label[data-baseweb="radio"]:has(input:checked) p { color: var(--chip-ink) !important; font-weight: 600; }
+
+/* ── Filtros comunes: etiquetas de filtros activos y recuento ── */
+.chips-lbl { font-size: 13px; color: var(--muted); }
+.chips-count { text-align: right; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.chips-count b { color: var(--text); }
+[class*="st-key-chips_"] { align-items: center; }
+[class*="st-key-chips_"] [data-testid="stMarkdownContainer"] p { margin: 0; }
+[class*="st-key-chips_"] [data-testid="stButton"] button[kind="secondary"] { min-height: 0; height: 28px; padding: 0 10px;
+  border-radius: 999px; background: var(--primary-soft); color: var(--primary); border: none; font-size: 13px; font-weight: 600; }
+[class*="st-key-chips_"] [data-testid="stButton"] button[kind="tertiary"] { min-height: 0; height: 28px; font-size: 13px;
+  text-decoration: underline; color: var(--primary); }
+[class*="st-key-chips_"] [data-testid="stCheckbox"] { margin-left: 8px; }
+[class*="st-key-card_"][class*="filtros"] [data-testid="stVerticalBlock"] { gap: 0.7rem; }
+
+/* ── Barra de acciones sobre las preguntas marcadas (Gestor) ── */
+.st-key-man_actbar { background: var(--chip); border-radius: 12px; padding: 8px 10px 8px 16px; align-items: center; }
+.st-key-man_actbar .ab-count { color: var(--chip-ink); font-weight: 700; white-space: nowrap; margin-right: 6px; }
+.st-key-man_actbar [data-testid="stMarkdownContainer"] p { margin: 0; font-weight: 400; }
+.st-key-man_actbar button p { font-size: 13px !important; }
+.st-key-man_actbar { gap: 6px !important; }
+.st-key-man_actbar [data-testid="stButton"] button, .st-key-man_actbar [data-testid="stDownloadButton"] button {
+  min-height: 0; height: 32px; padding: 0 11px; font-size: 13.5px; background: rgba(255,255,255,.10); color: var(--chip-ink);
+  border: 1px solid rgba(255,255,255,.2); border-radius: 8px; }
+:root[data-ui-mode="dark"] .st-key-man_actbar [data-testid="stButton"] button,
+:root[data-ui-mode="dark"] .st-key-man_actbar [data-testid="stDownloadButton"] button { background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.2); }
+.st-key-man_actbar .st-key-man_act_del button { background: #a3261a !important; border-color: #a3261a !important; color: #fff !important; }
+.st-key-man_actbar .st-key-man_act_clear button { background: none !important; border: none !important; text-decoration: underline; opacity: .8; }
 
 /* ── Índice lateral de Ayuda (radio con forma de menú) y secciones ocultas ── */
 .st-key-ayuda_menu { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }

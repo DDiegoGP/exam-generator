@@ -32,7 +32,7 @@ from app_utils import (
     append_historial, save_preset, delete_preset,
     nombre_bloque, nombre_tema, nombre_objetivo,
     OUTPUT_DIR, _nsort,
-    _dialog_editar_pregunta, marcar_preguntas_usadas, guardar_hojas,
+    _dialog_editar_pregunta, marcar_preguntas_usadas, guardar_hojas, filtros_bitacora,
 )
 from app_theme import get_preview_mode, get_estilo, qtable, qtable_row
 
@@ -422,78 +422,68 @@ with tab_sel:
     # ── Filtros (colapsables para maximizar espacio) ──────────────────────────
     _bit_f = get_estilo() == "bitacora"
     if _bit_f:
-        # Uso y dificultad como píldoras; el resto de filtros en «Más filtros»
-        _u = df_total["usada"]
-        _uso_lbl = {"Todos": "Todas", "Nunca usada": "Nunca", "Usada": "Usadas",
-                    "Usada >6 meses": "> 6 meses", "Usada >12 meses": "> 12 meses"}
-        _uso_n = {"Todos": len(df_total), "Nunca usada": int((_u == "").sum()), "Usada": int((_u != "").sum()),
-                  "Usada >6 meses": int(_u.apply(lambda v: es_uso_antiguo(v, 6)).sum()),
-                  "Usada >12 meses": int(_u.apply(lambda v: es_uso_antiguo(v, 12)).sum())}
-        _pf1, _pf2 = st.columns([3, 1.3], vertical_alignment="bottom")
-        with _pf1.container(key="pill_sel_uso"):
-            f_uso = st.radio("Uso", list(_uso_lbl), key="sel_f_uso", horizontal=True,
-                             format_func=lambda o: f"{_uso_lbl[o]} · {_uso_n[o]}")
-        with _pf2.container(key="seg_sel_dif"):
-            f_dif = st.radio("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="sel_f_dif",
-                             horizontal=True,
-                             format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
-    with st.expander("🔍 Más filtros" if _bit_f else "🔍 Filtros", expanded=False):
-        fc1, fc2, fc3, fc4, fc5 = st.columns(5)
-        f_bloque = fc1.selectbox("Bloque", ["Todos"] + bloques, key="sel_f_bloque")
-        temas_disp = (temas_de_bloque(f_bloque) if f_bloque != "Todos"
-                      else sorted(df_total["Tema"].unique().tolist(), key=_nsort))
-        f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disp],
-                                  key="sel_f_tema",
-                                  format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
-        if not _bit_f:
-            f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"],
-                                      key="sel_f_dif")
-            f_uso    = fc4.selectbox(
-                "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"],
-                key="sel_f_uso"
-            )
-        f_search = fc5.text_input("Buscar", placeholder="Texto...", key="sel_search")
-        _coms_disp = sorted({c for c in df_total.get("comentario", pd.Series(dtype=str)).dropna() if c})
-        _objs_disp = sorted({str(o) for o in df_total.get("objetivo", pd.Series(dtype=str)).dropna() if str(o).strip()})
-        _has_extra = bool(_coms_disp) or bool(_objs_disp)
-        if _has_extra:
-            fc6, fc7, _ = st.columns([2, 2, 1])
-            f_com = fc6.selectbox("Etiqueta", ["Todas"] + _coms_disp, key="sel_f_com") if _coms_disp else "Todas"
-            f_obj = fc7.selectbox("Objetivo", ["Todos"] + _objs_disp, key="sel_f_obj",
-                                  format_func=lambda x: "Todos" if x == "Todos" else nombre_objetivo(x)) if _objs_disp else "Todos"
-        else:
-            f_com = "Todas"
-            f_obj = "Todos"
+        # Los mismos filtros que Gestor › Gestionar (sobre las preguntas aún no fijadas)
+        df_filt = filtros_bitacora("sel_", df_total[~df_total["ID_Pregunta"].isin(sel_ids_actual)], bloques)
+    elif st.session_state.get("sel_f_uso") in ("Usada >6m", "Usada >12m"):   # valores del estilo Bitácora
+        st.session_state["sel_f_uso"] = st.session_state["sel_f_uso"].replace("m", " meses")
+    if not _bit_f:
+        with st.expander("🔍 Filtros", expanded=False):
+            fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+            f_bloque = fc1.selectbox("Bloque", ["Todos"] + bloques, key="sel_f_bloque")
+            temas_disp = (temas_de_bloque(f_bloque) if f_bloque != "Todos"
+                          else sorted(df_total["Tema"].unique().tolist(), key=_nsort))
+            f_tema   = fc2.selectbox("Tema", ["Todos"] + [str(t) for t in temas_disp],
+                                      key="sel_f_tema",
+                                      format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t))
+            if not _bit_f:
+                f_dif    = fc3.selectbox("Dificultad", ["Todas", "Facil", "Media", "Dificil"],
+                                          key="sel_f_dif")
+                f_uso    = fc4.selectbox(
+                    "Uso", ["Todos", "Nunca usada", "Usada", "Usada >6 meses", "Usada >12 meses"],
+                    key="sel_f_uso"
+                )
+            f_search = fc5.text_input("Buscar", placeholder="Texto...", key="sel_search")
+            _coms_disp = sorted({c for c in df_total.get("comentario", pd.Series(dtype=str)).dropna() if c})
+            _objs_disp = sorted({str(o) for o in df_total.get("objetivo", pd.Series(dtype=str)).dropna() if str(o).strip()})
+            _has_extra = bool(_coms_disp) or bool(_objs_disp)
+            if _has_extra:
+                fc6, fc7, _ = st.columns([2, 2, 1])
+                f_com = fc6.selectbox("Etiqueta", ["Todas"] + _coms_disp, key="sel_f_com") if _coms_disp else "Todas"
+                f_obj = fc7.selectbox("Objetivo", ["Todos"] + _objs_disp, key="sel_f_obj",
+                                      format_func=lambda x: "Todos" if x == "Todos" else nombre_objetivo(x)) if _objs_disp else "Todos"
+            else:
+                f_com = "Todas"
+                f_obj = "Todos"
 
-    # Aplicar filtros
-    df_filt = df_total.copy()
-    df_filt = df_filt[~df_filt["ID_Pregunta"].isin(sel_ids_actual)]
-    if f_bloque != "Todos":
-        df_filt = df_filt[df_filt["bloque"] == f_bloque]
-    if f_tema != "Todos":
-        df_filt = df_filt[df_filt["Tema"].astype(str) == f_tema]
-    if f_dif != "Todas":
-        df_filt = df_filt[df_filt["dificultad"].str.lower() == f_dif.lower()]
-    if f_uso == "Nunca usada":
-        df_filt = df_filt[df_filt["usada"] == ""]
-    elif f_uso == "Usada":
-        df_filt = df_filt[df_filt["usada"] != ""]
-    elif f_uso == "Usada >6 meses":
-        df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 6))]
-    elif f_uso == "Usada >12 meses":
-        df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 12))]
-    if f_search:
-        q = f_search.lower()
-        mask = df_filt["enunciado"].str.lower().str.contains(q, na=False)
-        ops_mask = df_filt["opciones_list"].apply(
-            lambda ops: any(q in str(o).lower() for o in ops)
-            if isinstance(ops, list) else False
-        )
-        df_filt = df_filt[mask | ops_mask]
-    if f_com != "Todas" and "comentario" in df_filt.columns:
-        df_filt = df_filt[df_filt["comentario"] == f_com]
-    if f_obj != "Todos" and "objetivo" in df_filt.columns:
-        df_filt = df_filt[df_filt["objetivo"].astype(str) == f_obj]
+        # Aplicar filtros
+        df_filt = df_total.copy()
+        df_filt = df_filt[~df_filt["ID_Pregunta"].isin(sel_ids_actual)]
+        if f_bloque != "Todos":
+            df_filt = df_filt[df_filt["bloque"] == f_bloque]
+        if f_tema != "Todos":
+            df_filt = df_filt[df_filt["Tema"].astype(str) == f_tema]
+        if f_dif != "Todas":
+            df_filt = df_filt[df_filt["dificultad"].str.lower() == f_dif.lower()]
+        if f_uso == "Nunca usada":
+            df_filt = df_filt[df_filt["usada"] == ""]
+        elif f_uso == "Usada":
+            df_filt = df_filt[df_filt["usada"] != ""]
+        elif f_uso == "Usada >6 meses":
+            df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 6))]
+        elif f_uso == "Usada >12 meses":
+            df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 12))]
+        if f_search:
+            q = f_search.lower()
+            mask = df_filt["enunciado"].str.lower().str.contains(q, na=False)
+            ops_mask = df_filt["opciones_list"].apply(
+                lambda ops: any(q in str(o).lower() for o in ops)
+                if isinstance(ops, list) else False
+            )
+            df_filt = df_filt[mask | ops_mask]
+        if f_com != "Todas" and "comentario" in df_filt.columns:
+            df_filt = df_filt[df_filt["comentario"] == f_com]
+        if f_obj != "Todos" and "objetivo" in df_filt.columns:
+            df_filt = df_filt[df_filt["objetivo"].astype(str) == f_obj]
 
     # ── Vista previa de una pregunta (panel central o ventana) ─────────────────
     def _render_sel_preview(preview_pid, row_d_prev, in_dialog=False):
@@ -643,7 +633,7 @@ with tab_sel:
             for r in _recs:
                 _cnt[_grp_of(r)] = _cnt.get(_grp_of(r), 0) + 1
             _act = qtable([qtable_row(r, grp=_grp_of(r), grp_meta=f"{_cnt[_grp_of(r)]} preguntas") for r in _recs],
-                          "seleccion", key="qt_avail", height=520,
+                          "seleccion", key="qt_avail", height=560, collapse_default=True, toolbar=True,
                           foot="Pulsa una fila para ver la pregunta · + la añade como fija",
                           empty="No hay preguntas disponibles con estos filtros")
             if _act and _act.get("action") == "add":

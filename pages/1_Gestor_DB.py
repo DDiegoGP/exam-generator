@@ -31,7 +31,7 @@ from app_utils import (
     nombre_bloque, nombre_tema, nombre_objetivo,
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
     sync_hoja_gsheets, sync_bloques_gsheets,
-    _dialog_editar_pregunta,
+    _dialog_editar_pregunta, filtros_bitacora, limpiar_filtros, marcar_preguntas_usadas,
 )
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -484,6 +484,151 @@ with tab_add:
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 · IMPORTAR
 # ─────────────────────────────────────────────────────────────────────────────
+def _ui_importar_json():
+    """Importar preguntas desde un JSON exportado de otra base de datos."""
+    bloque_json = _bloque_selectbox("Bloque destino", "json_bloque")
+    json_file   = st.file_uploader("Archivo JSON", type=["json"], key="json_uploader")
+    if json_file and st.button("📥 Importar JSON", key="btn_imp_json"):
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tf:
+            tf.write(json_file.read())
+            tmp_json = tf.name
+        nuevas, dupes = lib.importar_preguntas_json(tmp_json, bloque_json, df_total)
+        os.unlink(tmp_json)
+        if nuevas:
+            blk_df = _asegurar_bloque(st.session_state.excel_dfs, bloque_json)
+            for p in nuevas:
+                new_row = _fill_row(blk_df, {
+                    "tema": p.get("Tema") or p.get("tema", "1"),
+                    "dificultad": p.get("dificultad", "Media"),
+                    "letra_correcta": p.get("letra_correcta", "A"),
+                    "enunciado": p.get("enunciado", ""),
+                    "opciones_list": p.get("opciones_list", []),
+                    "usada": p.get("usada", ""),
+                    "notas": p.get("notas", "") or "",
+                }, p["ID_Pregunta"])
+                blk_df = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
+            st.session_state.excel_dfs[bloque_json] = blk_df
+            lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
+            notify(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
+            sync_bloques_gsheets([bloque_json])
+            reload_db()
+            st.rerun()
+        else:
+            st.warning(f"No se importó ninguna pregunta nueva. {dupes} duplicadas omitidas.")
+
+
+def _guardar_masivo(ids, msgs):
+    sync_bloques_gsheets(list(df_total[df_total["ID_Pregunta"].isin(ids)]["bloque"].unique()))
+    reload_db()
+    notify(" · ".join(m for m in msgs if m))
+    st.rerun()
+
+
+@st.dialog("Cambiar tema", width="small")
+def _dlg_tema(ids):
+    st.caption(f"{len(ids)} pregunta(s) seleccionada(s)")
+    temas = sorted({str(t) for t in (st.session_state.get("cfg_temas", {}) or {})}
+                   | {str(t) for t in df_total["Tema"].astype(str)}, key=_nsort)
+    t = st.selectbox("Nuevo tema", temas, format_func=nombre_tema, key="bulk_dlg_tema")
+    if st.button("Aplicar", type="primary", key="bulk_dlg_tema_ok"):
+        ok, m = lib.actualizar_campo_masivo(st.session_state.excel_path, st.session_state.excel_dfs, ids, "tema", t)
+        _guardar_masivo(ids, [m]) if ok else st.error(m)
+
+
+@st.dialog("Cambiar dificultad", width="small")
+def _dlg_dif(ids):
+    st.caption(f"{len(ids)} pregunta(s) seleccionada(s)")
+    with st.container(key="seg_bulk_dif"):
+        d = st.radio("Nueva dificultad", ["Facil", "Media", "Dificil"], index=1, horizontal=True, key="bulk_dlg_dif",
+                     format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
+    if st.button("Aplicar", type="primary", key="bulk_dlg_dif_ok"):
+        ok, m = lib.actualizar_campo_masivo(st.session_state.excel_path, st.session_state.excel_dfs, ids, "dificultad", d)
+        _guardar_masivo(ids, [m]) if ok else st.error(m)
+
+
+@st.dialog("Asignar objetivo", width="small")
+def _dlg_obj(ids):
+    st.caption(f"{len(ids)} pregunta(s) seleccionada(s)")
+    objs = [""] + list((st.session_state.get("cfg_objetivos", {}) or {}).keys())
+    o = st.selectbox("Objetivo", objs, key="bulk_dlg_obj",
+                     format_func=lambda x: "— Quitar el objetivo —" if not x else nombre_objetivo(x))
+    if len(objs) == 1:
+        st.caption("No hay objetivos: créalos en Configuración › Objetivos.")
+    if st.button("Aplicar", type="primary", key="bulk_dlg_obj_ok"):
+        ok, m = lib.actualizar_campo_masivo(st.session_state.excel_path, st.session_state.excel_dfs, ids, "objetivo", o)
+        _guardar_masivo(ids, [m]) if ok else st.error(m)
+
+
+@st.dialog("Poner etiqueta", width="small")
+def _dlg_com(ids):
+    st.caption(f"{len(ids)} pregunta(s) seleccionada(s)")
+    v = st.text_input("Etiqueta", key="bulk_dlg_com", placeholder="ej: CLASE, EXAMEN_2023… (vacío = quitarla)")
+    if st.button("Aplicar", type="primary", key="bulk_dlg_com_ok"):
+        ok, m = lib.actualizar_campo_masivo(st.session_state.excel_path, st.session_state.excel_dfs, ids,
+                                            "comentario", v.strip())
+        _guardar_masivo(ids, [m]) if ok else st.error(m)
+
+
+@st.dialog("Marcar como usadas", width="small")
+def _dlg_usada(ids):
+    st.caption(f"{len(ids)} pregunta(s) seleccionada(s)")
+    f = st.date_input("Fecha de uso", value=datetime.date.today(), key="bulk_dlg_usada")
+    if st.button("Aplicar", type="primary", key="bulk_dlg_usada_ok"):
+        n = marcar_preguntas_usadas(ids, f.strftime("%Y-%m-%d"))
+        notify(f"✅ {n} pregunta(s) marcadas como usadas el {f.strftime('%d/%m/%Y')}.")
+        st.rerun()
+
+
+@st.dialog("Buscar y reemplazar", width="small")
+def _dlg_repl(ids):
+    st.caption(f"En el enunciado de {len(ids)} pregunta(s) seleccionada(s)")
+    a = st.text_input("Buscar", key="bulk_dlg_find")
+    b = st.text_input("Reemplazar por", key="bulk_dlg_repl")
+    if st.button("Reemplazar", type="primary", key="bulk_dlg_repl_ok", disabled=not a):
+        ok, m = lib.reemplazar_texto_masivo(st.session_state.excel_path, st.session_state.excel_dfs, ids, a, b)
+        _guardar_masivo(ids, [m]) if ok else st.error(m)
+
+
+@st.dialog("Eliminar preguntas", width="small")
+def _dlg_del(ids):
+    st.warning(f"Se eliminarán **{len(ids)}** pregunta(s) de forma permanente: {', '.join(ids[:5])}"
+               + ("…" if len(ids) > 5 else ""))
+    if st.checkbox("Confirmo que quiero eliminarlas", key="bulk_dlg_del_conf") and \
+            st.button(f"Eliminar {len(ids)}", type="primary", key="bulk_dlg_del_ok"):
+        ok, m = lib.eliminar_preguntas_excel_local(st.session_state.excel_path, st.session_state.excel_dfs, ids)
+        if ok:
+            st.session_state["man_checked"] = []
+            st.session_state["_man_chk_reset"] = st.session_state.get("_man_chk_reset", 0) + 1
+            _guardar_masivo(ids, [m])
+        else:
+            st.error(m)
+
+
+def _barra_acciones(ids):
+    """Barra oscura sobre las preguntas MARCADAS (no sobre todas las filtradas)."""
+    import json as _json
+    with st.container(horizontal=True, gap="small", key="man_actbar"):
+        st.markdown(f"<span class='ab-count'>{len(ids)} seleccionada{'s' if len(ids) != 1 else ''}</span>",
+                    unsafe_allow_html=True)
+        acciones = [("Cambiar tema", _dlg_tema), ("Dificultad", _dlg_dif), ("Objetivo", _dlg_obj),
+                    ("Etiqueta", _dlg_com), ("Marcar como usada", _dlg_usada), ("Buscar y reemplazar", _dlg_repl)]
+        for i, (lbl, fn) in enumerate(acciones):
+            if st.button(lbl, key=f"man_act_{i}"):
+                fn(ids)
+        _pregs = df_total[df_total["ID_Pregunta"].isin(ids)].to_dict("records")
+        st.download_button("Exportar JSON", _json.dumps({"version": 1, "preguntas": _pregs}, ensure_ascii=False,
+                                                        indent=2, default=str).encode("utf-8"),
+                           file_name=f"preguntas_{datetime.date.today()}.json", mime="application/json",
+                           key="man_act_json")
+        if st.button("Eliminar", key="man_act_del"):
+            _dlg_del(ids)
+        if st.button("Quitar selección ×", key="man_act_clear"):
+            st.session_state["man_checked"] = []
+            st.session_state["_man_chk_reset"] = st.session_state.get("_man_chk_reset", 0) + 1
+            st.rerun()
+
+
 def _stg_sin_correcta(q: dict) -> bool:
     if str(q.get("letra_correcta", "")).upper() not in ("A", "B", "C", "D"):
         return True
@@ -513,6 +658,9 @@ def _stg_tags(q: dict) -> str:
 
 with tab_imp:
     st.subheader("Importar preguntas")
+    if get_estilo() == "bitacora":
+        with st.expander("Importar desde un JSON exportado de otra base de datos"):
+            _ui_importar_json()
 
     # ── Configuración ─────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
@@ -727,64 +875,20 @@ with tab_man:
         st.session_state["man_search_global"]  = False
         st.session_state["man_filter_sin_sol"] = False
         st.session_state["_man_prev_bloque"]   = "Todos"
+        limpiar_filtros("man_")
     _preset = st.session_state.pop("_gestor_preset", None)   # filtros pedidos desde Inicio
     if _preset:
         for _k, _v in {"man_f_bloque": "Todos", "man_f_tema": "Todos", "man_f_dif": "Todas",
                        "man_f_uso": "Todos", "man_search": "", "man_filter_sin_sol": False,
-                       "_man_prev_bloque": "Todos", **_preset}.items():
+                       "man_f_sol": "Todas", "man_f_obj": "Todos", "man_f_com": "Todas",
+                       "man_search_global": False, "_man_prev_bloque": "Todos", **_preset}.items():
             st.session_state[_k] = _v
 
     if _bit:
-        # Uso y dificultad como píldoras (radios con estilo); mismas claves y valores
-        _u = df_total["usada"]
-        _uso_lbl = {"Todos": "Todas", "Nunca usada": "Nunca", "Usada": "Usadas",
-                    "Usada >6m": "> 6 meses", "Usada >12m": "> 12 meses"}
-        _uso_n = {"Todos": len(df_total), "Nunca usada": int((_u == "").sum()),
-                  "Usada": int((_u != "").sum()),
-                  "Usada >6m": int(_u.apply(lambda v: es_uso_antiguo(v, 6)).sum()),
-                  "Usada >12m": int(_u.apply(lambda v: es_uso_antiguo(v, 12)).sum())}
-        ra1, ra2 = st.columns([3, 1.3], vertical_alignment="bottom")
-        with ra1.container(key="man_uso_box"):
-            f_uso = st.radio("Uso", list(_uso_lbl), key="man_f_uso", horizontal=True,
-                             format_func=lambda o: f"{_uso_lbl[o]} · {_uso_n[o]}")
-        with ra2.container(key="man_dif_box"):
-            f_dif = st.radio("Dificultad", ["Todas", "Facil", "Media", "Dificil"], key="man_f_dif",
-                             horizontal=True,
-                             format_func=lambda o: {"Facil": "Fácil", "Dificil": "Difícil"}.get(o, o))
-
-        rb1, rb2, rb3, rb4 = st.columns([2.6, 1.3, 1.3, 1], vertical_alignment="bottom")
-        f_search = rb1.text_input("Buscar", placeholder="Enunciado, opciones, notas…", key="man_search")
-        f_bloque = rb2.selectbox(
-            "Bloque", ["Todos"] + bloques, key="man_f_bloque",
-            format_func=lambda b: "Todos" if b == "Todos" else nombre_bloque(b),
-        )
-        _prev_blq = st.session_state.get("_man_prev_bloque", f_bloque)
-        if _prev_blq != f_bloque:
-            st.session_state["man_f_tema"] = "Todos"
-        st.session_state["_man_prev_bloque"] = f_bloque
-        temas_disponibles = temas_en_db(f_bloque)
-        _t_cur = st.session_state.get("man_f_tema", "Todos")
-        if _t_cur != "Todos" and _t_cur not in temas_disponibles:
-            st.session_state["man_f_tema"] = "Todos"
-        f_tema = rb3.selectbox(
-            "Tema", ["Todos"] + temas_disponibles, key="man_f_tema",
-            format_func=lambda t: "Todos" if t == "Todos" else nombre_tema(t),
-        )
-        if rb4.button("Limpiar filtros", key="btn_clear_filters", use_container_width=True):
-            st.session_state["_do_clear_filters"] = True
-            st.rerun()
-
-        rc1, rc2, rc3, rc4 = st.columns([2.2, 1, 1.7, 1.5], vertical_alignment="center")
-        f_sin_sol = rc2.checkbox("Sin solución", key="man_filter_sin_sol", value=False)
-        f_global  = rc3.checkbox("Buscar en todos los bloques", key="man_search_global", value=False,
-                                 help="Buscar ignorando el filtro de bloque")
-        _multi_mode = False   # con la tabla a medida las casillas están siempre disponibles
-        # siempre activo: se dibuja antes que la tabla, así que no puede saber aún qué hay marcado
-        if rc4.button("Quitar selección", key="btn_man_unchk", use_container_width=True):
-            st.session_state["man_checked"] = []
-            st.session_state["_man_chk_reset"] = st.session_state.get("_man_chk_reset", 0) + 1
-            st.rerun()
-        _count_slot = rc1
+        # Filtros comunes con Generador › Selección (buscador, bloque, tema, objetivo, uso,
+        # dificultad, solución, etiqueta) con etiquetas de filtros activos y recuento
+        df_filt = filtros_bitacora("man_", df_total, bloques)
+        _multi_mode = False
     else:
         fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 1.5, 2, 0.7])
 
@@ -827,48 +931,51 @@ with tab_man:
 
         _count_slot = st
 
-    # ── Aplicar filtros ───────────────────────────────────────────────────────
-    df_filt = df_total.copy()
-    if f_bloque != "Todos" and not f_global:
-        df_filt = df_filt[df_filt["bloque"] == f_bloque]
-    if f_tema != "Todos":
-        df_filt = df_filt[df_filt["Tema"].astype(str) == f_tema]
-    if f_dif != "Todas":
-        df_filt = df_filt[df_filt["dificultad"].str.lower() == f_dif.lower()]
-    if f_uso == "Nunca usada":
-        df_filt = df_filt[df_filt["usada"] == ""]
-    elif f_uso == "Usada":
-        df_filt = df_filt[df_filt["usada"] != ""]
-    elif f_uso == "Usada >6m":
-        df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 6))]
-    elif f_uso == "Usada >12m":
-        df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 12))]
-    if f_sin_sol:
-        df_filt = df_filt[~df_filt["solucion"].apply(
-            lambda v: bool(str(v).strip() and str(v) not in ('nan', 'None', '')))]
-    if f_search:
-        sq = f_search.lower()
-        mask = df_filt["enunciado"].str.lower().str.contains(sq, na=False)
-        mask = mask | df_filt["notas"].astype(str).str.lower().str.contains(sq, na=False)
-        mask = mask | df_filt["opciones_list"].apply(
-            lambda ops: any(sq in str(o).lower() for o in (ops or [])))
-        df_filt = df_filt[mask]
+    if not _bit:
+        # ── Aplicar filtros ───────────────────────────────────────────────────────
+        df_filt = df_total.copy()
+        if f_bloque != "Todos" and not f_global:
+            df_filt = df_filt[df_filt["bloque"] == f_bloque]
+        if f_tema != "Todos":
+            df_filt = df_filt[df_filt["Tema"].astype(str) == f_tema]
+        if f_dif != "Todas":
+            df_filt = df_filt[df_filt["dificultad"].str.lower() == f_dif.lower()]
+        if f_uso == "Nunca usada":
+            df_filt = df_filt[df_filt["usada"] == ""]
+        elif f_uso == "Usada":
+            df_filt = df_filt[df_filt["usada"] != ""]
+        elif f_uso == "Usada >6m":
+            df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 6))]
+        elif f_uso == "Usada >12m":
+            df_filt = df_filt[df_filt["usada"].apply(lambda v: es_uso_antiguo(v, 12))]
+        if f_sin_sol:
+            df_filt = df_filt[~df_filt["solucion"].apply(
+                lambda v: bool(str(v).strip() and str(v) not in ('nan', 'None', '')))]
+        if f_search:
+            sq = f_search.lower()
+            mask = df_filt["enunciado"].str.lower().str.contains(sq, na=False)
+            mask = mask | df_filt["notas"].astype(str).str.lower().str.contains(sq, na=False)
+            mask = mask | df_filt["opciones_list"].apply(
+                lambda ops: any(sq in str(o).lower() for o in (ops or [])))
+            df_filt = df_filt[mask]
 
-    # Contador + badge global search
-    n_filt   = len(df_filt)
-    pct_filt = int(n_filt / len(df_total) * 100) if len(df_total) else 0
-    _gbadge  = (
-        "  ·  <span style='background:var(--primary-soft, #dbeafe);color:var(--primary, #1e40af);border-radius:8px;"
-        "padding:1px 8px;font-size:0.9em;font-weight:600'>🌐 búsqueda global</span>"
-        if f_global and f_search else ""
-    )
-    _count_slot.markdown(
-        f"<div style='font-size:0.82em;color:var(--muted, #666);margin-bottom:6px'>"
-        f"Mostrando <b style='color:var(--text, #2c3e50)'>{n_filt}</b> de {len(df_total)} preguntas"
-        f"{'  ·  <b style=\"color:var(--primary, #3498db)\">' + str(pct_filt) + '%</b>' if pct_filt < 100 else ''}"
-        f"{_gbadge}</div>",
-        unsafe_allow_html=True,
-    )
+        # Contador + badge global search
+        n_filt   = len(df_filt)
+        pct_filt = int(n_filt / len(df_total) * 100) if len(df_total) else 0
+        _gbadge  = (
+            "  ·  <span style='background:var(--primary-soft, #dbeafe);color:var(--primary, #1e40af);border-radius:8px;"
+            "padding:1px 8px;font-size:0.9em;font-weight:600'>🌐 búsqueda global</span>"
+            if f_global and f_search else ""
+        )
+        _count_slot.markdown(
+            f"<div style='font-size:0.82em;color:var(--muted, #666);margin-bottom:6px'>"
+            f"Mostrando <b style='color:var(--text, #2c3e50)'>{n_filt}</b> de {len(df_total)} preguntas"
+            f"{'  ·  <b style=\"color:var(--primary, #3498db)\">' + str(pct_filt) + '%</b>' if pct_filt < 100 else ''}"
+            f"{_gbadge}</div>",
+            unsafe_allow_html=True,
+        )
+
+    n_filt = len(df_filt)
 
     # ── Vista previa de una pregunta (panel derecho o ventana) ────────────────
     def _duplicar_pregunta(sel_pid, row_d):
@@ -893,7 +1000,7 @@ with tab_man:
             lib.guardar_excel_local(st.session_state.excel_path,
                                     st.session_state.excel_dfs)
             notify(f"✅ Duplicada como **{nid}**")
-            _renovar_tabla(); sync_bloques_gsheets([blk]); reload_db(); st.rerun()
+            sync_bloques_gsheets([blk]); reload_db(); st.rerun()
 
     def _acciones_editor(sel_pid, row_d):
         """Duplicar / Eliminar dentro del editor (Bitácora)."""
@@ -913,7 +1020,7 @@ with tab_man:
                     st.session_state.pop(_dk, None)
                     st.session_state.pop("man_open_pid", None)
                     notify(f"🗑️ {sel_pid} eliminada.")
-                    _renovar_tabla(); reload_db(); st.rerun()
+                    reload_db(); st.rerun()
                 else:
                     st.error(msg)
 
@@ -1074,9 +1181,11 @@ with tab_man:
                     g = nombre_bloque(str(r.get("bloque", "")))
                     _rows.append(qtable_row(r, grp=g, grp_meta=(f"{_meta[g][0]} preguntas · {_meta[g][1]} usadas"
                                                                 f" · {_meta[g][2]} con solución")))
-                _act = qtable(_rows, "gestor", key="qt_gestor", height=460, checked=_checked,
+                _bar_slot = st.container()   # barra de acciones: se rellena tras leer la tabla
+                _act = qtable(_rows, "gestor", key="qt_gestor", height=540, checked=_checked,
                               reset=st.session_state.get("_man_chk_reset", 0),
-                              foot="Pulsa una fila para abrir la pregunta · marca casillas para borrar varias a la vez",
+                              collapse_default=True, toolbar=True,
+                              foot="Pulsa una fila para abrir el editor · marca casillas para actuar sobre varias",
                               empty="No hay preguntas que coincidan con los filtros")
                 if _act and _act.get("action") == "check":
                     _checked = [i for i in _act.get("ids", []) if i in _ids_ok]
@@ -1089,6 +1198,9 @@ with tab_man:
                 sel_pids_multi = list(_checked)
                 _op = st.session_state.get("man_open_pid")
                 sel_pid        = _op if _op in _ids_ok and not _checked else None
+                if _checked:
+                    with _bar_slot:
+                        _barra_acciones(list(_checked))
             else:
                 display_df = df_filt[["ID_Pregunta", "bloque", "Tema", "dificultad",
                                        "usada", "solucion", "enunciado"]].copy()
@@ -1133,62 +1245,63 @@ with tab_man:
                         st.caption("Marca la casilla de una fila para abrir la pregunta en una ventana. "
                                    "Con «Selección múltiple» puedes borrar varias a la vez.")
 
-            # ── Operaciones masivas (solo texto/dificultad, no borrado) ────────
-            with st.expander(f"⚙️ Operaciones sobre las {n_filt} preguntas filtradas",
-                             expanded=False):
-                bulk_ids = df_filt["ID_Pregunta"].tolist()
-                st.caption(
-                    f"Afectan a **todas las preguntas visibles** según los filtros "
-                    f"({n_filt}). Usa los filtros para acotar antes de aplicar."
-                )
-                bt1, bt2 = st.tabs(["Cambiar Tema / Dificultad", "Buscar y reemplazar"])
-                with bt1:
-                    bc1, bc2 = st.columns(2)
-                    bulk_tema = bc1.text_input("Nuevo tema (vacío = no cambiar)", key="bulk_tema")
-                    bulk_dif  = bc2.selectbox("Nueva dificultad",
-                                              ["(no cambiar)", "Facil", "Media", "Dificil"],
-                                              key="bulk_dif")
-                    if st.button(f"✅ Aplicar a {n_filt} preguntas", key="btn_bulk_apply"):
-                        msgs = []
-                        if bulk_tema.strip():
-                            ok, m = lib.actualizar_campo_masivo(
-                                st.session_state.excel_path, st.session_state.excel_dfs,
-                                bulk_ids, "tema", bulk_tema.strip())
-                            msgs.append(m)
-                        if bulk_dif != "(no cambiar)":
-                            ok, m = lib.actualizar_campo_masivo(
-                                st.session_state.excel_path, st.session_state.excel_dfs,
-                                bulk_ids, "dificultad", bulk_dif)
-                            msgs.append(m)
-                        if msgs:
-                            sync_bloques_gsheets(list(
-                                df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                            notify(" | ".join(msgs)); reload_db(); st.rerun()
-                        else:
-                            st.warning("No hay cambios que aplicar.")
-                with bt2:
-                    fr1, fr2 = st.columns(2)
-                    bulk_find = fr1.text_input("Buscar en enunciado", key="bulk_find")
-                    bulk_repl = fr2.text_input("Reemplazar por", key="bulk_repl")
-                    if st.button(f"🔄 Reemplazar en {n_filt} preguntas", key="btn_bulk_repl"):
-                        if not bulk_find.strip():
-                            st.warning("Escribe el texto a buscar.")
-                        else:
-                            ok, msg = lib.reemplazar_texto_masivo(
-                                st.session_state.excel_path, st.session_state.excel_dfs,
-                                bulk_ids, bulk_find, bulk_repl)
-                            if ok:
+            if not _bit:
+                # ── Operaciones masivas (solo texto/dificultad, no borrado) ────────
+                with st.expander(f"⚙️ Operaciones sobre las {n_filt} preguntas filtradas",
+                                 expanded=False):
+                    bulk_ids = df_filt["ID_Pregunta"].tolist()
+                    st.caption(
+                        f"Afectan a **todas las preguntas visibles** según los filtros "
+                        f"({n_filt}). Usa los filtros para acotar antes de aplicar."
+                    )
+                    bt1, bt2 = st.tabs(["Cambiar Tema / Dificultad", "Buscar y reemplazar"])
+                    with bt1:
+                        bc1, bc2 = st.columns(2)
+                        bulk_tema = bc1.text_input("Nuevo tema (vacío = no cambiar)", key="bulk_tema")
+                        bulk_dif  = bc2.selectbox("Nueva dificultad",
+                                                  ["(no cambiar)", "Facil", "Media", "Dificil"],
+                                                  key="bulk_dif")
+                        if st.button(f"✅ Aplicar a {n_filt} preguntas", key="btn_bulk_apply"):
+                            msgs = []
+                            if bulk_tema.strip():
+                                ok, m = lib.actualizar_campo_masivo(
+                                    st.session_state.excel_path, st.session_state.excel_dfs,
+                                    bulk_ids, "tema", bulk_tema.strip())
+                                msgs.append(m)
+                            if bulk_dif != "(no cambiar)":
+                                ok, m = lib.actualizar_campo_masivo(
+                                    st.session_state.excel_path, st.session_state.excel_dfs,
+                                    bulk_ids, "dificultad", bulk_dif)
+                                msgs.append(m)
+                            if msgs:
                                 sync_bloques_gsheets(list(
                                     df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
-                                notify(msg); reload_db(); st.rerun()
+                                notify(" | ".join(msgs)); reload_db(); st.rerun()
                             else:
-                                st.error(msg)
+                                st.warning("No hay cambios que aplicar.")
+                    with bt2:
+                        fr1, fr2 = st.columns(2)
+                        bulk_find = fr1.text_input("Buscar en enunciado", key="bulk_find")
+                        bulk_repl = fr2.text_input("Reemplazar por", key="bulk_repl")
+                        if st.button(f"🔄 Reemplazar en {n_filt} preguntas", key="btn_bulk_repl"):
+                            if not bulk_find.strip():
+                                st.warning("Escribe el texto a buscar.")
+                            else:
+                                ok, msg = lib.reemplazar_texto_masivo(
+                                    st.session_state.excel_path, st.session_state.excel_dfs,
+                                    bulk_ids, bulk_find, bulk_repl)
+                                if ok:
+                                    sync_bloques_gsheets(list(
+                                        df_total[df_total["ID_Pregunta"].isin(bulk_ids)]["bloque"].unique()))
+                                    notify(msg); reload_db(); st.rerun()
+                                else:
+                                    st.error(msg)
 
         # ── Panel derecho: preview (1 fila) o acción multi (N filas) ─────────
         with col_preview:
 
             # ══ MULTI-SELECT: N > 1 (en Bitácora, desde 1 casilla) ══════════
-            if n_sel > 1 or (_bit and n_sel == 1):
+            if n_sel > 1 and not _bit:
                 st.markdown(
                     f"<div style='background:var(--note-bg, #fff3cd);border-left:4px solid var(--ui-warn, #f39c12);"
                     f"border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px'>"
@@ -1266,59 +1379,31 @@ with tab_man:
                 else:
                     _dialog_gest_preview(_man_open_pid)
 
-    # ── Export/Import JSON ───────────────────────────────────────────────────
-    sel_ids_for_json = [sel_pid] if sel_pid else []
-    with st.expander("📤 Exportar / Importar JSON (entre bases de datos)"):
-        jc1, jc2 = st.columns(2)
+    if not _bit:
+        # ── Export/Import JSON ───────────────────────────────────────────────────
+        sel_ids_for_json = [sel_pid] if sel_pid else []
+        with st.expander("📤 Exportar / Importar JSON (entre bases de datos)"):
+            jc1, jc2 = st.columns(2)
 
-        with jc1:
-            st.markdown("**Exportar preguntas filtradas a JSON**")
-            ids_to_export = df_filt["ID_Pregunta"].tolist() if not df_filt.empty else []
-            if ids_to_export:
-                n_exp = st.number_input(f"Se exportarán {len(ids_to_export)} preguntas filtradas", value=len(ids_to_export), disabled=True)
-                if st.button("📤 Exportar a JSON", key="btn_exp_json"):
-                    import tempfile
-                    out_path = os.path.join(PROJECT_DIR, f"export_{datetime.date.today()}.json")
-                    n = lib.exportar_preguntas_json(ids_to_export, df_total, out_path)
-                    with open(out_path, "rb") as f:
-                        st.download_button("⬇️ Descargar JSON", f.read(), file_name=os.path.basename(out_path),
-                                           mime="application/json", key="dl_json")
-                    st.success(f"{n} preguntas exportadas.")
-            else:
-                st.caption("Aplica filtros para seleccionar preguntas a exportar.")
-
-        with jc2:
-            st.markdown("**Importar desde JSON**")
-            bloque_json = _bloque_selectbox("Bloque destino", "json_bloque")
-            json_file   = st.file_uploader("Archivo JSON", type=["json"], key="json_uploader")
-            if json_file and st.button("📥 Importar JSON", key="btn_imp_json"):
-                import tempfile
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tf:
-                    tf.write(json_file.read())
-                    tmp_json = tf.name
-                nuevas, dupes = lib.importar_preguntas_json(tmp_json, bloque_json, df_total)
-                os.unlink(tmp_json)
-                if nuevas:
-                    blk_df = _asegurar_bloque(st.session_state.excel_dfs, bloque_json)
-                    for p in nuevas:
-                        new_row = _fill_row(blk_df, {
-                            "tema": p.get("Tema") or p.get("tema", "1"),
-                            "dificultad": p.get("dificultad", "Media"),
-                            "letra_correcta": p.get("letra_correcta", "A"),
-                            "enunciado": p.get("enunciado", ""),
-                            "opciones_list": p.get("opciones_list", []),
-                            "usada": p.get("usada", ""),
-                            "notas": p.get("notas", "") or "",
-                        }, p["ID_Pregunta"])
-                        blk_df = pd.concat([blk_df, pd.DataFrame([new_row])], ignore_index=True)
-                    st.session_state.excel_dfs[bloque_json] = blk_df
-                    lib.guardar_excel_local(st.session_state.excel_path, st.session_state.excel_dfs)
-                    notify(f"✅ {len(nuevas)} importadas, {dupes} duplicadas omitidas.")
-                    sync_bloques_gsheets([bloque_json])
-                    reload_db()
-                    st.rerun()
+            with jc1:
+                st.markdown("**Exportar preguntas filtradas a JSON**")
+                ids_to_export = df_filt["ID_Pregunta"].tolist() if not df_filt.empty else []
+                if ids_to_export:
+                    n_exp = st.number_input(f"Se exportarán {len(ids_to_export)} preguntas filtradas", value=len(ids_to_export), disabled=True)
+                    if st.button("📤 Exportar a JSON", key="btn_exp_json"):
+                        import tempfile
+                        out_path = os.path.join(PROJECT_DIR, f"export_{datetime.date.today()}.json")
+                        n = lib.exportar_preguntas_json(ids_to_export, df_total, out_path)
+                        with open(out_path, "rb") as f:
+                            st.download_button("⬇️ Descargar JSON", f.read(), file_name=os.path.basename(out_path),
+                                               mime="application/json", key="dl_json")
+                        st.success(f"{n} preguntas exportadas.")
                 else:
-                    st.warning(f"No se importó ninguna pregunta nueva. {dupes} duplicadas omitidas.")
+                    st.caption("Aplica filtros para seleccionar preguntas a exportar.")
+
+            with jc2:
+                st.markdown("**Importar desde JSON**")
+                _ui_importar_json()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────

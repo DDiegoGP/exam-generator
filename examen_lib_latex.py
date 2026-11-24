@@ -151,7 +151,7 @@ def eliminar_preguntas_excel_local(filepath, dict_of_dfs, ids):
         count = 0
         for sheet in list(dict_of_dfs.keys()):
             df = dict_of_dfs[sheet]
-            if 'ID_Pregunta' not in df.columns:
+            if sheet in CFG_SHEETS or 'ID_Pregunta' not in df.columns:   # solo hojas de preguntas
                 continue
             mask = df['ID_Pregunta'].astype(str).isin(ids_set)
             count += int(mask.sum())
@@ -168,7 +168,7 @@ def actualizar_campo_masivo(filepath, dict_of_dfs, ids, campo, valor):
         ids_set = set(str(i) for i in ids)
         count = 0
         for sheet, df in dict_of_dfs.items():
-            if 'ID_Pregunta' not in df.columns:
+            if sheet in CFG_SHEETS or 'ID_Pregunta' not in df.columns:   # solo hojas de preguntas
                 continue
             mask = df['ID_Pregunta'].astype(str).isin(ids_set)
             if not mask.any():
@@ -181,6 +181,14 @@ def actualizar_campo_masivo(filepath, dict_of_dfs, ids, campo, valor):
                 elif campo == 'dificultad' and 'dificultad' in cl:
                     dict_of_dfs[sheet].loc[mask, col] = valor
                     count += int(mask.sum())
+            if campo in ('objetivo', 'comentario'):
+                cols = [c for c in df.columns if (str(c).lower().strip() == 'objetivo' if campo == 'objetivo'
+                                                  else 'comentar' in str(c).lower())]
+                col = cols[0] if cols else ('Objetivo' if campo == 'objetivo' else 'Comentario')
+                if not cols:
+                    dict_of_dfs[sheet][col] = ''
+                dict_of_dfs[sheet].loc[mask, col] = valor
+                count += int(mask.sum())
         guardar_excel_local(filepath, dict_of_dfs)
         return True, f"{count} pregunta(s) actualizadas → {campo}='{valor}'"
     except Exception as e:
@@ -193,7 +201,7 @@ def reemplazar_texto_masivo(filepath, dict_of_dfs, ids, buscar, reemplazar_con):
         ids_set = set(str(i) for i in ids)
         count = 0
         for sheet, df in dict_of_dfs.items():
-            if 'ID_Pregunta' not in df.columns:
+            if sheet in CFG_SHEETS or 'ID_Pregunta' not in df.columns:   # solo hojas de preguntas
                 continue
             mask = df['ID_Pregunta'].astype(str).isin(ids_set)
             if not mask.any():
