@@ -20,7 +20,10 @@ import streamlit.components.v1 as stcomponents
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
+import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
 
+import os as _o, sys as _s
+_s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))
 import examen_lib_latex as lib
 import analisis_lib as A
 from app_theme import initial_sidebar, notify, get_estilo

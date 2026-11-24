@@ -6,6 +6,7 @@ Ejecutar con:
 """
 import streamlit as st
 import datetime
+import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
 from app_theme import initial_sidebar
 
 # ── Configuración de página (DEBE ser el primer comando Streamlit) ────────────

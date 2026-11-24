@@ -466,3 +466,8 @@ def puede_unificar(info: dict) -> bool:
     if len(cl) < 2:
         return False
     return all(v in ps and v in pr and len(ps[v]) == len(cl[v]) and all(ps[v]) for v in cl)
+
+
+# Fecha del archivo al cargarse (ver _recarga.py)
+import os as _os_mt
+_MTIME = _os_mt.path.getmtime(__file__)

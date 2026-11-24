@@ -1559,3 +1559,8 @@ def marcar_preguntas_usadas(pids: list, fecha_str: str) -> int:
             sync_bloques_gsheets(bloques)
         reload_db()
     return count
+
+
+# Fecha del archivo al cargarse (ver _recarga.py)
+import os as _os_mt
+_MTIME = _os_mt.path.getmtime(__file__)

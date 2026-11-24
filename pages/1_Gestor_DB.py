@@ -8,6 +8,9 @@ Pestañas:
   4. Estadísticas  – Dashboard de cobertura y dificultad
 """
 import streamlit as st
+import os as _o, sys as _s
+_s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))
+import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
 from app_theme import initial_sidebar, notify
 import streamlit.components.v1 as stcomponents
 import pandas as pd

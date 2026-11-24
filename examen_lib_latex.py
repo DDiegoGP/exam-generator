@@ -2917,3 +2917,8 @@ def importar_preguntas_json(filepath, bloque_destino, df_existing):
         # Update df_existing for next ID generation
         df_existing.loc[len(df_existing)] = p_new
     return nuevas, dupes
+
+
+# Fecha del archivo al cargarse (ver _recarga.py)
+import os as _os_mt
+_MTIME = _os_mt.path.getmtime(__file__)

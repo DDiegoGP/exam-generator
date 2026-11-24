@@ -792,3 +792,8 @@ def render_topbar(page: str = "", estilo: str = ""):
             key = "nav_active" if slug == page else f"nav_{slug}"
             with st.container(key=key, width="content"):
                 st.page_link(path, label=label)
+
+
+# Fecha del archivo al cargarse (ver _recarga.py)
+import os as _os_mt
+_MTIME = _os_mt.path.getmtime(__file__)

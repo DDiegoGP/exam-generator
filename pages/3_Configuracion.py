@@ -10,6 +10,9 @@ Pestañas:
 import json
 import io
 import streamlit as st
+import os as _o, sys as _s
+_s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))
+import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
 from app_theme import initial_sidebar, notify
 import pandas as pd
 import os
