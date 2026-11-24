@@ -418,8 +418,8 @@ def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
 # PESTAÑA PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
 # Constantes y Objetivos están en Configuración (definen la asignatura, no son preguntas)
-tab_man, tab_sol, tab_add, tab_imp, tab_stat = st.tabs(
-    ["✏️ Gestionar", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas"]
+tab_man, tab_des, tab_sol, tab_add, tab_imp, tab_stat = st.tabs(
+    ["✏️ Gestionar", "✍️ Desarrollo", "📖 Soluciones", "➕ Añadir", "📥 Importar", "📊 Estadísticas"]
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -804,6 +804,110 @@ def _estadisticas_bitacora(df_all):
                 unsafe_allow_html=True)
 
 
+
+def _gestor_desarrollo():
+    """Gestor › Desarrollo: banco de preguntas de desarrollo con el mismo editor debajo (sin ventana)."""
+    import json as _json
+    import desarrollo_ui as DU
+    ss = st.session_state
+    banco = DU.get_banco(ss.excel_dfs)
+    a1, a2, a3 = st.columns([3.2, 1.3, 1.3], vertical_alignment="center")
+    a1.caption("Banco de preguntas de desarrollo (hoja «Desarrollo» de la base de datos). Se eligen en Generador › Desarrollo.")
+    with a2.popover("⬆ Importar JSON", use_container_width=True):
+        st.caption("Sube al banco las preguntas guardadas con el botón JSON de Desarrollo (las imágenes no se guardan en el banco).")
+        up = st.file_uploader("JSON de preguntas de desarrollo", type=["json"], key="gdes_json")
+        blq_j = st.selectbox("Bloque para las importadas", [""] + list(ss.bloques or []), key="gdes_json_blq",
+                             format_func=lambda b: b or "— Sin bloque (lo pones después) —")
+        if up is not None and st.button("Importar al banco", type="primary", key="gdes_json_ok"):
+            try:
+                qs = _json.loads(up.getvalue().decode("utf-8"))
+                n = 0
+                for q in qs:
+                    q.pop("imagen_b64", None)
+                    for a in q.get("subapartados") or []:
+                        a.pop("imagen_b64", None)
+                    q = DU.normalizar(q)
+                    q["bloque"] = q.get("bloque") or blq_j
+                    if q["txt"].strip():
+                        DU.guardar_en_banco(q, nueva_copia=True)
+                        n += 1
+                notify(f"✅ {n} pregunta(s) añadidas al banco de desarrollo.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se ha podido leer el JSON: {e}")
+    if a3.button("➕ Nueva pregunta", type="primary", key="gdes_new", use_container_width=True):
+        ss["_gdes_q"] = DU.nueva()
+        st.rerun()
+
+    if banco.empty:
+        st.info("El banco de desarrollo está vacío. Crea una pregunta, guárdala desde Generador › Desarrollo "
+                "(«Guardar en el banco») o importa vuestros JSON antiguos.")
+    else:
+        tabla = DU.banco_como_tabla(banco)
+        df_f = filtros_bitacora("des_", tabla, bloques) if get_estilo() == "bitacora" else tabla
+        rows = []
+        for r in df_f.to_dict("records"):
+            row = qtable_row(r, grp=nombre_bloque(str(r.get("bloque", "")) or "—"))
+            row["enun"] = (f"{row['enun'][:150]} · {r['_napt']} apartados · {r['_pts']:g} pt" if r["_napt"]
+                           else f"{row['enun'][:160]} · {r['_pts']:g} pt")
+            rows.append(row)
+        act = qtable(rows, "gestor", key="qt_desarrollo", height=380, collapse_default=False, toolbar=False,
+                     foot="Pulsa una fila para abrir el editor debajo", empty="No hay preguntas con estos filtros")
+        if act and act.get("action") == "open":
+            r = banco[banco["ID"] == act["id"]]
+            if not r.empty:
+                ss["_gdes_q"] = DU.fila_a_pregunta(r.iloc[0])
+                st.rerun()
+        if os.environ.get("EXAMGEN_SIN_COMPONENTES"):   # banco de pruebas: abrir la primera
+            if st.button("Abrir primera", key="gdes_test_open") and not banco.empty:
+                ss["_gdes_q"] = DU.fila_a_pregunta(banco.iloc[0])
+                st.rerun()
+
+    q = ss.get("_gdes_q")
+    if not q:
+        return
+    q.update(DU.normalizar(q))
+    with st.container(border=True, key="card_gdes_editor"):
+        e1, e2, e3, e4 = st.columns([2.4, 2.1, 0.9, 0.9], vertical_alignment="center")
+        e1.markdown(f"<div style='font-size:1.1rem;font-weight:700'>{'Editando ' + q['banco_id'] if q.get('banco_id') else 'Nueva pregunta de desarrollo'}</div>"
+                    f"<div class='devq-s'>{q.get('bloque') or 'sin bloque'}{' · Tema ' + q['tema'] if q.get('tema') else ''}"
+                    f"{' · último uso ' + q['usada'] if q.get('usada') else ''}</div>", unsafe_allow_html=True)
+        with e2.container(key=f"seg_gdesmode_{q['_uid']}"):
+            m = st.radio("Escritura", ["Markdown (recomendado)", "LaTeX puro"], horizontal=True,
+                         index=0 if q.get("modo") != "latex" else 1, key=f"gdesmodo_{q['_uid']}")
+        q["modo"] = "latex" if m.startswith("LaTeX") else "markdown"
+        if e3.button("Guardar", type="primary", key="gdes_save", use_container_width=True):
+            if not q["txt"].strip():
+                st.error("Escribe el enunciado antes de guardar.")
+            else:
+                pid = DU.guardar_en_banco(q)
+                notify(f"✅ {pid} guardada en el banco.")
+                st.rerun()
+        if e4.button("Cerrar", key="gdes_close", use_container_width=True):
+            ss.pop("_gdes_q", None)
+            st.rerun()
+        DU.editor(q, f"gd_{q['_uid']}", list(ss.bloques or []), en_examen=False, pts_en_editor=True)
+        f1, _, f2, f3 = st.columns([3, 1, 1.1, 1.1])
+        f1.caption("Las imágenes no se guardan en el banco: se añaden en cada examen.")
+        if q.get("banco_id"):
+            if f2.button("Duplicar", key="gdes_dup", use_container_width=True):
+                copia = DU.normalizar({k: v for k, v in q.items() if k != "_uid"})
+                pid = DU.guardar_en_banco(copia, nueva_copia=True)
+                ss["_gdes_q"] = copia
+                notify(f"✅ Duplicada como {pid}.")
+                st.rerun()
+            if f3.button("Eliminar", key="gdes_del", use_container_width=True):
+                ss["_gdes_del"] = not ss.get("_gdes_del", False)
+            if ss.get("_gdes_del"):
+                st.warning(f"¿Eliminar {q['banco_id']} del banco de forma permanente?")
+                if st.button("Sí, eliminar", type="primary", key="gdes_del_ok"):
+                    DU.eliminar_de_banco([q["banco_id"]])
+                    ss.pop("_gdes_q", None)
+                    ss.pop("_gdes_del", None)
+                    notify("🗑️ Pregunta eliminada del banco.")
+                    st.rerun()
+
+
 def _stg_sin_correcta(q: dict) -> bool:
     if str(q.get("letra_correcta", "")).upper() not in ("A", "B", "C", "D"):
         return True
@@ -838,6 +942,9 @@ def _stg_tags(q: dict) -> str:
         out += chip(otras[0].lower(), "warn")
     return out
 
+
+with tab_des:
+    _gestor_desarrollo()
 
 with tab_imp:
     st.subheader("Importar preguntas")

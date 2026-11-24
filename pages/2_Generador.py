@@ -38,6 +38,7 @@ from app_utils import (
     _dialog_editar_pregunta, marcar_preguntas_usadas, guardar_hojas, filtros_bitacora,
     grupo_pregunta, selector_agrupar, n_preg, orden_bloque,
 )
+orden_bloque_g = orden_bloque
 from app_theme import get_preview_mode, get_estilo, qtable, qtable_row
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -929,6 +930,407 @@ def _dialog_autofill(n_obj: int):
 # ═════════════════════════════════════════════════════════════════════════════
 # PESTAÑAS
 # ═════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
+# DESARROLLO (Bitácora): examen + banco + el editor en la página
+# ─────────────────────────────────────────────────────────────────────────────
+def _desarrollo_bitacora():
+    import desarrollo_ui as DU
+    from app_theme import kpi_html
+    ss = st.session_state
+    dev_qs = ss.dev_questions
+    for q in dev_qs:
+        q.update(DU.normalizar(q))
+    banco = DU.get_banco(ss.get("excel_dfs", {}))
+    cfg = ss.get("exam_cfg", {}) or {}
+    pts_dev = sum(DU.puntos(q) for q in dev_qs)
+    n_test = len(ss.get("cache_examen") or []) or len(get_sel_ids())
+    pts_test = DU._f(cfg.get("pts_test"), 0)
+    pts_fund_cfg = DU._f(cfg.get("pts_fund"), 0)
+    n_rub = sum(1 for q in dev_qs if q.get("criterios"))
+    if pts_fund_cfg:
+        ok = abs(pts_dev - pts_fund_cfg) < 0.01
+        sub_tot = "cuadra con lo configurado en Exportar" if ok else f"en Exportar figuran {pts_fund_cfg:g} pts de desarrollo"
+    else:
+        ok, sub_tot = True, "puntos de desarrollo y test (Exportar › Examen)"
+    st.markdown(kpi_html([
+        ("Desarrollo", len(dev_qs), f"pregunta{'s' if len(dev_qs) != 1 else ''} · {pts_dev:g} puntos", False),
+        ("Test", n_test, f"preguntas · {pts_test:g} puntos" if pts_test else "preguntas", False),
+        ("Total", f"{pts_dev + pts_test:g}", sub_tot, not ok),
+        ("Rúbricas", f"{n_rub} de {len(dev_qs)}", "con criterios de corrección", False),
+    ], compact=True), unsafe_allow_html=True)
+
+    c1, c2 = st.columns([1.25, 1], gap="medium")
+    sel_uid = ss.get("dev_sel_uid")
+    if dev_qs and sel_uid not in {q["_uid"] for q in dev_qs}:
+        sel_uid = ss["dev_sel_uid"] = dev_qs[0]["_uid"]
+
+    # ── En este examen ──
+    with c1:
+        h1, h2, h3, h4 = st.columns([2, 1.5, 0.9, 0.9], vertical_alignment="center")
+        h1.markdown("<div class='sec-title' style='margin:0'>En este examen</div>", unsafe_allow_html=True)
+        if h2.button("➕ Nueva pregunta", key="dev_nueva", use_container_width=True):
+            q = DU.nueva()
+            dev_qs.append(q)
+            ss["dev_sel_uid"] = q["_uid"]
+            st.rerun()
+        if dev_qs:
+            h3.download_button("⬇ JSON", _dev_qs_to_json(dev_qs), file_name="preguntas_desarrollo.json",
+                               mime="application/json", key="dev_json_dl", use_container_width=True,
+                               help="Descarga las preguntas de este examen (con imágenes)")
+        with h4.popover("⬆ JSON", use_container_width=True):
+            up = st.file_uploader("Preguntas de desarrollo (JSON)", type=["json"], key="dev_json_up")
+            if up is not None and ss.get("_dev_json_upload_name") != up.name:
+                try:
+                    nuevas = [DU.normalizar(q) for q in _dev_qs_from_json(up.getvalue())]
+                    dev_qs.extend(nuevas)
+                    ss["_dev_json_upload_name"] = up.name
+                    notify(f"✅ {len(nuevas)} pregunta(s) añadidas al examen")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"No se ha podido leer el JSON: {e}")
+        if not dev_qs:
+            st.info("Este examen no tiene preguntas de desarrollo. Añádelas desde el banco (→) o crea una nueva.")
+        accion = None
+        for i, q in enumerate(dev_qs):
+            on = q["_uid"] == sel_uid
+            apts = q["subapartados"]
+            sol = bool(q["solucion_modelo"].strip() or any(str(a.get("solucion", "")).strip() for a in apts))
+            sub = (f"{q.get('banco_id') or 'nueva · no está en el banco'} · "
+                   + (f"{len(apts)} apartados" if apts else "sin apartados") + " · "
+                   + ("solución" if sol else "sin solución") + (" + rúbrica" if q["criterios"] else ""))
+            with st.container(border=True, key=f"card_devq{'sel' if on else ''}_{q['_uid']}"):
+                r = st.columns([0.35, 3.6, 1.1, 0.42, 0.42, 0.42, 0.42], vertical_alignment="center")
+                r[0].markdown(f"**{i + 1}.**")
+                enun = re.sub(r"\s+", " ", q["txt"]).strip() or "(sin enunciado)"
+                r[1].markdown(f"<div class='devq-t'>{enun[:110]}</div><div class='devq-s'>{sub}</div>", unsafe_allow_html=True)
+                if apts:
+                    r[2].markdown(f"<b>{DU.puntos(q):g} pts</b><div class='devq-s'>suma de apartados</div>", unsafe_allow_html=True)
+                else:
+                    q["pts"] = r[2].number_input("Puntos", min_value=0.0, step=0.5, value=DU._f(q.get("pts"), 1.0),
+                                                 key=f"devpts_{q['_uid']}", label_visibility="collapsed",
+                                                 help="Puntos en este examen (no cambia el banco)")
+                if r[3].button("✎", key=f"dev_ed_{q['_uid']}", help="Editar abajo", type="primary" if on else "secondary"):
+                    ss["dev_sel_uid"] = q["_uid"]
+                    st.rerun()
+                if r[4].button("↑", key=f"dev_up_{q['_uid']}", disabled=i == 0):
+                    accion = ("up", i)
+                if r[5].button("↓", key=f"dev_dn_{q['_uid']}", disabled=i == len(dev_qs) - 1):
+                    accion = ("dn", i)
+                if r[6].button("×", key=f"dev_rm_{q['_uid']}", help="Quitar del examen"):
+                    accion = ("rm", i)
+        if accion:
+            t, i = accion
+            if t == "rm":
+                dev_qs.pop(i)
+            else:
+                j = i - 1 if t == "up" else i + 1
+                dev_qs[i], dev_qs[j] = dev_qs[j], dev_qs[i]
+            st.rerun()
+        if dev_qs:
+            st.caption("Los puntos son de este examen y no cambian los del banco. ✎ abre la pregunta en el editor de abajo.")
+
+    # ── Banco ──
+    with c2:
+        st.markdown(f"<div class='sec-title' style='margin:0 0 6px 0'>Banco de desarrollo · {len(banco)}</div>",
+                    unsafe_allow_html=True)
+        if banco.empty:
+            st.caption("El banco está vacío. Guarda aquí las preguntas con «Guardar en el banco» o créalas en "
+                       "Gestor › Desarrollo (también puedes importar allí vuestros JSON antiguos).")
+        else:
+            f1, f2 = st.columns([1.4, 1])
+            qtxt = f1.text_input("Buscar", key="dev_bq", placeholder="🔍 Buscar", label_visibility="collapsed")
+            fb = f2.selectbox("Bloque", ["Todos"] + list(ss.bloques or []), key="dev_bb", label_visibility="collapsed",
+                              format_func=lambda b: "Bloque: todos" if b == "Todos" else b)
+            b = banco
+            if fb != "Todos":
+                b = b[b["Bloque"] == fb]
+            if qtxt.strip():
+                m = qtxt.strip().lower()
+                b = b[(b["Enunciado"].str.lower().str.contains(m, regex=False)) | (b["ID"].str.lower().str.contains(m, regex=False))]
+            en_ex = {q.get("banco_id") for q in dev_qs}
+            with st.container(height=min(420, 60 + 62 * max(1, len(b))), key="card_dev_banco"):
+                for _, r_ in b.head(40).iterrows():
+                    dentro = r_["ID"] in en_ex
+                    rr = st.columns([3.4, 0.9, 0.8, 0.5], vertical_alignment="center")
+                    _en = re.sub(r"\s+", " ", r_["Enunciado"])[:90]
+                    rr[0].markdown(f"<div class='devq-s'>{r_['ID']} · {r_['Bloque']} · T{r_['Tema']}</div>"
+                                   f"<div class='devq-t'>{_en}</div>", unsafe_allow_html=True)
+                    rr[1].markdown(f"<span class='devq-s'>{(r_['Usada'] or 'nunca')[:7]}</span>", unsafe_allow_html=True)
+                    rr[2].markdown(f"<b>{r_['Puntos']} pt</b>", unsafe_allow_html=True)
+                    if rr[3].button("✓" if dentro else "+", key=f"dev_add_{r_['ID']}", disabled=dentro,
+                                    type="primary" if dentro else "secondary", help="Ya está" if dentro else "Añadir al examen"):
+                        q = DU.fila_a_pregunta(r_)
+                        dev_qs.append(q)
+                        ss["dev_sel_uid"] = q["_uid"]
+                        st.rerun()
+            st.caption("«+» la añade al examen · Gestor › Desarrollo para gestionarlas todas.")
+
+    # ── Editor de la pregunta elegida ──
+    q = next((x for x in dev_qs if x["_uid"] == ss.get("dev_sel_uid")), None)
+    if q is None:
+        return
+    n = dev_qs.index(q) + 1
+    with st.container(border=True, key="card_dev_editor"):
+        e1, e2, e3 = st.columns([2.4, 2.1, 1.2], vertical_alignment="center")
+        e1.markdown(f"<div style='font-size:1.1rem;font-weight:700'>Pregunta {n} · editando</div>"
+                    f"<div class='devq-s'>{q.get('banco_id') or 'nueva (no está en el banco)'}"
+                    f"{' · ' + q['bloque'] if q.get('bloque') else ''}{' · Tema ' + q['tema'] if q.get('tema') else ''}</div>",
+                    unsafe_allow_html=True)
+        with e2.container(key=f"seg_devmode_{q['_uid']}"):
+            m = st.radio("Escritura", ["Markdown (recomendado)", "LaTeX puro"], horizontal=True,
+                         index=0 if q.get("modo") != "latex" else 1, key=f"devmodo_{q['_uid']}")
+        q["modo"] = "latex" if m.startswith("LaTeX") else "markdown"
+        if e3.button("Guardar en el banco", type="primary", key=f"dev_save_{q['_uid']}", use_container_width=True,
+                     help="Guarda la pregunta (sin las imágenes) para reutilizarla en otros exámenes"):
+            if not q["txt"].strip():
+                st.error("Escribe el enunciado antes de guardarla.")
+            else:
+                pid = DU.guardar_en_banco(q)
+                notify(f"✅ Guardada en el banco como {pid}.")
+                st.rerun()
+        DU.editor(q, f"dq_{q['_uid']}", list(ss.bloques or []), pts_en_editor=False)
+        f1, _, f2, f3 = st.columns([3, 1, 1.2, 1.2])
+        f1.caption("Los cambios valen ya para este examen; «Guardar en el banco» los guarda también para otros.")
+        if f2.button("Guardar como copia", key=f"dev_copy_{q['_uid']}", use_container_width=True,
+                     help="Crea una pregunta nueva en el banco con este contenido"):
+            if q["txt"].strip():
+                pid = DU.guardar_en_banco(q, nueva_copia=True)
+                notify(f"✅ Copia guardada en el banco como {pid}.")
+                st.rerun()
+        if f3.button("Quitar del examen", key=f"dev_rm2_{q['_uid']}", use_container_width=True):
+            dev_qs.remove(q)
+            st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PREVIEW (Bitácora): el examen como lista + panel lateral + avisos + acciones
+# ─────────────────────────────────────────────────────────────────────────────
+def _avisos_preguntas(cache):
+    """{ID: [(texto, clase)]} con: usada hace poco, sin solución y lo que digan los análisis guardados."""
+    import analisis_lib as _A
+    res = _A.get_resultados(st.session_state.get("excel_dfs", {}))
+    ult = {}
+    if not res.empty:
+        for _, r in res.sort_values("Fecha").groupby("ID_Pregunta").tail(1).iterrows():
+            ult[r["ID_Pregunta"]] = r
+    hoy = datetime.date.today()
+    out = {}
+    for p in cache:
+        pid = p.get("ID_Pregunta")
+        av = []
+        u = str(p.get("usada", "") or "").strip()[:10]
+        if u and u not in ("nan", "None"):
+            try:
+                d = datetime.date.fromisoformat(u)
+                meses = (hoy.year - d.year) * 12 + hoy.month - d.month
+                if meses < 12:
+                    av.append((f"usada hace {meses} mes{'es' if meses != 1 else ''}" if meses else "usada este mes", "u"))
+            except ValueError:
+                pass
+        if not str(p.get("solucion", "") or "").strip() or str(p.get("solucion")) in ("nan", "None"):
+            av.append(("sin solución", "w"))
+        r = ult.get(pid)
+        if r is not None:
+            ex = r["ID_Examen"]
+            try:
+                dsc = float(r["Discriminacion"])
+            except ValueError:
+                dsc = None
+            if r["Decision"] == "anular":
+                av.append((f"anulada · {ex}", "d"))
+            elif dsc is not None and dsc < 0:
+                av.append((f"discrimina al revés · {ex}", "d"))
+            elif dsc is not None and dsc < 0.15:
+                av.append((f"discrimina poco · {ex}", "d"))
+            if str(r["Revisar_Distractores"]) in ("1", "True"):
+                av.append(("reescribir distractores", "w"))
+        out[pid] = av
+    return out
+
+
+def _cambiar_pregunta(i: int) -> bool:
+    """Sustituye la pregunta i de la vista previa por otra del mismo tema y dificultad (la menos usada)."""
+    ss = st.session_state
+    cache = ss.cache_examen
+    p = cache[i]
+    dentro = {x.get("ID_Pregunta") for x in cache}
+    df = ss.df_preguntas
+    base = df[(df["bloque"] == p.get("bloque")) & (df["dificultad"].map(_dif_norm) == _dif_norm(p.get("dificultad", "")))
+              & (~df["ID_Pregunta"].isin(dentro))]
+    opts = ss.get("auto_opts") or {}
+    for cand in (base[base["Tema"].astype(str) == str(p.get("Tema"))], base):
+        if opts:
+            cand = _filtrar_opciones(cand, opts)
+        if not cand.empty:
+            cand = cand.assign(_u=cand["usada"].astype(str).str.strip().replace({"nan": "", "None": ""}).replace("", "0000"))
+            nueva = cand.sort_values("_u").iloc[0].drop(labels=["_u"]).to_dict()
+            cache[i] = nueva
+            return True
+    return False
+
+
+def _preview_bitacora(cache, show_sol, vista):
+    import desarrollo_ui as DU
+    ss = st.session_state
+    cfg = ss.get("exam_cfg", {}) or {}
+    dev_qs = ss.get("dev_questions", []) or []
+    editable = vista == "Vista previa"
+    avisos = _avisos_preguntas(cache)
+    pts_dev = sum(DU.puntos(q) for q in dev_qs)
+    pts_test = DU._f(cfg.get("pts_test"), 0)
+    filtro = ss.get("pv_filtro")
+    fijas = set(get_sel_ids())
+
+    col_m, col_p = st.columns([1, 0.36], gap="medium")
+    with col_m:
+        asig = cfg.get("asig") or (ss.get("cfg_general", {}) or {}).get("asignatura", "") or ""
+        tipo = cfg.get("tipo", "") or "Examen"
+        st.markdown(f"<div class='pv-cab'><small>{asig}</small><div class='t'>{tipo}"
+                    f"{' · ' + str(cfg.get('fecha')) if cfg.get('fecha') else ''}</div>"
+                    f"<div class='s'>{len(dev_qs)} de desarrollo ({pts_dev:g} pts) · {len(cache)} de test"
+                    f"{' (' + format(pts_test, 'g') + ' pts)' if pts_test else ''}"
+                    f"{' · ' + vista if not editable else ''}</div></div>", unsafe_allow_html=True)
+        _render_checks_prev(cache, vista)
+        if filtro:
+            fx1, fx2 = st.columns([4, 1], vertical_alignment="center")
+            fx1.markdown(f"Mostrando solo las preguntas con aviso: **{filtro}**")
+            if fx2.button("Ver todas", key="pv_fclear", use_container_width=True):
+                ss.pop("pv_filtro", None)
+                st.rerun()
+        if dev_qs and not filtro:
+            st.markdown(f"<div class='pv-parte'><b>Parte I · Desarrollo</b><span>{len(dev_qs)} preguntas · {pts_dev:g} puntos</span></div>",
+                        unsafe_allow_html=True)
+            for n, q in enumerate(dev_qs, 1):
+                apts = q.get("subapartados") or []
+                sol = bool(str(q.get("solucion_modelo", "")).strip() or any(str(a.get("solucion", "")).strip() for a in apts))
+                with st.container(border=True, key=f"pvd_{n}"):
+                    chips = (f"<span class='pv-chip m'>{DU.puntos(q):g} pts</span>"
+                             + (f"<span class='pv-chip n'>{len(apts)} apartados</span>" if apts else "")
+                             + ("" if sol else "<span class='pv-chip w'>sin solución modelo</span>")
+                             + ("" if q.get("criterios") else "<span class='pv-chip n'>sin rúbrica</span>"))
+                    st.markdown(f"<div class='pv-meta'><b>{n}.</b>{chips}</div>", unsafe_allow_html=True)
+                    st.markdown(q.get("txt", "") or "*(sin enunciado)*")
+                    for j, a in enumerate(apts):
+                        st.markdown(f"**{DU.etiqueta_apt(j, q.get('numeracion_apt', 'abc'))})** {a.get('enunciado', '')}  "
+                                    f"*({DU._f(a.get('puntos'), 0):g} pt)*")
+        st.markdown(f"<div class='pv-parte'><b>Parte II · Test</b><span>{len(cache)} preguntas"
+                    f"{' · ' + format(pts_test, 'g') + ' puntos' if pts_test else ''}</span></div>", unsafe_allow_html=True)
+        accion = None
+        prev_blq = None
+        for i, p in enumerate(cache):
+            pid = p.get("ID_Pregunta", "")
+            av = avisos.get(pid, [])
+            if filtro and not any(filtro in t for t, _ in av):
+                continue
+            if p.get("bloque") != prev_blq and not filtro:
+                prev_blq = p.get("bloque")
+                st.markdown(f"<div class='pv-blq'>{nombre_bloque(str(prev_blq))}</div>", unsafe_allow_html=True)
+            dl = _dif_norm(p.get("dificultad", ""))
+            with st.container(border=True, key=f"pvq_{i}"):
+                hm, ha = st.columns([3, 2.1], vertical_alignment="center")
+                chips = (f"<span class='pv-chip {'f' if dl == 'facil' else ('d' if dl == 'dificil' else 'm')}'>{p.get('dificultad', '')}</span>"
+                         + ("<span class='pv-chip ok'>fija</span>" if pid in fijas else "")
+                         + "".join(f"<span class='pv-chip {c}'>{t}</span>" for t, c in av))
+                hm.markdown(f"<div class='pv-meta'><b>{i + 1}.</b><span class='id'>{pid}</span>"
+                            f"<span>{p.get('bloque', '')} · T{str(p.get('Tema', '')).removesuffix('.0')}</span>{chips}</div>",
+                            unsafe_allow_html=True)
+                if editable:
+                    with ha.container(horizontal=True, gap="small", key=f"pvact_{i}"):
+                        if st.button("↻ Cambiar", key=f"pv_cb_{i}", help="Cambiar por otra del mismo tema y dificultad"):
+                            accion = ("cambiar", i)
+                        if st.button("✎", key=f"pv_ed_{i}", help="Editar la pregunta"):
+                            accion = ("editar", i)
+                        if st.button("📌", key=f"pv_fx_{i}", help="Fijar (que se mantenga al generar de nuevo)", disabled=pid in fijas):
+                            accion = ("fijar", i)
+                        if st.button("↑", key=f"pv_up_{i}", disabled=i == 0):
+                            accion = ("up", i)
+                        if st.button("↓", key=f"pv_dn_{i}", disabled=i == len(cache) - 1):
+                            accion = ("dn", i)
+                        if st.button("×", key=f"pv_rm_{i}", help="Quitar del examen"):
+                            accion = ("rm", i)
+                st.markdown(str(p.get("enunciado", "")))
+                ops = p.get("opciones_list") or []
+                corr = {"A": 0, "B": 1, "C": 2, "D": 3}.get(str(p.get("letra_correcta", "")).upper(), -1)
+                lineas = []
+                for j, o in enumerate(ops[:4]):
+                    t = f"{'abcd'[j]}) {o}"
+                    lineas.append((f":green[**{t} ✓**]" if "]" not in t else f"**{t} ✓**") if show_sol and j == corr else t)
+                st.markdown("  \n".join(lineas))
+        if accion:
+            t, i = accion
+            if t == "cambiar":
+                if _cambiar_pregunta(i):
+                    st.toast("Pregunta cambiada por otra del mismo tema y dificultad", icon="↻")
+                else:
+                    st.toast("No hay otra pregunta del mismo bloque y dificultad disponible", icon="⚠️")
+            elif t == "editar":
+                ss["_open_q"] = cache[i].get("ID_Pregunta")
+            elif t == "fijar":
+                set_sel_ids(get_sel_ids() + [cache[i].get("ID_Pregunta")])
+            elif t in ("up", "dn"):
+                j = i - 1 if t == "up" else i + 1
+                cache[i], cache[j] = cache[j], cache[i]
+            elif t == "rm":
+                cache.pop(i)
+            st.rerun()
+
+    # ── Panel lateral ──
+    with col_p.container(key="pv_panel"):
+        n_test = len(cache)
+        minutos = round(1.5 * n_test + 15 * pts_dev)
+        with st.container(border=True, key="card_pv_res"):
+            st.markdown("<div class='pv-ph'>Resumen</div>"
+                        f"<div class='pv-kv'><span>Preguntas</span><b>{len(dev_qs)} + {n_test}</b></div>"
+                        f"<div class='pv-kv'><span>Puntos</span><b>{pts_dev:g} + {pts_test:g} = {pts_dev + pts_test:g}</b></div>"
+                        f"<div class='pv-kv'><span>Tiempo estimado</span><b>≈ {minutos} min</b></div>"
+                        "<div class='pv-n'>1,5 min por pregunta de test y 15 min por punto de desarrollo</div>",
+                        unsafe_allow_html=True)
+        difs = [_dif_norm(p.get("dificultad", "")) for p in cache]
+        cnt = [difs.count("facil"), difs.count("media"), difs.count("dificil")]
+        with st.container(border=True, key="card_pv_dif"):
+            pc = [round(100 * c / n_test) if n_test else 0 for c in cnt]
+            st.markdown("<div class='pv-ph'>Dificultad del test</div><div class='pv-mix'>"
+                        + "".join(f"<span style='flex:{c or 0.0001};background:{col}'></span>" for c, col in
+                                  zip(cnt, ("var(--ok)", "var(--primary)", "var(--err)")))
+                        + f"</div><div class='pv-kv3'><span>{cnt[0]} ({pc[0]} %)</span><span>{cnt[1]} ({pc[1]} %)</span>"
+                          f"<span>{cnt[2]} ({pc[2]} %)</span></div>", unsafe_allow_html=True)
+        blqs = {}
+        for p in cache:
+            blqs[p.get("bloque", "")] = blqs.get(p.get("bloque", ""), 0) + 1
+        mx = max(blqs.values() or [1])
+        with st.container(border=True, key="card_pv_blq"):
+            st.markdown("<div class='pv-ph'>Por bloque</div>" + "".join(
+                f"<div class='pv-b'><span>{b}</span><span class='bar'><span style='width:{100 * n / mx:.0f}%'></span></span><b>{n}</b></div>"
+                for b, n in sorted(blqs.items(), key=lambda kv: orden_bloque_g(kv[0]))), unsafe_allow_html=True)
+        letras = [str(p.get("letra_correcta", "")).upper() for p in cache]
+        with st.container(border=True, key="card_pv_letras"):
+            st.markdown("<div class='pv-ph'>Respuestas correctas</div><div class='pv-l'>"
+                        + "".join(f"<div><small>{l}</small><b>{letras.count(l)}</b></div>" for l in "ABCD")
+                        + "</div><div class='pv-n'>" + ("Se barajan al exportar." if vista == "Vista previa" else vista) + "</div>",
+                        unsafe_allow_html=True)
+        tipos = {}
+        for av in avisos.values():
+            for t, c in av:
+                k = re.sub(r" \d+ mes(es)?| este mes| · .*$", "", t)
+                k = "usada hace poco" if k.startswith("usada") else k
+                tipos[k] = tipos.get(k, 0) + 1
+        n_dev_sin = sum(1 for q in dev_qs if not (str(q.get("solucion_modelo", "")).strip()
+                                                  or any(str(a.get("solucion", "")).strip() for a in q.get("subapartados") or [])))
+        with st.container(border=True, key="card_pv_av"):
+            st.markdown(f"<div class='pv-ph'>Avisos <small>{sum(tipos.values()) + n_dev_sin}</small></div>", unsafe_allow_html=True)
+            if not tipos and not n_dev_sin:
+                st.caption("Ninguno.")
+            for t, n in sorted(tipos.items(), key=lambda kv: -kv[1]):
+                clave = "usada" if t.startswith("usada") else t
+                if st.button(f"{n} · {t}", key=f"pv_f_{t}", use_container_width=True, type="tertiary",
+                             help="Ver solo esas preguntas"):
+                    ss["pv_filtro"] = clave
+                    st.rerun()
+            if n_dev_sin:
+                st.caption(f"{n_dev_sin} pregunta(s) de desarrollo sin solución modelo")
+        st.caption("Para ver el PDF definitivo: pestaña **Exportar › Compilar PDF**.")
+
+
 tab_sel, tab_dev, tab_prev, tab_exp, tab_hist = st.tabs(
     ["🔢 Selección", "✍️ Desarrollo", "👁️ Preview", "💾 Exportar", "📋 Historial"]
 )
@@ -1572,6 +1974,9 @@ def _dev_qs_from_json(raw: bytes) -> list:
 
 
 with tab_dev:
+  if get_estilo() == "bitacora":
+    _desarrollo_bitacora()
+  else:
     _bit_dev = get_estilo() == "bitacora"
     page_header("✍️", "Preguntas de Desarrollo",
                 "Se incluirán como PARTE I del examen · Markdown y LaTeX soportados",
@@ -2379,6 +2784,7 @@ def _render_checks_prev(cache: list, vista: str):
                 f"Comprobaciones</b>{html}</div>", unsafe_allow_html=True)
 
 
+
 with tab_prev:
 
     # ── Banner de modo recuperación ───────────────────────────────────────────
@@ -2555,6 +2961,8 @@ with tab_prev:
             )
         else:
             st.info("Selecciona preguntas en la pestaña **Selección** y pulsa **🎲 Generar**.")
+    elif _bit_prev:
+        _preview_bitacora(cache, show_sol, vista_mod)
     else:
         cfg  = st.session_state.get("exam_cfg", {})
         inst = cfg.get("inst", "UCM")
@@ -2768,7 +3176,7 @@ def _ejecutar_export():
                 "modo":           q.get("modo", "markdown"),
                 "pts":            q["pts"],
                 "espacio":        q["espacio"],
-                "criterios":      q.get("criterios", []),
+                "criterios":      __import__("desarrollo_ui").criterios_export(q),
                 "solucion_modelo": q.get("solucion_modelo", ""),
                 "solucion_modo":  q.get("modo", "markdown"),
                 "imagen_bytes":   q.get("imagen_bytes"),
@@ -2940,10 +3348,12 @@ def _ejecutar_export():
             "rubrica_cajas": cfg.get("rubrica_cajas", False),
         }
         if cfg.get("fmt_rubrica_tex", True) and exp_tex:
-            _rub_tex = lib.generar_rubrica_latex(dev_qs_export, _rub_cfg)
+            _rub_tex = lib.generar_rubrica_latex(
+                [dict(q, criterios=__import__("desarrollo_ui").criterios_export(q)) for q in dev_qs_export], _rub_cfg)
             ef["_zip_all"][f"{nombre_arch}_RUBRICA.tex"] = _rub_tex
         if cfg.get("fmt_rubrica_word", True) and exp_word:
-            _rub_word = lib.generar_rubrica_word_bytes(dev_qs_export, _rub_cfg)
+            _rub_word = lib.generar_rubrica_word_bytes(
+                [dict(q, criterios=__import__("desarrollo_ui").criterios_export(q)) for q in dev_qs_export], _rub_cfg)
             ef["_zip_all"][f"{nombre_arch}_RUBRICA.docx"] = _rub_word
 
     # Versión adaptada
@@ -2971,6 +3381,8 @@ def _ejecutar_export():
     hoy = datetime.date.today().strftime("%Y-%m-%d")
     dfs = st.session_state.excel_dfs
     for bloque_name, df_sheet in dfs.items():
+        if bloque_name in lib.CFG_SHEETS:   # solo hojas de preguntas (no análisis, recetas ni banco de desarrollo)
+            continue
         head    = [str(h).lower().strip() for h in df_sheet.columns]
         idx_id  = next((i for i, h in enumerate(head) if "id_preg" in h or h == "id"), -1)
         idx_usa = next((i for i, h in enumerate(head) if "usada" in h or "fecha" in h), -1)
@@ -2980,6 +3392,11 @@ def _ejecutar_export():
         mask = df_sheet[id_col].astype(str).isin([str(pid) for pid in sel_actual])
         df_sheet.loc[mask, usa_col] = hoy
     reload_db()
+    try:   # las preguntas de desarrollo del banco también quedan marcadas como usadas
+        __import__("desarrollo_ui").marcar_usadas(
+            [q.get("banco_id") for q in st.session_state.get("dev_questions", []) if q.get("banco_id")], hoy)
+    except Exception:
+        pass
 
     # Historial — estadísticas de dificultad y bloques
     _df_exp = st.session_state.df_preguntas
