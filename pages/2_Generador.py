@@ -1215,47 +1215,70 @@ def _preview_bitacora(cache, show_sol, vista):
                                     f"*({DU._f(a.get('puntos'), 0):g} pt)*")
         st.markdown(f"<div class='pv-parte'><b>Parte II · Test</b><span>{len(cache)} preguntas"
                     f"{' · ' + format(pts_test, 'g') + ' puntos' if pts_test else ''}</span></div>", unsafe_allow_html=True)
-        accion = None
-        prev_blq = None
+        # Grupos consecutivos por bloque (respeta el orden del examen)
+        grupos = []
         for i, p in enumerate(cache):
-            pid = p.get("ID_Pregunta", "")
-            av = avisos.get(pid, [])
+            av = avisos.get(p.get("ID_Pregunta", ""), [])
             if filtro and not any(filtro in t for t, _ in av):
                 continue
-            if p.get("bloque") != prev_blq and not filtro:
-                prev_blq = p.get("bloque")
-                st.markdown(f"<div class='pv-blq'>{nombre_bloque(str(prev_blq))}</div>", unsafe_allow_html=True)
-            dl = _dif_norm(p.get("dificultad", ""))
-            with st.container(border=True, key=f"pvq_{i}"):
-                hm, ha = st.columns([3, 2.1], vertical_alignment="center")
-                chips = (f"<span class='pv-chip {'f' if dl == 'facil' else ('d' if dl == 'dificil' else 'm')}'>{p.get('dificultad', '')}</span>"
-                         + ("<span class='pv-chip ok'>fija</span>" if pid in fijas else "")
-                         + "".join(f"<span class='pv-chip {c}'>{t}</span>" for t, c in av))
-                hm.markdown(f"<div class='pv-meta'><b>{i + 1}.</b><span class='id'>{pid}</span>"
-                            f"<span>{p.get('bloque', '')} · T{str(p.get('Tema', '')).removesuffix('.0')}</span>{chips}</div>",
-                            unsafe_allow_html=True)
-                if editable:
-                    with ha.container(horizontal=True, gap="small", key=f"pvact_{i}"):
-                        if st.button("↻ Cambiar", key=f"pv_cb_{i}", help="Cambiar por otra del mismo tema y dificultad"):
-                            accion = ("cambiar", i)
-                        if st.button("✎", key=f"pv_ed_{i}", help="Editar la pregunta"):
-                            accion = ("editar", i)
-                        if st.button("📌", key=f"pv_fx_{i}", help="Fijar (que se mantenga al generar de nuevo)", disabled=pid in fijas):
-                            accion = ("fijar", i)
-                        if st.button("↑", key=f"pv_up_{i}", disabled=i == 0):
-                            accion = ("up", i)
-                        if st.button("↓", key=f"pv_dn_{i}", disabled=i == len(cache) - 1):
-                            accion = ("dn", i)
-                        if st.button("×", key=f"pv_rm_{i}", help="Quitar del examen"):
-                            accion = ("rm", i)
-                st.markdown(str(p.get("enunciado", "")))
-                ops = p.get("opciones_list") or []
-                corr = {"A": 0, "B": 1, "C": 2, "D": 3}.get(str(p.get("letra_correcta", "")).upper(), -1)
-                lineas = []
-                for j, o in enumerate(ops[:4]):
-                    t = f"{'abcd'[j]}) {o}"
-                    lineas.append((f":green[**{t} ✓**]" if "]" not in t else f"**{t} ✓**") if show_sol and j == corr else t)
-                st.markdown("  \n".join(lineas))
+            if not grupos or grupos[-1][0] != p.get("bloque"):
+                grupos.append((p.get("bloque"), []))
+            grupos[-1][1].append(i)
+        g1, g2, _ = st.columns([1.1, 1.1, 4])
+        if g1.button("▾ Desplegar todo", key="pv_open_all", use_container_width=True):
+            ss["pv_abiertos"], ss["pv_ver"] = True, ss.get("pv_ver", 0) + 1
+        if g2.button("▸ Plegar todo", key="pv_close_all", use_container_width=True):
+            ss["pv_abiertos"], ss["pv_ver"] = False, ss.get("pv_ver", 0) + 1
+        # el sufijo invisible cambia al pulsar «todo»: así los desplegables vuelven a abrirse o cerrarse
+        _zw = "​" * (ss.get("pv_ver", 0) % 7)
+        accion = None
+        for blq, idxs in grupos:
+            difs_b = [_dif_norm(cache[i].get("dificultad", "")) for i in idxs]
+            n_av = sum(1 for i in idxs if avisos.get(cache[i].get("ID_Pregunta", "")))
+            label = (f"**{nombre_bloque(str(blq))}** — {len(idxs)} pregunta{'s' if len(idxs) != 1 else ''} · "
+                     f"{difs_b.count('facil')} F · {difs_b.count('media')} M · {difs_b.count('dificil')} D"
+                     + (f" · {n_av} con aviso" if n_av else "") + _zw)
+            with st.expander(label, expanded=ss.get("pv_abiertos", True)):
+                for i in idxs:
+                    p = cache[i]
+                    pid = p.get("ID_Pregunta", "")
+                    av = avisos.get(pid, [])
+                    dl = _dif_norm(p.get("dificultad", ""))
+                    with st.container(border=True, key=f"pvq_{i}"):
+                        hm, ha = st.columns([3, 2.1], vertical_alignment="center")
+                        chips = (f"<span class='pv-chip {'f' if dl == 'facil' else ('d' if dl == 'dificil' else 'm')}'>{p.get('dificultad', '')}</span>"
+                                 + ("<span class='pv-chip ok'>fija</span>" if pid in fijas else "")
+                                 + "".join(f"<span class='pv-chip {c}'>{t}</span>" for t, c in av))
+                        hm.markdown(f"<div class='pv-meta'><b>{i + 1}.</b><span class='id'>{pid}</span>"
+                                    f"<span>T{str(p.get('Tema', '')).removesuffix('.0')}</span>{chips}</div>",
+                                    unsafe_allow_html=True)
+                        if editable:
+                            with ha.container(horizontal=True, gap="small", key=f"pvact_{i}"):
+                                if st.button("↻ Cambiar", key=f"pv_cb_{i}", help="Cambiar por otra del mismo tema y dificultad"):
+                                    accion = ("cambiar", i)
+                                if st.button("✎", key=f"pv_ed_{i}", help="Editar la pregunta"):
+                                    accion = ("editar", i)
+                                if st.button("📌", key=f"pv_fx_{i}", help="Fijar (que se mantenga al generar de nuevo)",
+                                             disabled=pid in fijas):
+                                    accion = ("fijar", i)
+                                if st.button("↑", key=f"pv_up_{i}", disabled=i == 0):
+                                    accion = ("up", i)
+                                if st.button("↓", key=f"pv_dn_{i}", disabled=i == len(cache) - 1):
+                                    accion = ("dn", i)
+                                if st.button("×", key=f"pv_rm_{i}", help="Quitar del examen"):
+                                    accion = ("rm", i)
+                        with st.container(key=f"pven_{i}"):   # enunciado en negrita (CSS)
+                            st.markdown(str(p.get("enunciado", "")))
+                        ops = p.get("opciones_list") or []
+                        corr = {"A": 0, "B": 1, "C": 2, "D": 3}.get(str(p.get("letra_correcta", "")).upper(), -1)
+                        with st.container(key=f"pvops_{i}"):
+                            for j, o in enumerate(ops[:4]):
+                                t = f"{'abcd'[j]}) {o}"
+                                if show_sol and j == corr:
+                                    with st.container(key=f"pvok_{i}"):   # correcta con fondo verde (CSS)
+                                        st.markdown(f"{t} ✓")
+                                else:
+                                    st.markdown(t)
         if accion:
             t, i = accion
             if t == "cambiar":
@@ -1307,6 +1330,61 @@ def _preview_bitacora(cache, show_sol, vista):
             st.markdown("<div class='pv-ph'>Respuestas correctas</div><div class='pv-l'>"
                         + "".join(f"<div><small>{l}</small><b>{letras.count(l)}</b></div>" for l in "ABCD")
                         + "</div><div class='pv-n'>" + ("Se barajan al exportar." if vista == "Vista previa" else vista) + "</div>",
+                        unsafe_allow_html=True)
+        # Uso, cobertura, análisis anteriores y origen
+        hoy = datetime.date.today()
+        usos = [str(p.get("usada", "") or "").strip()[:10] for p in cache]
+        nunca = sum(1 for u in usos if not u or u in ("nan", "None"))
+        viejas = sum(1 for u in usos if u and u not in ("nan", "None") and es_uso_antiguo(u, 12))
+        with st.container(border=True, key="card_pv_uso"):
+            st.markdown("<div class='pv-ph'>Uso de las preguntas</div><div class='pv-l3'>"
+                        f"<div><b>{nunca}</b><small>nunca usadas</small></div>"
+                        f"<div><b>{viejas}</b><small>hace más de un año</small></div>"
+                        f"<div><b>{n_test - nunca - viejas}</b><small>en el último año</small></div></div>",
+                        unsafe_allow_html=True)
+        temas = {}
+        for p in cache:
+            k_ = (p.get("bloque"), str(p.get("Tema", "")).removesuffix(".0"))
+            temas[k_] = temas.get(k_, 0) + 1
+        con_obj = sum(1 for p in cache if str(p.get("objetivo", "") or "").strip() not in ("", "nan", "None"))
+        con_sol = sum(1 for p in cache if str(p.get("solucion", "") or "").strip() not in ("", "nan", "None"))
+        top_t = max(temas.items(), key=lambda kv: kv[1]) if temas else None
+        with st.container(border=True, key="card_pv_cob"):
+            st.markdown("<div class='pv-ph'>Cobertura</div>"
+                        f"<div class='pv-kv'><span>Temas distintos</span><b>{len(temas)}</b></div>"
+                        + (f"<div class='pv-kv'><span>Tema con más preguntas</span><b>T{top_t[0][1]} · {top_t[1]}</b></div>" if top_t else "")
+                        + f"<div class='pv-kv'><span>Con objetivo docente</span><b>{con_obj} / {n_test}</b></div>"
+                        f"<div class='pv-kv'><span>Con solución desarrollada</span><b>{con_sol} / {n_test}</b></div>",
+                        unsafe_allow_html=True)
+        try:
+            import analisis_lib as _A
+            _res = _A.get_resultados(ss.get("excel_dfs", {}))
+            _ult = (_res.sort_values("Fecha").groupby("ID_Pregunta").tail(1).set_index("ID_Pregunta")["Pct_Acierto"]
+                    if not _res.empty else pd.Series(dtype=str))
+            _vals = [float(_ult[p.get("ID_Pregunta")]) for p in cache if p.get("ID_Pregunta") in _ult.index
+                     and str(_ult[p.get("ID_Pregunta")]).strip()]
+        except Exception:
+            _vals = []
+        with st.container(border=True, key="card_pv_an"):
+            if _vals:
+                media = sum(_vals) / len(_vals)
+                reales = [_A.dificultad_real(v) for v in _vals]
+                st.markdown("<div class='pv-ph'>Según exámenes anteriores</div>"
+                            f"<div class='pv-kv'><span>Preguntas con datos</span><b>{len(_vals)} / {n_test}</b></div>"
+                            f"<div class='pv-kv'><span>Acierto medio esperado</span><b>{media:.0f} %</b></div>"
+                            f"<div class='pv-kv'><span>Nota esperada del test</span><b>≈ {media / 10:.1f} / 10</b></div>"
+                            f"<div class='pv-kv'><span>Dificultad real F · M · D</span><b>{reales.count('Facil')} · "
+                            f"{reales.count('Media')} · {reales.count('Dificil')}</b></div>"
+                            "<div class='pv-n'>Con el acierto de cada pregunta en su último análisis guardado (sin penalización).</div>",
+                            unsafe_allow_html=True)
+            else:
+                st.markdown("<div class='pv-ph'>Según exámenes anteriores</div><div class='pv-n'>Ninguna de estas preguntas "
+                            "tiene todavía un análisis guardado (página Análisis).</div>", unsafe_allow_html=True)
+        n_fij = sum(1 for p in cache if p.get("ID_Pregunta") in fijas)
+        with st.container(border=True, key="card_pv_ori"):
+            st.markdown("<div class='pv-ph'>Origen</div>"
+                        f"<div class='pv-kv'><span>Fijas (elegidas a mano)</span><b>{n_fij}</b></div>"
+                        f"<div class='pv-kv'><span>De la receta / al azar</span><b>{n_test - n_fij}</b></div>",
                         unsafe_allow_html=True)
         tipos = {}
         for av in avisos.values():
@@ -2922,13 +3000,13 @@ with tab_prev:
                 pos = {pid: i for i, pid in enumerate(exam_ids)}
                 pool.sort(key=lambda x: pos.get(x["ID_Pregunta"], 9999))
             elif ord_key == "Por temas":
-                pool.sort(key=lambda x: (nsort(x.get("bloque", "")), nsort(str(x.get("Tema", "")))))
+                pool.sort(key=lambda x: (orden_bloque(x.get("bloque", "")), nsort(str(x.get("Tema", "")))))
                 new_pool = []
                 for _, grp in groupby(pool, key=lambda x: (x.get("bloque", ""), str(x.get("Tema", "")))):
                     g = list(grp); rng.shuffle(g); new_pool.extend(g)
                 pool = new_pool
             else:  # Por bloques
-                pool.sort(key=lambda x: nsort(x.get("bloque", "")))
+                pool.sort(key=lambda x: orden_bloque(x.get("bloque", "")))
                 new_pool = []
                 for _, grp in groupby(pool, key=lambda x: x.get("bloque", "")):
                     g = list(grp); rng.shuffle(g); new_pool.extend(g)

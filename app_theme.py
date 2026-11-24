@@ -739,7 +739,24 @@ hr { border-color: var(--border) !important; }
 [class*="st-key-pvact_"] [data-testid="stButton"] button p { font-size: 12.5px; }
 [class*="st-key-pvq_"]:hover { border-color: var(--primary) !important; }
 [class*="st-key-pvq_"] [data-testid="stMarkdownContainer"] p { margin-bottom: .35rem; }
-.st-key-pv_panel { position: sticky; top: 3.5rem; }
+/* panel fijo al bajar: la columna se estira hasta el final y el panel se pega arriba */
+[data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-pv_panel) { align-items: stretch !important; }
+[data-testid="stColumn"]:has(.st-key-pv_panel) { align-self: stretch !important; }
+[data-testid="stColumn"]:has(.st-key-pv_panel) > [data-testid="stVerticalBlock"] { height: 100%; }
+[data-testid="stLayoutWrapper"]:has(> .st-key-pv_panel) { height: 100%; flex: 1 1 auto; }
+.st-key-pv_panel { position: sticky; top: 3.8rem; z-index: 2; max-height: calc(100vh - 4.6rem); overflow-y: auto;
+  scrollbar-width: thin; padding-right: 4px; }
+[class*="st-key-pven_"] p { font-weight: 600; color: var(--text); }
+[class*="st-key-pvops_"] { gap: 3px !important; }
+[class*="st-key-pvops_"] [data-testid="stElementContainer"], [class*="st-key-pvops_"] [data-testid="stMarkdown"],
+[class*="st-key-pvops_"] [data-testid="stMarkdownContainer"] { margin: 0 !important; overflow: visible; }
+[class*="st-key-pvok_"] { margin: 1px 0; }
+[class*="st-key-pvops_"] [data-testid="stMarkdownContainer"] p { margin: 0; padding: 5px 10px; line-height: 1.5; }
+[class*="st-key-pvok_"] p { background: var(--ok-bg); border-radius: 7px; color: var(--ok) !important; font-weight: 600; }
+[class*="st-key-pvq_"] [data-testid="stVerticalBlock"] { gap: .45rem; }
+.pv-l3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; }
+.pv-l3 div { background: var(--card2); border-radius: 8px; padding: 6px 2px; }
+.pv-l3 b { display: block; font-size: 1.05rem; color: var(--text); } .pv-l3 small { font-size: 11px; color: var(--muted); }
 .pv-ph { font-weight: 700; color: var(--text); margin-bottom: 6px; } .pv-ph small { color: var(--muted); font-weight: 400; }
 .pv-kv { display: flex; justify-content: space-between; padding: 3px 0; font-size: .9rem; color: var(--muted); }
 .pv-kv b { color: var(--text); font-family: var(--mono); } .pv-n { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
