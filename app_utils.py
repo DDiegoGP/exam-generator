@@ -391,6 +391,10 @@ def connect_db(path: str):
         dfs = lib.cargar_excel_local(path)
         dfs = _load_cfg(dfs)
         df  = procesar_excel_dfs(dfs)
+        # otra fuente (otro archivo o venía de Google Sheets): limpiar lo del examen anterior y desvincular la hoja
+        _otra = (st.session_state.get("db_connected") and st.session_state.get("excel_path") != path)             or bool(st.session_state.get("_gsheets_id"))
+        for _k in ("_gsheets_id", "_gsheets_title", "_gsheets_url"):
+            st.session_state.pop(_k, None)
         st.session_state.excel_path    = path
         st.session_state.excel_dfs     = dfs
         st.session_state.df_preguntas  = df
@@ -398,6 +402,8 @@ def connect_db(path: str):
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state.db_connected  = True
         st.session_state["_db_loaded_at"] = datetime.datetime.now()
+        if _otra:
+            limpiar_estado_examen()
         n_blq = len(st.session_state.bloques)
         return True, f"{len(df)} preguntas en {n_blq} bloque(s)"
     except FileNotFoundError:
@@ -409,6 +415,20 @@ def connect_db(path: str):
     except Exception as e:
         st.session_state.db_connected = False
         return False, f"Error al cargar: {e}"
+
+def limpiar_estado_examen():
+    """Al cambiar de base de datos: quita lo que dependía de la anterior (selección, receta,
+    vista previa, exportación, marcas, filtros y datos del análisis)."""
+    ss = st.session_state
+    ss["sel_ids"], ss["manual_order"], ss["auto_recipe"] = [], [], {}
+    ss["cache_examen"], ss["gen_warnings"], ss["import_staging"] = None, [], []
+    for k in ("auto_opts", "export_files", "man_checked", "man_open_pid", "an_dec", "an_exam", "_rec_tab",
+              "_recent_sheets"):
+        ss.pop(k, None)
+    ss["_man_chk_reset"] = ss.get("_man_chk_reset", 0) + 1
+    for p in ("man_", "sel_"):
+        ss[f"_{p}fclear"] = ["search", "bloque", "tema", "obj", "uso", "dif", "sol", "com", "glob"]
+
 
 def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
     """Carga la DB desde Google Sheets usando token OAuth 2.0. Retorna (ok, mensaje)."""
@@ -429,7 +449,6 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         spreadsheet_id = m.group(1)
 
         sh = gc.open_by_key(spreadsheet_id)
-        st.session_state["_gsheets_id"] = spreadsheet_id
         dfs = {}
         existing_sheet_names = set()
         for ws in sh.worksheets():
@@ -440,6 +459,13 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
             dfs[ws.title] = pd.DataFrame(records) if records else pd.DataFrame()
             existing_sheet_names.add(ws.title)
 
+        # ¿Es una base de datos de preguntas? (alguna hoja con columna «Enunciado»). Si no, no se toca nada:
+        # ni la conexión actual ni la hoja de Google (antes se le añadían las hojas de configuración).
+        if not any(any("enunciado" in str(c).lower() for c in d.columns) for d in dfs.values() if not d.empty):
+            return False, (f"«{sh.title}» no parece una base de datos de preguntas (ninguna hoja tiene la columna "
+                           "«Enunciado»). No se ha cambiado nada.")
+        _otra = st.session_state.get("_gsheets_id") != spreadsheet_id
+        st.session_state["_gsheets_id"] = spreadsheet_id
         dfs = _load_cfg(dfs)
 
         # Empujar a GSheets las hojas de config que no existían allí (creadas en memoria)
@@ -470,11 +496,13 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         st.session_state["_gsheets_url"]  = spreadsheet_url
         st.session_state["_gsheets_title"] = sh.title
         st.session_state["_upload_name"]   = f"GSheets: {sh.title}"
+        if _otra:
+            limpiar_estado_examen()
         n_blq = len(st.session_state.bloques)
         return True, f"Conectado: {sh.title} · {len(df)} preguntas en {n_blq} hoja(s)"
     except Exception as e:
-        st.session_state.db_connected = False
-        return False, f"Error al conectar Google Sheets: {e}"
+        # la conexión anterior (si había) sigue siendo válida: no se marca como desconectada
+        return False, f"No se ha podido abrir la hoja de Google: {e}"
 
 
 def connect_db_from_upload(uploaded_file) -> tuple:
@@ -486,6 +514,10 @@ def connect_db_from_upload(uploaded_file) -> tuple:
         dfs = {name: pd.read_excel(xls, sheet_name=name) for name in xls.sheet_names}
         dfs = _load_cfg(dfs)
         df  = procesar_excel_dfs(dfs)
+        _otra = (st.session_state.get("_upload_name") != uploaded_file.name
+                 or bool(st.session_state.get("_gsheets_id")))
+        for _k in ("_gsheets_id", "_gsheets_title", "_gsheets_url"):   # ya no se sincroniza con la hoja de Google
+            st.session_state.pop(_k, None)
         st.session_state.excel_path    = ""   # sin ruta en cloud
         st.session_state.excel_dfs     = dfs
         st.session_state.df_preguntas  = df
@@ -494,9 +526,10 @@ def connect_db_from_upload(uploaded_file) -> tuple:
         st.session_state["_db_loaded_at"] = datetime.datetime.now()
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state["_upload_name"] = uploaded_file.name
+        if _otra:
+            limpiar_estado_examen()
         return True, f"Conectado: {uploaded_file.name}"
     except Exception as e:
-        st.session_state.db_connected = False
         return False, f"Error al cargar Excel: {e}"
 
 def reload_db():
@@ -791,10 +824,10 @@ def _render_db_panel_bitacora(p: str = ""):
         if ss.db_connected:
             if ss.get("_gsheets_id") and ss.get("_gsheets_title"):
                 nombre, origen = ss["_gsheets_title"], "Google Sheets"
-            elif ss.get("_upload_name"):
-                nombre, origen = ss["_upload_name"], "Excel subido"
+            elif ss.get("excel_path"):
+                nombre, origen = os.path.basename(ss["excel_path"]), "Archivo local"
             else:
-                nombre, origen = os.path.basename(ss.get("excel_path", "") or "") or "base_datos.xlsx", "Archivo local"
+                nombre, origen = ss.get("_upload_name") or "base_datos.xlsx", "Excel subido"
             df = ss.df_preguntas
             hace = _hace(ss.get("_db_loaded_at"))
             st.markdown(f"<div class='dbp-st'><span class='dot ok'></span><b>Conectado</b><small>· {origen}</small></div>"
@@ -822,6 +855,9 @@ def _render_db_panel_bitacora(p: str = ""):
             st.markdown("<div class='dbp-st'><span class='dot'></span><b>Sin conexión</b></div>"
                         "<div class='dbp-sub'>Elige una de tus hojas o sube un Excel.</div>", unsafe_allow_html=True)
 
+    if ss.get("_db_err"):
+        st.error(ss["_db_err"])
+
     # ── Hojas recientes de la cuenta ──────────────────────────────────────
     if token:
         rec = _hojas_recientes()
@@ -847,10 +883,9 @@ def _render_db_panel_bitacora(p: str = ""):
                 if not cur and r2.button("Abrir", key=f"{p}rec_{f['id']}", type="tertiary"):
                     with st.spinner(f"Abriendo «{f.get('name', '')}»…"):
                         ok, msg = connect_db_from_gsheets(token, f"https://docs.google.com/spreadsheets/d/{f['id']}")
-                    if ok:
-                        st.rerun()
-                    else:
-                        st.error(msg)
+                    ss.setdefault("_toasts" if ok else "_toasts_err", []).append(msg)
+                    ss["_db_err"] = "" if ok else msg
+                    st.rerun()
 
     # ── Otras formas de conectar ──────────────────────────────────────────
     with st.expander("Otras formas de conectar", expanded=not ss.db_connected and not token):
@@ -861,7 +896,9 @@ def _render_db_panel_bitacora(p: str = ""):
             if st.button("Abrir esta hoja", key=p + "btn_load_gsheets", use_container_width=True):
                 with st.spinner("Conectando…"):
                     ok, msg = connect_db_from_gsheets(token, gs_url)
-                st.rerun() if ok else st.error(msg)
+                ss.setdefault("_toasts" if ok else "_toasts_err", []).append(msg)
+                ss["_db_err"] = "" if ok else msg
+                st.rerun()
         uploaded = st.file_uploader("Subir un Excel (.xlsx)", type=["xlsx"], key=p + "sidebar_upload")
         if uploaded is not None and uploaded.name != ss.get("_upload_name"):
             ok, msg = connect_db_from_upload(uploaded)

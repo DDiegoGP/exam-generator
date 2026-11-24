@@ -793,6 +793,9 @@ def apply_theme(page: str = ""):
     st.html(css + _MODE_SCRIPT, unsafe_allow_javascript=True)
     for _msg in st.session_state.pop("_toasts", []):   # avisos de notify() de la ejecución anterior
         st.toast(re.sub(r"^\W+\s*", "", _msg), icon="✅")
+    _errs = st.session_state.pop("_toasts_err", [])
+    for _msg in _errs:   # errores de acciones que recargan la página (p. ej. cambiar de base de datos)
+        st.error(_msg, icon="⚠️")
     render_topbar(page, estilo)
     _pid = st.session_state.pop("_open_q", None)   # resultado del buscador pulsado en la ejecución anterior
     if _pid:
