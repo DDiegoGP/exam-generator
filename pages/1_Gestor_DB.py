@@ -806,10 +806,13 @@ def _estadisticas_bitacora(df_all):
 
 
 def _gestor_desarrollo():
-    """Gestor › Desarrollo: banco de preguntas de desarrollo con el mismo editor debajo (sin ventana)."""
+    """Gestor › Desarrollo: o la lista del banco, o el editor a página completa (nunca las dos a la vez)."""
     import json as _json
     import desarrollo_ui as DU
     ss = st.session_state
+    if ss.get("_gdes_q"):
+        _gestor_desarrollo_editor(ss["_gdes_q"])
+        return
     banco = DU.get_banco(ss.excel_dfs)
     a1, a2, a3 = st.columns([3.2, 1.3, 1.3], vertical_alignment="center")
     a1.caption("Banco de preguntas de desarrollo (hoja «Desarrollo» de la base de datos). Se eligen en Generador › Desarrollo.")
@@ -836,76 +839,163 @@ def _gestor_desarrollo():
             except Exception as e:
                 st.error(f"No se ha podido leer el JSON: {e}")
     if a3.button("➕ Nueva pregunta", type="primary", key="gdes_new", use_container_width=True):
-        ss["_gdes_q"] = DU.nueva()
+        _gdes_abrir(DU.nueva())
         st.rerun()
 
     if banco.empty:
         st.info("El banco de desarrollo está vacío. Crea una pregunta, guárdala desde Generador › Desarrollo "
                 "(«Guardar en el banco») o importa vuestros JSON antiguos.")
-    else:
-        tabla = DU.banco_como_tabla(banco)
-        df_f = filtros_bitacora("des_", tabla, bloques) if get_estilo() == "bitacora" else tabla
-        rows = []
-        for r in df_f.to_dict("records"):
-            row = qtable_row(r, grp=nombre_bloque(str(r.get("bloque", "")) or "—"))
-            row["enun"] = (f"{row['enun'][:150]} · {r['_napt']} apartados · {r['_pts']:g} pt" if r["_napt"]
-                           else f"{row['enun'][:160]} · {r['_pts']:g} pt")
-            rows.append(row)
-        act = qtable(rows, "gestor", key="qt_desarrollo", height=380, collapse_default=False, toolbar=False,
-                     foot="Pulsa una fila para abrir el editor debajo", empty="No hay preguntas con estos filtros")
-        if act and act.get("action") == "open":
-            r = banco[banco["ID"] == act["id"]]
-            if not r.empty:
-                ss["_gdes_q"] = DU.fila_a_pregunta(r.iloc[0])
-                st.rerun()
-        if os.environ.get("EXAMGEN_SIN_COMPONENTES"):   # banco de pruebas: abrir la primera
-            if st.button("Abrir primera", key="gdes_test_open") and not banco.empty:
-                ss["_gdes_q"] = DU.fila_a_pregunta(banco.iloc[0])
-                st.rerun()
-
-    q = ss.get("_gdes_q")
-    if not q:
         return
-    q.update(DU.normalizar(q))
-    with st.container(border=True, key="card_gdes_editor"):
-        e1, e2, e3, e4 = st.columns([2.4, 2.1, 0.9, 0.9], vertical_alignment="center")
-        e1.markdown(f"<div style='font-size:1.1rem;font-weight:700'>{'Editando ' + q['banco_id'] if q.get('banco_id') else 'Nueva pregunta de desarrollo'}</div>"
-                    f"<div class='devq-s'>{q.get('bloque') or 'sin bloque'}{' · Tema ' + q['tema'] if q.get('tema') else ''}"
-                    f"{' · último uso ' + q['usada'] if q.get('usada') else ''}</div>", unsafe_allow_html=True)
-        with e2.container(key=f"seg_gdesmode_{q['_uid']}"):
-            m = st.radio("Escritura", ["Markdown (recomendado)", "LaTeX puro"], horizontal=True,
-                         index=0 if q.get("modo") != "latex" else 1, key=f"gdesmodo_{q['_uid']}")
-        q["modo"] = "latex" if m.startswith("LaTeX") else "markdown"
-        if e3.button("Guardar", type="primary", key="gdes_save", use_container_width=True):
-            if not q["txt"].strip():
-                st.error("Escribe el enunciado antes de guardar.")
-            else:
-                pid = DU.guardar_en_banco(q)
-                notify(f"✅ {pid} guardada en el banco.")
-                st.rerun()
-        if e4.button("Cerrar", key="gdes_close", use_container_width=True):
-            ss.pop("_gdes_q", None)
+    tabla = DU.banco_como_tabla(banco)
+    df_f = filtros_bitacora("des_", tabla, bloques) if get_estilo() == "bitacora" else tabla
+    rows = []
+    for r in df_f.to_dict("records"):
+        row = qtable_row(r, grp=nombre_bloque(str(r.get("bloque", "")) or "—"))
+        row["enun"] = (f"{row['enun'][:150]} · {r['_napt']} apartados · {r['_pts']:g} pt" if r["_napt"]
+                       else f"{row['enun'][:160]} · {r['_pts']:g} pt")
+        rows.append(row)
+    ss["_gdes_ids"] = [r["id"] for r in rows]          # orden para ‹ › en el editor
+    act = qtable(rows, "gestor", key="qt_desarrollo", height=520, collapse_default=False, toolbar=False,
+                 foot="Pulsa una fila para abrir la pregunta en el editor", empty="No hay preguntas con estos filtros")
+    if act and act.get("action") == "open":
+        r = banco[banco["ID"] == act["id"]]
+        if not r.empty:
+            _gdes_abrir(DU.fila_a_pregunta(r.iloc[0]))
             st.rerun()
-        DU.editor(q, f"gd_{q['_uid']}", list(ss.bloques or []), en_examen=False, pts_en_editor=True)
-        f1, _, f2, f3 = st.columns([3, 1, 1.1, 1.1])
-        f1.caption("Las imágenes no se guardan en el banco: se añaden en cada examen.")
-        if q.get("banco_id"):
-            if f2.button("Duplicar", key="gdes_dup", use_container_width=True):
-                copia = DU.normalizar({k: v for k, v in q.items() if k != "_uid"})
-                pid = DU.guardar_en_banco(copia, nueva_copia=True)
-                ss["_gdes_q"] = copia
-                notify(f"✅ Duplicada como {pid}.")
-                st.rerun()
-            if f3.button("Eliminar", key="gdes_del", use_container_width=True):
-                ss["_gdes_del"] = not ss.get("_gdes_del", False)
-            if ss.get("_gdes_del"):
-                st.warning(f"¿Eliminar {q['banco_id']} del banco de forma permanente?")
-                if st.button("Sí, eliminar", type="primary", key="gdes_del_ok"):
-                    DU.eliminar_de_banco([q["banco_id"]])
-                    ss.pop("_gdes_q", None)
-                    ss.pop("_gdes_del", None)
-                    notify("🗑️ Pregunta eliminada del banco.")
+    if os.environ.get("EXAMGEN_SIN_COMPONENTES"):   # banco de pruebas: abrir la primera
+        if st.button("Abrir primera", key="gdes_test_open"):
+            _gdes_abrir(DU.fila_a_pregunta(banco.iloc[0]))
+            st.rerun()
+
+
+def _gdes_abrir(q):
+    """Abre `q` en el editor (vista editor de Gestor › Desarrollo)."""
+    ss = st.session_state
+    ss["_gdes_q"] = q
+    for k in ("_gdes_orig", "_gdes_del", "_gdes_pend"):
+        ss.pop(k, None)
+
+
+def _gdes_firma(q) -> str:
+    import json as _json
+    import desarrollo_ui as DU
+    f = DU.pregunta_a_fila(q)
+    f.pop("Modificada", None)
+    return _json.dumps(f, sort_keys=True, ensure_ascii=False)
+
+
+def _gdes_ir(destino):
+    """Sale del editor: destino None = volver al banco; un ID = abrir esa pregunta."""
+    import desarrollo_ui as DU
+    ss = st.session_state
+    if destino is None:
+        for k in ("_gdes_q", "_gdes_orig", "_gdes_del", "_gdes_pend"):
+            ss.pop(k, None)
+        return
+    banco = DU.get_banco(ss.excel_dfs)
+    r = banco[banco["ID"] == destino]
+    if r.empty:
+        _gdes_ir(None)
+    else:
+        _gdes_abrir(DU.fila_a_pregunta(r.iloc[0]))
+
+
+def _gestor_desarrollo_editor(q):
+    """Vista editor: barra fija arriba (volver, ‹ ›, guardar…) y el editor a todo el ancho."""
+    import desarrollo_ui as DU
+    from app_utils import _fkeys
+    ss = st.session_state
+    # los filtros de la lista no se dibujan ahora: se conservan para cuando se vuelva
+    for k_ in _fkeys("des_").values():
+        if k_ in ss:
+            ss[k_] = ss[k_]
+    q.update(DU.normalizar(q))
+    ids = ss.get("_gdes_ids") or []
+    pos = ids.index(q["banco_id"]) if q.get("banco_id") in ids else None
+
+    with st.container(border=True, key="gdes_bar"):
+        c = st.columns([1.35, 3.2, 0.42, 0.75, 0.42, 0.95, 0.95, 0.95], vertical_alignment="center")
+        volver = c[0].button("← Volver al banco", key="gdes_back", use_container_width=True)
+        c[1].markdown(f"<div class='devq-t' style='font-size:1.05rem'>"
+                      f"{'Editando ' + q['banco_id'] if q.get('banco_id') else 'Nueva pregunta de desarrollo'}</div>"
+                      f"<div class='devq-s'>{q.get('bloque') or 'sin bloque'}{' · Tema ' + q['tema'] if q.get('tema') else ''}"
+                      f"{' · último uso ' + q['usada'] if q.get('usada') else ''}</div>", unsafe_allow_html=True)
+        ant = c[2].button("‹", key="gdes_prev", use_container_width=True, disabled=not pos,
+                          help="Pregunta anterior de la lista")
+        c[3].markdown(f"<div class='devbar-pos'>{pos + 1} de {len(ids)}</div>" if pos is not None
+                      else "<div class='devbar-pos'>—</div>", unsafe_allow_html=True)
+        sig = c[4].button("›", key="gdes_next", use_container_width=True,
+                          disabled=pos is None or pos >= len(ids) - 1, help="Pregunta siguiente de la lista")
+        guardar = c[5].button("Guardar", type="primary", key="gdes_save", use_container_width=True)
+        dup = c[6].button("Duplicar", key="gdes_dup", use_container_width=True, disabled=not q.get("banco_id"))
+        if c[7].button("Eliminar", key="gdes_del", use_container_width=True, disabled=not q.get("banco_id")):
+            ss["_gdes_del"] = not ss.get("_gdes_del", False)
+        aviso = st.container()
+
+    with st.container(key=f"seg_gdesmode_{q['_uid']}"):
+        m = st.radio("Escritura", ["Markdown (recomendado)", "LaTeX puro"], horizontal=True,
+                     index=0 if q.get("modo") != "latex" else 1, key=f"gdesmodo_{q['_uid']}")
+    q["modo"] = "latex" if m.startswith("LaTeX") else "markdown"
+    DU.editor(q, f"gd_{q['_uid']}", list(ss.bloques or []), en_examen=False, pts_en_editor=True)
+    st.caption("Las imágenes no se guardan en el banco: se añaden en cada examen.")
+
+    # Las acciones se atienden después de dibujar el editor: así incluyen el último cambio escrito
+    if "_gdes_orig" not in ss:
+        ss["_gdes_orig"] = _gdes_firma(q)
+    sucio = _gdes_firma(q) != ss["_gdes_orig"]
+
+    def _guardar() -> bool:
+        if not q["txt"].strip():
+            aviso.error("Escribe el enunciado antes de guardar.")
+            return False
+        pid = DU.guardar_en_banco(q)
+        ss["_gdes_orig"] = _gdes_firma(q)
+        notify(f"✅ {pid} guardada en el banco.")
+        return True
+
+    if guardar and _guardar():
+        st.rerun()
+    if dup:
+        copia = DU.normalizar({k: v for k, v in q.items() if k != "_uid"})
+        pid = DU.guardar_en_banco(copia, nueva_copia=True)
+        _gdes_abrir(copia)
+        notify(f"✅ Duplicada como {pid}.")
+        st.rerun()
+    destino = "volver" if volver else (ids[pos - 1] if ant else (ids[pos + 1] if sig else None))
+    if destino:
+        if sucio:
+            ss["_gdes_pend"] = destino
+        else:
+            _gdes_ir(None if destino == "volver" else destino)
+            st.rerun()
+
+    pend = ss.get("_gdes_pend")
+    if pend:
+        with aviso:
+            st.warning("Tienes cambios sin guardar en esta pregunta.")
+            b1, b2, b3, _ = st.columns([1.3, 1.3, 1.3, 2.5])
+            if b1.button("Guardar y salir", type="primary", key="gdes_p_save", use_container_width=True):
+                if _guardar():
+                    _gdes_ir(None if pend == "volver" else pend)
                     st.rerun()
+            if b2.button("Salir sin guardar", key="gdes_p_drop", use_container_width=True):
+                _gdes_ir(None if pend == "volver" else pend)
+                st.rerun()
+            if b3.button("Seguir editando", key="gdes_p_stay", use_container_width=True):
+                ss.pop("_gdes_pend", None)
+                st.rerun()
+    if ss.get("_gdes_del"):
+        with aviso:
+            st.warning(f"¿Eliminar {q['banco_id']} del banco de forma permanente?")
+            d1, d2, _ = st.columns([1.3, 1.3, 5])
+            if d1.button("Sí, eliminar", type="primary", key="gdes_del_ok", use_container_width=True):
+                DU.eliminar_de_banco([q["banco_id"]])
+                _gdes_ir(None)
+                notify("🗑️ Pregunta eliminada del banco.")
+                st.rerun()
+            if d2.button("Cancelar", key="gdes_del_no", use_container_width=True):
+                ss.pop("_gdes_del", None)
+                st.rerun()
 
 
 def _stg_sin_correcta(q: dict) -> bool:

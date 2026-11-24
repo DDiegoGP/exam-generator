@@ -713,7 +713,11 @@ hr { border-color: var(--border) !important; }
 .devq-t { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .devq-s { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [class*="st-key-card_devqsel_"] { border-color: var(--primary) !important; background: var(--primary-soft); }
-.st-key-card_dev_editor, .st-key-card_gdes_editor { margin-top: 14px; }
+/* barra del editor de desarrollo: se queda arriba al bajar */
+[data-testid="stLayoutWrapper"]:has(> .st-key-gdes_bar), [data-testid="stLayoutWrapper"]:has(> .st-key-dev_bar),
+.st-key-gdes_bar, .st-key-dev_bar { position: sticky; top: 3.6rem; z-index: 6; }
+.st-key-gdes_bar, .st-key-dev_bar { background: var(--card) !important; box-shadow: 0 4px 12px -8px rgba(0,0,0,.25); margin-bottom: 6px; }
+.devbar-pos { text-align: center; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .dev-apref { font-size: .9rem; color: var(--text2); margin: 10px 0 4px; } .dev-apref small { color: var(--muted); }
 .dev-warn { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 8px; background: var(--warn-bg); color: var(--warn); }
 .dev-hd { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

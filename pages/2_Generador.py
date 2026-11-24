@@ -940,6 +940,10 @@ def _desarrollo_bitacora():
     dev_qs = ss.dev_questions
     for q in dev_qs:
         q.update(DU.normalizar(q))
+    q_ed = next((x for x in dev_qs if x["_uid"] == ss.get("dev_edit_uid")), None)
+    if q_ed is not None:            # vista editor (la lista no se dibuja)
+        _desarrollo_editor_gen(q_ed)
+        return
     banco = DU.get_banco(ss.get("excel_dfs", {}))
     cfg = ss.get("exam_cfg", {}) or {}
     pts_dev = sum(DU.puntos(q) for q in dev_qs)
@@ -959,147 +963,176 @@ def _desarrollo_bitacora():
         ("Rúbricas", f"{n_rub} de {len(dev_qs)}", "con criterios de corrección", False),
     ], compact=True), unsafe_allow_html=True)
 
-    c1, c2 = st.columns([1.25, 1], gap="medium")
-    sel_uid = ss.get("dev_sel_uid")
-    if dev_qs and sel_uid not in {q["_uid"] for q in dev_qs}:
-        sel_uid = ss["dev_sel_uid"] = dev_qs[0]["_uid"]
-
-    # ── En este examen ──
-    with c1:
-        h1, h2, h3, h4 = st.columns([2, 1.5, 0.9, 0.9], vertical_alignment="center")
-        h1.markdown("<div class='sec-title' style='margin:0'>En este examen</div>", unsafe_allow_html=True)
-        if h2.button("➕ Nueva pregunta", key="dev_nueva", use_container_width=True):
-            q = DU.nueva()
-            dev_qs.append(q)
-            ss["dev_sel_uid"] = q["_uid"]
-            st.rerun()
-        if dev_qs:
-            h3.download_button("⬇ JSON", _dev_qs_to_json(dev_qs), file_name="preguntas_desarrollo.json",
-                               mime="application/json", key="dev_json_dl", use_container_width=True,
-                               help="Descarga las preguntas de este examen (con imágenes)")
-        with h4.popover("⬆ JSON", use_container_width=True):
-            up = st.file_uploader("Preguntas de desarrollo (JSON)", type=["json"], key="dev_json_up")
-            if up is not None and ss.get("_dev_json_upload_name") != up.name:
-                try:
-                    nuevas = [DU.normalizar(q) for q in _dev_qs_from_json(up.getvalue())]
-                    dev_qs.extend(nuevas)
-                    ss["_dev_json_upload_name"] = up.name
-                    notify(f"✅ {len(nuevas)} pregunta(s) añadidas al examen")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"No se ha podido leer el JSON: {e}")
-        if not dev_qs:
-            st.info("Este examen no tiene preguntas de desarrollo. Añádelas desde el banco (→) o crea una nueva.")
-        accion = None
-        for i, q in enumerate(dev_qs):
-            on = q["_uid"] == sel_uid
-            apts = q["subapartados"]
-            sol = bool(q["solucion_modelo"].strip() or any(str(a.get("solucion", "")).strip() for a in apts))
-            sub = (f"{q.get('banco_id') or 'nueva · no está en el banco'} · "
-                   + (f"{len(apts)} apartados" if apts else "sin apartados") + " · "
-                   + ("solución" if sol else "sin solución") + (" + rúbrica" if q["criterios"] else ""))
-            with st.container(border=True, key=f"card_devq{'sel' if on else ''}_{q['_uid']}"):
-                r = st.columns([0.35, 3.6, 1.1, 0.42, 0.42, 0.42, 0.42], vertical_alignment="center")
-                r[0].markdown(f"**{i + 1}.**")
-                enun = re.sub(r"\s+", " ", q["txt"]).strip() or "(sin enunciado)"
-                r[1].markdown(f"<div class='devq-t'>{enun[:110]}</div><div class='devq-s'>{sub}</div>", unsafe_allow_html=True)
-                if apts:
-                    r[2].markdown(f"<b>{DU.puntos(q):g} pts</b><div class='devq-s'>suma de apartados</div>", unsafe_allow_html=True)
-                else:
-                    q["pts"] = r[2].number_input("Puntos", min_value=0.0, step=0.5, value=DU._f(q.get("pts"), 1.0),
-                                                 key=f"devpts_{q['_uid']}", label_visibility="collapsed",
-                                                 help="Puntos en este examen (no cambia el banco)")
-                if r[3].button("✎", key=f"dev_ed_{q['_uid']}", help="Editar abajo", type="primary" if on else "secondary"):
-                    ss["dev_sel_uid"] = q["_uid"]
-                    st.rerun()
-                if r[4].button("↑", key=f"dev_up_{q['_uid']}", disabled=i == 0):
-                    accion = ("up", i)
-                if r[5].button("↓", key=f"dev_dn_{q['_uid']}", disabled=i == len(dev_qs) - 1):
-                    accion = ("dn", i)
-                if r[6].button("×", key=f"dev_rm_{q['_uid']}", help="Quitar del examen"):
-                    accion = ("rm", i)
-        if accion:
-            t, i = accion
-            if t == "rm":
-                dev_qs.pop(i)
-            else:
-                j = i - 1 if t == "up" else i + 1
-                dev_qs[i], dev_qs[j] = dev_qs[j], dev_qs[i]
-            st.rerun()
-        if dev_qs:
-            st.caption("Los puntos son de este examen y no cambian los del banco. ✎ abre la pregunta en el editor de abajo.")
-
-    # ── Banco ──
-    with c2:
-        st.markdown(f"<div class='sec-title' style='margin:0 0 6px 0'>Banco de desarrollo · {len(banco)}</div>",
-                    unsafe_allow_html=True)
-        if banco.empty:
-            st.caption("El banco está vacío. Guarda aquí las preguntas con «Guardar en el banco» o créalas en "
-                       "Gestor › Desarrollo (también puedes importar allí vuestros JSON antiguos).")
-        else:
-            f1, f2 = st.columns([1.4, 1])
-            qtxt = f1.text_input("Buscar", key="dev_bq", placeholder="🔍 Buscar", label_visibility="collapsed")
-            fb = f2.selectbox("Bloque", ["Todos"] + list(ss.bloques or []), key="dev_bb", label_visibility="collapsed",
-                              format_func=lambda b: "Bloque: todos" if b == "Todos" else b)
-            b = banco
-            if fb != "Todos":
-                b = b[b["Bloque"] == fb]
-            if qtxt.strip():
-                m = qtxt.strip().lower()
-                b = b[(b["Enunciado"].str.lower().str.contains(m, regex=False)) | (b["ID"].str.lower().str.contains(m, regex=False))]
-            en_ex = {q.get("banco_id") for q in dev_qs}
-            with st.container(height=min(420, 60 + 62 * max(1, len(b))), key="card_dev_banco"):
-                for _, r_ in b.head(40).iterrows():
-                    dentro = r_["ID"] in en_ex
-                    rr = st.columns([3.4, 0.9, 0.8, 0.5], vertical_alignment="center")
-                    _en = re.sub(r"\s+", " ", r_["Enunciado"])[:90]
-                    rr[0].markdown(f"<div class='devq-s'>{r_['ID']} · {r_['Bloque']} · T{r_['Tema']}</div>"
-                                   f"<div class='devq-t'>{_en}</div>", unsafe_allow_html=True)
-                    rr[1].markdown(f"<span class='devq-s'>{(r_['Usada'] or 'nunca')[:7]}</span>", unsafe_allow_html=True)
-                    rr[2].markdown(f"<b>{r_['Puntos']} pt</b>", unsafe_allow_html=True)
-                    if rr[3].button("✓" if dentro else "+", key=f"dev_add_{r_['ID']}", disabled=dentro,
-                                    type="primary" if dentro else "secondary", help="Ya está" if dentro else "Añadir al examen"):
-                        q = DU.fila_a_pregunta(r_)
-                        dev_qs.append(q)
-                        ss["dev_sel_uid"] = q["_uid"]
-                        st.rerun()
-            st.caption("«+» la añade al examen · Gestor › Desarrollo para gestionarlas todas.")
-
-    # ── Editor de la pregunta elegida ──
-    q = next((x for x in dev_qs if x["_uid"] == ss.get("dev_sel_uid")), None)
-    if q is None:
+    # ── Lista: preguntas de este examen ──
+    h1, h2, h3, h4, h5 = st.columns([2.2, 1.1, 1.5, 1.2, 1.1], vertical_alignment="center")
+    h1.markdown("<div class='sec-title' style='margin:0'>Preguntas de este examen</div>", unsafe_allow_html=True)
+    if h2.button("➕ Nueva", key="dev_nueva", type="primary", use_container_width=True):
+        q = DU.nueva()
+        dev_qs.append(q)
+        ss["dev_edit_uid"] = q["_uid"]
+        st.rerun()
+    if h3.button(f"Añadir del banco · {len(banco)}", key="dev_banco_btn", use_container_width=True,
+                 help="Elige preguntas del banco de desarrollo"):
+        _dlg_banco_desarrollo()
+    if dev_qs:
+        h4.download_button("Descargar JSON", _dev_qs_to_json(dev_qs), file_name="preguntas_desarrollo.json",
+                           mime="application/json", key="dev_json_dl", use_container_width=True,
+                           help="Descarga las preguntas de este examen (con imágenes)")
+    with h5.popover("Subir JSON", use_container_width=True):
+        up = st.file_uploader("Preguntas de desarrollo (JSON)", type=["json"], key="dev_json_up")
+        if up is not None and ss.get("_dev_json_upload_name") != up.name:
+            try:
+                nuevas = [DU.normalizar(q) for q in _dev_qs_from_json(up.getvalue())]
+                dev_qs.extend(nuevas)
+                ss["_dev_json_upload_name"] = up.name
+                notify(f"✅ {len(nuevas)} pregunta(s) añadidas al examen")
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se ha podido leer el JSON: {e}")
+    if not dev_qs:
+        st.info("Este examen no tiene preguntas de desarrollo. Añádelas desde el banco o crea una nueva.")
         return
-    n = dev_qs.index(q) + 1
-    with st.container(border=True, key="card_dev_editor"):
-        e1, e2, e3 = st.columns([2.4, 2.1, 1.2], vertical_alignment="center")
-        e1.markdown(f"<div style='font-size:1.1rem;font-weight:700'>Pregunta {n} · editando</div>"
-                    f"<div class='devq-s'>{q.get('banco_id') or 'nueva (no está en el banco)'}"
-                    f"{' · ' + q['bloque'] if q.get('bloque') else ''}{' · Tema ' + q['tema'] if q.get('tema') else ''}</div>",
-                    unsafe_allow_html=True)
-        with e2.container(key=f"seg_devmode_{q['_uid']}"):
-            m = st.radio("Escritura", ["Markdown (recomendado)", "LaTeX puro"], horizontal=True,
-                         index=0 if q.get("modo") != "latex" else 1, key=f"devmodo_{q['_uid']}")
-        q["modo"] = "latex" if m.startswith("LaTeX") else "markdown"
-        if e3.button("Guardar en el banco", type="primary", key=f"dev_save_{q['_uid']}", use_container_width=True,
-                     help="Guarda la pregunta (sin las imágenes) para reutilizarla en otros exámenes"):
-            if not q["txt"].strip():
-                st.error("Escribe el enunciado antes de guardarla.")
+    accion = None
+    for i, q in enumerate(dev_qs):
+        apts = q["subapartados"]
+        sol = bool(q["solucion_modelo"].strip() or any(str(a.get("solucion", "")).strip() for a in apts))
+        sub = (f"{q.get('banco_id') or 'nueva · no está en el banco'} · "
+               + (f"{len(apts)} apartados" if apts else "sin apartados") + " · "
+               + ("solución" if sol else "sin solución") + (" + rúbrica" if q["criterios"] else ""))
+        with st.container(border=True, key=f"card_devq_{q['_uid']}"):
+            r = st.columns([0.3, 3.9, 1.0, 0.95, 0.38, 0.38, 0.38], vertical_alignment="center")
+            r[0].markdown(f"**{i + 1}.**")
+            enun = re.sub(r"\s+", " ", q["txt"]).strip() or "(sin enunciado)"
+            r[1].markdown(f"<div class='devq-t'>{enun[:140]}</div><div class='devq-s'>{sub}</div>", unsafe_allow_html=True)
+            if apts:
+                r[2].markdown(f"<b>{DU.puntos(q):g} pts</b><div class='devq-s'>suma de apartados</div>", unsafe_allow_html=True)
             else:
-                pid = DU.guardar_en_banco(q)
-                notify(f"✅ Guardada en el banco como {pid}.")
+                q["pts"] = r[2].number_input("Puntos", min_value=0.0, step=0.5, value=DU._f(q.get("pts"), 1.0),
+                                             key=f"devpts_{q['_uid']}", label_visibility="collapsed",
+                                             help="Puntos en este examen (no cambia el banco)")
+            if r[3].button("✎ Editar", key=f"dev_ed_{q['_uid']}", use_container_width=True):
+                ss["dev_edit_uid"] = q["_uid"]
                 st.rerun()
-        DU.editor(q, f"dq_{q['_uid']}", list(ss.bloques or []), pts_en_editor=False)
-        f1, _, f2, f3 = st.columns([3, 1, 1.2, 1.2])
-        f1.caption("Los cambios valen ya para este examen; «Guardar en el banco» los guarda también para otros.")
-        if f2.button("Guardar como copia", key=f"dev_copy_{q['_uid']}", use_container_width=True,
-                     help="Crea una pregunta nueva en el banco con este contenido"):
-            if q["txt"].strip():
-                pid = DU.guardar_en_banco(q, nueva_copia=True)
-                notify(f"✅ Copia guardada en el banco como {pid}.")
-                st.rerun()
-        if f3.button("Quitar del examen", key=f"dev_rm2_{q['_uid']}", use_container_width=True):
-            dev_qs.remove(q)
+            if r[4].button("↑", key=f"dev_up_{q['_uid']}", disabled=i == 0):
+                accion = ("up", i)
+            if r[5].button("↓", key=f"dev_dn_{q['_uid']}", disabled=i == len(dev_qs) - 1):
+                accion = ("dn", i)
+            if r[6].button("×", key=f"dev_rm_{q['_uid']}", help="Quitar del examen"):
+                accion = ("rm", i)
+    if accion:
+        t, i = accion
+        if t == "rm":
+            dev_qs.pop(i)
+        else:
+            j = i - 1 if t == "up" else i + 1
+            dev_qs[i], dev_qs[j] = dev_qs[j], dev_qs[i]
+        st.rerun()
+    st.caption("Los puntos son de este examen y no cambian los del banco.")
+
+
+def _desarrollo_editor_gen(q):
+    """Generador › Desarrollo, vista editor: barra fija arriba y el editor a todo el ancho."""
+    import desarrollo_ui as DU
+    ss = st.session_state
+    dev_qs = ss.dev_questions
+    i = dev_qs.index(q)
+    with st.container(border=True, key="dev_bar"):
+        c = st.columns([1.5, 2.2, 0.42, 0.7, 0.42, 1.75, 1.4, 1.6], vertical_alignment="center")
+        if c[0].button("← Volver al examen", key="dev_back", use_container_width=True):
+            ss.pop("dev_edit_uid", None)
             st.rerun()
+        c[1].markdown(f"<div class='devq-t' style='font-size:1.05rem'>Pregunta {i + 1} · editando</div>"
+                      f"<div class='devq-s'>{q.get('banco_id') or 'nueva (no está en el banco)'}"
+                      f"{' · ' + q['bloque'] if q.get('bloque') else ''}{' · Tema ' + q['tema'] if q.get('tema') else ''}</div>",
+                      unsafe_allow_html=True)
+        if c[2].button("‹", key="dev_prev", use_container_width=True, disabled=i == 0, help="Pregunta anterior"):
+            ss["dev_edit_uid"] = dev_qs[i - 1]["_uid"]
+            st.rerun()
+        c[3].markdown(f"<div class='devbar-pos'>{i + 1} de {len(dev_qs)}</div>", unsafe_allow_html=True)
+        if c[4].button("›", key="dev_next", use_container_width=True, disabled=i >= len(dev_qs) - 1,
+                       help="Pregunta siguiente"):
+            ss["dev_edit_uid"] = dev_qs[i + 1]["_uid"]
+            st.rerun()
+        guardar = c[5].button("Guardar en el banco", type="primary", key=f"dev_save_{q['_uid']}", use_container_width=True,
+                              help="Guarda la pregunta (sin las imágenes) para reutilizarla en otros exámenes")
+        copia = c[6].button("Guardar copia", key=f"dev_copy_{q['_uid']}", use_container_width=True,
+                            help="Crea una pregunta nueva en el banco con este contenido")
+        if c[7].button("Quitar del examen", key=f"dev_rm2_{q['_uid']}", use_container_width=True):
+            dev_qs.remove(q)
+            ss.pop("dev_edit_uid", None)
+            st.rerun()
+        aviso = st.container()
+    with st.container(key=f"seg_devmode_{q['_uid']}"):
+        m = st.radio("Escritura", ["Markdown (recomendado)", "LaTeX puro"], horizontal=True,
+                     index=0 if q.get("modo") != "latex" else 1, key=f"devmodo_{q['_uid']}")
+    q["modo"] = "latex" if m.startswith("LaTeX") else "markdown"
+    DU.editor(q, f"dq_{q['_uid']}", list(ss.bloques or []), pts_en_editor=False)
+    st.caption("Los cambios valen ya para este examen; «Guardar en el banco» los guarda también para otros.")
+    # después del editor: así se guarda también el último cambio escrito
+    if guardar or copia:
+        if not q["txt"].strip():
+            aviso.error("Escribe el enunciado antes de guardarla.")
+        else:
+            pid = DU.guardar_en_banco(q, nueva_copia=bool(copia))
+            notify(f"✅ {'Copia guardada' if copia else 'Guardada'} en el banco como {pid}.")
+            st.rerun()
+
+
+def _dev_anadir_del_banco(pid: str):
+    import desarrollo_ui as DU
+    ss = st.session_state
+    banco = DU.get_banco(ss.get("excel_dfs", {}))
+    r = banco[banco["ID"] == pid]
+    if not r.empty and pid not in {q.get("banco_id") for q in ss.dev_questions}:
+        ss.dev_questions.append(DU.fila_a_pregunta(r.iloc[0]))
+
+
+@st.dialog("Añadir preguntas del banco de desarrollo", width="large", on_dismiss="rerun")
+def _dlg_banco_desarrollo():
+    import desarrollo_ui as DU
+    ss = st.session_state
+    banco = DU.get_banco(ss.get("excel_dfs", {}))
+    if banco.empty:
+        st.info("El banco está vacío. Guarda preguntas con «Guardar en el banco» o créalas en Gestor › Desarrollo "
+                "(también puedes importar allí vuestros JSON antiguos).")
+        return
+    f1, f2, f3 = st.columns([2, 1.2, 1])
+    qtxt = f1.text_input("Buscar", key="dev_bq", placeholder="🔍 Enunciado o ID", label_visibility="collapsed")
+    fb = f2.selectbox("Bloque", ["Todos"] + list(ss.bloques or []), key="dev_bb", label_visibility="collapsed",
+                      format_func=lambda b: "Bloque: todos" if b == "Todos" else nombre_bloque(b))
+    temas_b = sorted({t for t in (banco["Tema"] if fb == "Todos" else banco[banco["Bloque"] == fb]["Tema"]) if t},
+                     key=lambda t: (len(t), t))
+    ft = f3.selectbox("Tema", ["Todos"] + temas_b, key="dev_bt", label_visibility="collapsed",
+                      format_func=lambda t: "Tema: todos" if t == "Todos" else f"Tema {t}")
+    b = banco
+    if fb != "Todos":
+        b = b[b["Bloque"] == fb]
+    if ft != "Todos":
+        b = b[b["Tema"] == ft]
+    if qtxt.strip():
+        m = qtxt.strip().lower()
+        b = b[(b["Enunciado"].str.lower().str.contains(m, regex=False)) | (b["ID"].str.lower().str.contains(m, regex=False))]
+    en_ex = {q.get("banco_id") for q in ss.dev_questions}
+    st.caption(f"{len(b)} de {len(banco)} preguntas · ya en el examen: {len(en_ex - {''})}")
+    with st.container(height=440, key="card_dev_banco"):
+        if b.empty:
+            st.caption("No hay preguntas con estos filtros.")
+        for _, r_ in b.iterrows():
+            dentro = r_["ID"] in en_ex
+            rr = st.columns([3.6, 0.9, 0.7, 0.9], vertical_alignment="center")
+            _en = re.sub(r"\s+", " ", r_["Enunciado"])[:130]
+            napt = len(DU._jl(r_["Apartados"], []))
+            rr[0].markdown(f"<div class='devq-s'>{r_['ID']} · {nombre_bloque(r_['Bloque']) if r_['Bloque'] else 'sin bloque'}"
+                           f"{' · T' + r_['Tema'] if r_['Tema'] else ''}{f' · {napt} apartados' if napt else ''}</div>"
+                           f"<div class='devq-t'>{_en}</div>", unsafe_allow_html=True)
+            rr[1].markdown(f"<span class='devq-s'>{('usada ' + r_['Usada'][:7]) if r_['Usada'] else 'nunca usada'}</span>",
+                           unsafe_allow_html=True)
+            rr[2].markdown(f"<b>{r_['Puntos']} pt</b>", unsafe_allow_html=True)
+            rr[3].button("Añadida" if dentro else "Añadir", key=f"dev_add_{r_['ID']}", disabled=dentro,
+                         type="secondary" if dentro else "primary", use_container_width=True,
+                         on_click=_dev_anadir_del_banco, args=(r_["ID"],))
+    if st.button("Listo", type="primary", key="dev_banco_ok"):
+        st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
