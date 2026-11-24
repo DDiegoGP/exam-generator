@@ -870,7 +870,8 @@ with tab_imp:
         "Etiqueta de importación",
         placeholder="ej: CLASE, EXAMEN_2023, RECUPERACION...",
         key="imp_comentario",
-        help="Etiqueta que se asignará a todas las preguntas importadas. Después podrás filtrar por ella."
+        help="Se añade a todas las preguntas importadas (aunque la escribas después de previsualizar), "
+             "salvo a las que les pongas otra con ✏️. Después podrás filtrar por ella en Gestionar."
     )
     auto_cls = st.toggle(
         "Proponer bloque, tema y objetivo de cada pregunta", value=True, key="imp_auto",
@@ -1025,7 +1026,8 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
                     "tema":           str(staging[i].get("tema", tema_imp)),
                     "dificultad":     staging[i].get("dificultad", dif_imp),
                     "usada":          staging[i].get("usada", ""),
-                    "comentario":     staging[i].get("comentario", ""),
+                    # la etiqueta de importación vale para todas, salvo las que tengan una propia (✏️)
+                    "comentario":     staging[i].get("comentario", "") or com_imp.strip(),
                     "objetivo":       staging[i].get("objetivo", ""),
                 }
                 is_dup, _ = lib.check_for_similar_enunciado(p_data["enunciado"], df_total)

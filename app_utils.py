@@ -779,10 +779,9 @@ def _render_db_panel_bitacora(p: str = ""):
         st.link_button("Entrar con Google", url=_google_oauth_url(cfg), type="primary", use_container_width=True)
     elif con_google:
         email = ss.get("google_user_email", "") or "sesión activa"
-        c1, c2 = st.columns([4, 1.6], vertical_alignment="center")
-        c1.markdown(f"<div class='dbp-acc'><span class='av'>{(email[:1] or 'G').upper()}</span>"
+        st.markdown(f"<div class='dbp-acc'><span class='av'>{(email[:1] or 'G').upper()}</span>"
                     f"<span><b>Cuenta de Google</b><small>{email}</small></span></div>", unsafe_allow_html=True)
-        if c2.button("Cerrar sesión", key=p + "btn_logout_google", type="tertiary"):
+        if st.button("Cerrar sesión", key=p + "btn_logout_google", type="tertiary"):
             for k in ("google_token", "google_user_email", "_gsheets_url", "_gsheets_title", "_recent_sheets"):
                 ss.pop(k, None)
             st.rerun()
@@ -839,13 +838,13 @@ def _render_db_panel_bitacora(p: str = ""):
             except ValueError:
                 vt = None
             with st.container(key=f"dbrec_{p or 'side'}_{re.sub(r'[^A-Za-z0-9]', '', f['id'])[:20]}"):
-                r1, r2 = st.columns([5, 1.4], vertical_alignment="center")
-                r1.markdown(f"<div class='dbp-rec{' cur' if cur else ''}'><span class='ic'>▦</span><span>"
-                            f"<b>{f.get('name', '')}</b><small>{('abierta ' + _hace(vt)) if vt else ''}</small></span></div>",
+                r1, r2 = st.columns([5, 1.5], vertical_alignment="center", gap="small")
+                _nm = str(f.get("name", "")).replace("<", "&lt;")
+                r1.markdown(f"<div class='dbp-rec{' cur' if cur else ''}' title='{_nm}'><span class='ic'>▦</span><span class='tx'>"
+                            f"<b>{_nm}</b><small>{('abierta ' + _hace(vt)) if vt else ''}"
+                            f"{' <span class=dbp-tag>conectada</span>' if cur else ''}</small></span></div>",
                             unsafe_allow_html=True)
-                if cur:
-                    r2.markdown("<span class='dbp-tag'>conectada</span>", unsafe_allow_html=True)
-                elif r2.button("Abrir", key=f"{p}rec_{f['id']}", type="tertiary"):
+                if not cur and r2.button("Abrir", key=f"{p}rec_{f['id']}", type="tertiary"):
                     with st.spinner(f"Abriendo «{f.get('name', '')}»…"):
                         ok, msg = connect_db_from_gsheets(token, f"https://docs.google.com/spreadsheets/d/{f['id']}")
                     if ok:

@@ -674,14 +674,22 @@ hr { border-color: var(--border) !important; }
 .dbp-name { font-size: 1.02rem; font-weight: 700; color: var(--text); margin-top: 2px; word-break: break-word; }
 .dbp-sub { font-size: 12.5px; color: var(--muted); }
 .dbp-lbl { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 6px 0 2px; }
-.dbp-rec { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dbp-rec { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+.dbp-rec .tx { min-width: 0; flex: 1; overflow: hidden; }
+[class*="st-key-dbrec_"] [data-testid="stColumn"], [class*="st-key-dbrec_"] [data-testid="stMarkdownContainer"] { min-width: 0; }
+[class*="st-key-dbrec_"] [data-testid="stColumn"]:last-child { flex: 0 0 auto !important; width: auto !important; }
+[class*="st-key-dbrec_"] [data-testid="stButton"] button { min-height: 0; height: 28px; padding: 0 6px; }
+[class*="st-key-dbrec_"] [data-testid="stButton"] button p { color: var(--primary); font-weight: 600; font-size: 13px; }
+[class*="st-key-dbrec_"] { padding: 4px 8px !important; }
+[class*="st-key-btn_logout_google"] button, [class*="btn_logout_google"] button { min-height: 0; height: 24px; padding: 0; margin: -6px 0 0 44px; }
+[class*="btn_logout_google"] button p { font-size: 12.5px; color: var(--primary); }
 .dbp-rec .ic { width: 28px; height: 28px; border-radius: 7px; background: var(--ok-bg); color: var(--ok); flex: none;
   display: flex; align-items: center; justify-content: center; font-size: 15px; }
-.dbp-rec b { display: block; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dbp-rec b { display: block; color: var(--text); font-weight: 600; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dbp-rec small { font-size: 12px; color: var(--muted); }
 [class*="st-key-dbrec_"] { border-radius: 9px; padding: 2px 6px; }
 [class*="st-key-dbrec_"]:hover { background: var(--card2); }
-.dbp-tag { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; background: var(--ok-bg); color: var(--ok); }
+.dbp-tag { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--ok-bg); color: var(--ok); white-space: nowrap; }
 
 /* ── Filtros comunes: etiquetas de filtros activos y recuento ── */
 .chips-lbl { font-size: 13px; color: var(--muted); }
