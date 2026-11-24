@@ -668,6 +668,40 @@ hr { border-color: var(--border) !important; }
 .rec-act small { flex-basis: 100%; color: var(--muted); font-size: 12px; }
 .rec-chip { font-family: var(--mono); font-size: 12px; background: var(--card); border-radius: 999px; padding: 2px 9px; color: var(--text2); }
 
+/* ── Receta (v8) ── */
+.rec-k { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin: 4px 0 14px; }
+.rec-k > div { background: var(--card2); border-radius: 10px; padding: 10px 14px; }
+.rec-k span { display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.rec-k b { display: block; font-size: 1.5rem; color: var(--text); line-height: 1.25; }
+.rec-k small { font-size: 12px; color: var(--muted); }
+.rec-mixl { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
+.rec-mix { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
+.rec-sec { font-weight: 700; color: var(--text); margin: 6px 0 2px; }
+.rec-l { display: grid; grid-template-columns: 230px minmax(0,1fr) 130px 30px; gap: 12px; align-items: center;
+  padding: 7px 0; border-top: 1px solid var(--border); font-size: .9rem; }
+.rec-l > span:first-child { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-l > span:first-child small { display: block; font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--muted); }
+.rec-l .o { font-size: 12.5px; color: var(--text2); } .rec-l b { text-align: right; font-family: var(--mono); color: var(--text); }
+.rec-l .mx { display: flex; height: 9px; border-radius: 5px; overflow: hidden; background: var(--track); }
+.rec-ch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.rec-ch em { font-style: normal; font-weight: 600; background: var(--primary-soft); color: var(--primary); border-radius: 999px; padding: 2px 9px; }
+.rec-av { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 9px 13px; margin-top: 12px; font-size: 13px; }
+.rec-pr { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) 70px 30px; gap: 12px; align-items: center; padding: 4px 0; font-size: .88rem; }
+.rec-pr > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-pr .bar { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; display: block; }
+.rec-pr .bar span { display: block; height: 8px; background: var(--primary); }
+.rec-pr .m { font-family: var(--mono); font-size: 12px; color: var(--muted); } .rec-pr b { text-align: right; font-family: var(--mono); }
+.rq-hd { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.rq-h { padding-left: 28px; font-size: .9rem; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-d { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.rq-t { font-family: var(--mono); display: block; text-align: right; color: var(--text); } .rq-t.z { color: var(--muted); font-weight: 400; }
+.rq-g small { color: var(--muted); font-size: 12px; }
+[class*="st-key-rqb_"] { background: var(--card2); border-radius: 9px; padding: 2px 8px; margin-bottom: 4px; }
+[class*="st-key-rqb_"] [data-testid="stButton"] button[kind="tertiary"] { font-weight: 700; color: var(--text); padding: 0; min-height: 0; text-align: left; }
+[class*="st-key-rqc"] [data-testid="stNumberInput"] input { text-align: center; font-family: var(--mono); padding: 0 4px; }
+[class*="st-key-rqcw_"] [data-testid="stNumberInput"] > div { border-color: var(--err) !important; background: var(--err-bg); }
+[class*="st-key-rqcw_"] input { color: var(--err) !important; font-weight: 700; }
+
 /* ── Panel «Base de datos» ── */
 .dbp-t { font-size: .9rem; color: var(--text2); margin-bottom: 4px; }
 .dbp-acc { display: flex; align-items: center; gap: 10px; }

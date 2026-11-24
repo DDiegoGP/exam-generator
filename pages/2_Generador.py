@@ -140,11 +140,18 @@ def _dialog_subapartados(q_idx: int):
 # DIALOG: CONFIGURACIÓN DE RELLENO AUTOMÁTICO
 
 # ═════════════════════════════════════════════════════════════════════════════
-# RECETA DE AUTO-RELLENO (Bitácora): reparto rápido + tabla de todos los bloques + opciones
+# RECETA DE AUTO-RELLENO (Bitácora): Resumen · Reparto rápido · Cantidades · Opciones
+# Estructura (igual que la antigua): {bloque: {"__ALL__"|tema|"__OBJ_cod": {facil, media, dificil}}}
+# Los objetivos sin bloque van en el pseudo-bloque "__GEN__".
 # ═════════════════════════════════════════════════════════════════════════════
 _DIFS = ("facil", "media", "dificil")
-_MEZCLAS = {"Como el banco": None, "Equilibrada · 30/50/20": (30, 50, 20),
-            "Más fácil · 50/40/10": (50, 40, 10), "Exigente · 20/50/30": (20, 50, 30)}
+_DIFL = ("Fácil", "Media", "Difícil")
+_MEZCLAS = {"Como el banco": None, "30 · 50 · 20": (30, 50, 20), "50 · 40 · 10": (50, 40, 10),
+            "20 · 50 · 30": (20, 50, 30), "Personalizada": "pers"}
+_GEN = "__GEN__"
+_RECETAS_SHEET = "Cfg_Recetas"
+_OPT_DEF = {"evitar_meses": 0, "excl_examenes": [], "excl_etiquetas": [], "solo_etiquetas": [],
+            "solo_sol": False, "excl_revisar": False, "criterio": "menos usadas", "max_tema": 0, "max_obj": 0}
 
 
 def _cuotas(total: int, pesos: dict, topes: dict) -> dict:
@@ -176,45 +183,153 @@ def _dif_norm(v) -> str:
     return str(v).lower().replace("á", "a").replace("í", "i")
 
 
-def _pool_receta(df_all, manual, opts):
-    """Preguntas que la receta puede usar (sin las fijas y respetando las opciones)."""
-    d = df_all[~df_all["ID_Pregunta"].isin(set(manual))]
+def _datos_analisis():
+    """IDs excluidos por exámenes elegidos, IDs «a revisar» y discriminación más reciente (de Análisis)."""
+    import analisis_lib as _A
+    dfs = st.session_state.get("excel_dfs", {})
+    exs, res = _A.get_examenes(dfs), _A.get_resultados(dfs)
+    pos = {r["ID_Examen"]: {p for v in _A.examen_info(r)["posiciones"].values() for p in v if p}
+           for _, r in exs.iterrows()}
+    revisar, disc = set(), {}
+    if not res.empty:
+        for _, r in res.sort_values("Fecha").groupby("ID_Pregunta").tail(1).iterrows():
+            try:
+                d = float(r["Discriminacion"])
+            except ValueError:
+                d = None
+            if d is not None:
+                disc[r["ID_Pregunta"]] = d
+            if r["Decision"] == "anular" or str(r["Revisar_Distractores"]) in ("1", "True") or (d is not None and d < 0):
+                revisar.add(r["ID_Pregunta"])
+    nombres = {r["ID_Examen"]: f'{r["Curso"]} · {r["Convocatoria"] or ""} · {r["Nombre"]}'.replace(" ·  ·", " ·")
+               for _, r in exs.iterrows()}
+    return pos, revisar, disc, nombres
+
+
+def _filtrar_opciones(d, opts, an=None):
+    """Aplica las opciones «qué preguntas pueden entrar» a un DataFrame de preguntas."""
+    pos, revisar, _, _ = an or _datos_analisis()
     m = int(opts.get("evitar_meses", 0) or 0)
     if m:
         u = d["usada"].astype(str).replace({"nan": "", "None": ""}).str.strip()
         d = d[(u == "") | u.apply(lambda v: es_uso_antiguo(v, m))]
+    ex = set()
+    for e in opts.get("excl_examenes", []) or []:
+        ex |= pos.get(e, set())
+    if ex:
+        d = d[~d["ID_Pregunta"].isin(ex)]
+    com = d.get("comentario", pd.Series("", index=d.index)).astype(str).str.strip()
+    if opts.get("excl_etiquetas"):
+        d = d[~com.isin(opts["excl_etiquetas"])]
+        com = com[d.index]
+    if opts.get("solo_etiquetas"):
+        d = d[com.isin(opts["solo_etiquetas"])]
     if opts.get("solo_sol"):
         d = d[~d.get("solucion", pd.Series("", index=d.index)).astype(str).str.strip().isin(["", "nan", "None"])]
+    if opts.get("excl_revisar") and revisar:
+        d = d[~d["ID_Pregunta"].isin(revisar)]
     return d
 
 
-def _tabla_receta(df_pool, recipe, blqs):
-    """Filas: bloque (cualquier tema), sus temas y sus objetivos, con lo pedido y lo disponible."""
-    cfg_o = st.session_state.get("cfg_objetivos", {}) or {}
-    rows = []
-    for b in blqs:
-        db = df_pool[df_pool["bloque"] == b]
-        rb = recipe.get(b, {})
+def _pool_receta(df_all, manual, opts, an=None):
+    return _filtrar_opciones(df_all[~df_all["ID_Pregunta"].isin(set(manual))], opts, an)
 
-        def fila(key, nivel, nombre, dsub):
-            dd = dsub["dificultad"].map(_dif_norm)
-            av = [int((dd == x).sum()) for x in _DIFS]
-            r = rb.get(key, {})
-            rows.append({"id": f"{b}|{key}", "nivel": nivel, "Elemento": nombre,
-                         "Fácil": int(r.get("facil", 0)), "Media": int(r.get("media", 0)), "Difícil": int(r.get("dificil", 0)),
-                         "Disponibles F·M·D": f"{av[0]} · {av[1]} · {av[2]}", "_av": av})
-        fila("__ALL__", "bloque", f"{nombre_bloque(b)} (cualquier tema)", db)
+
+def _disp(d) -> list:
+    dd = d["dificultad"].map(_dif_norm)
+    return [int((dd == x).sum()) for x in _DIFS]
+
+
+def _filas_receta(pool, blqs):
+    """Filas editables: [(bloque, clave, nivel, nombre, disponibles[3])]."""
+    cfg_o = st.session_state.get("cfg_objetivos", {}) or {}
+    obj = pool.get("objetivo", pd.Series("", index=pool.index)).astype(str)
+    filas = {}
+    for b in blqs:
+        db = pool[pool["bloque"] == b]
+        hijos = []
         for t in sorted({str(x).removesuffix(".0") for x in db["Tema"].astype(str)}, key=_nsort):
-            fila(t, "tema", f"   ↳ {nombre_tema(t)}", db[db["Tema"].astype(str).str.removesuffix(".0") == t])
+            hijos.append((t, nombre_tema(t), _disp(db[db["Tema"].astype(str).str.removesuffix(".0") == t])))
         for c, d in cfg_o.items():
-            if d.get("bloque") in ("", b):
-                fila(f"__OBJ_{c}", "objetivo", f"   ↳ Objetivo {c} · {d.get('nombre_corto', '')}",
-                     db[db.get("objetivo", pd.Series("", index=db.index)).astype(str) == c])
-    return pd.DataFrame(rows).set_index("id")
+            if d.get("bloque") == b:
+                hijos.append((f"__OBJ_{c}", f"Objetivo {c} · {d.get('nombre_corto', '')}", _disp(db[obj[db.index] == c])))
+        filas[b] = {"disp": _disp(db), "hijos": hijos}
+    gen = [(f"__OBJ_{c}", f"Objetivo {c} · {d.get('nombre_corto', '')}", _disp(pool[obj == c]))
+           for c, d in cfg_o.items() if not d.get("bloque")]
+    return filas, gen
+
+
+def _rq_key(b, k, i):
+    import re as _re
+    return "rq_" + _re.sub(r"[^A-Za-z0-9_]", "_", f"{b}__{k}") + f"_{i}"
+
+
+def _es_rq_cantidad(k) -> bool:
+    """Claves de las casillas de cantidades (no las de reparto rápido ni los botones)."""
+    k = str(k)
+    return k.startswith("rq_") and k[-2:] in ("_0", "_1", "_2") and not k.startswith(("rq_tog", "rq_load", "rq_del"))
+
+
+def _cantidades(blqs, filas, gen) -> dict:
+    """Lee las cantidades (de los widgets) → {(bloque, clave): [f, m, d]}.
+    Guarda una copia en _rq_vals: si una casilla no se dibujó en una ejecución, Streamlit borra su
+    valor; al volver se restaura desde la copia."""
+    ss = st.session_state
+    copia = ss.setdefault("_rq_vals", {})
+    for k, v in copia.items():
+        if k not in ss:
+            ss[k] = v
+    out = {}
+    for b in blqs:
+        for k in ["__ALL__"] + [h[0] for h in filas.get(b, {}).get("hijos", [])]:
+            out[(b, k)] = [int(ss.get(_rq_key(b, k, i), 0) or 0) for i in range(3)]
+    for k, _, _ in gen:
+        out[(_GEN, k)] = [int(ss.get(_rq_key(_GEN, k, i), 0) or 0) for i in range(3)]
+    for k in [k for k in ss.keys() if _es_rq_cantidad(k)]:
+        copia[k] = int(ss[k] or 0)
+    return out
+
+
+def _cargar_en_widgets(recipe: dict, opts: dict):
+    """Pasa una receta guardada a los controles (antes de dibujarlos)."""
+    ss = st.session_state
+    for k in [k for k in ss.keys() if _es_rq_cantidad(k)]:
+        del ss[k]
+    ss["_rq_vals"] = {}
+    for b, temas in (recipe or {}).items():
+        for k, dct in temas.items():
+            for i, d in enumerate(_DIFS):
+                ss[_rq_key(b, k, i)] = int(dct.get(d, 0) or 0)
+    o = {**_OPT_DEF, **(opts or {})}
+    ss["rec_evitar"] = {0: "No", 6: "6 meses", 12: "12 meses", 24: "24 meses"}.get(int(o["evitar_meses"] or 0), "No")
+    ss["rec_excl_ex"], ss["rec_excl_et"], ss["rec_solo_et"] = list(o["excl_examenes"]), list(o["excl_etiquetas"]), list(o["solo_etiquetas"])
+    ss["rec_sol"], ss["rec_revisar"] = bool(o["solo_sol"]), bool(o["excl_revisar"])
+    ss["rec_criterio"] = {"menos usadas": "Primero las menos usadas", "azar": "Al azar",
+                          "discrimina": "Primero las que mejor discriminan"}.get(o["criterio"], "Primero las menos usadas")
+    ss["rec_max_tema"], ss["rec_max_obj"] = int(o["max_tema"] or 0), int(o["max_obj"] or 0)
+
+
+def _opts_de_widgets() -> dict:
+    ss = st.session_state
+    return {"evitar_meses": {"No": 0, "6 meses": 6, "12 meses": 12, "24 meses": 24}.get(ss.get("rec_evitar", "No"), 0),
+            "excl_examenes": list(ss.get("rec_excl_ex", [])), "excl_etiquetas": list(ss.get("rec_excl_et", [])),
+            "solo_etiquetas": list(ss.get("rec_solo_et", [])), "solo_sol": bool(ss.get("rec_sol", False)),
+            "excl_revisar": bool(ss.get("rec_revisar", False)),
+            "criterio": {"Al azar": "azar", "Primero las que mejor discriminan": "discrimina"}.get(
+                ss.get("rec_criterio", ""), "menos usadas"),
+            "max_tema": int(ss.get("rec_max_tema", 0) or 0), "max_obj": int(ss.get("rec_max_obj", 0) or 0)}
+
+
+def _recetas_guardadas() -> pd.DataFrame:
+    df = st.session_state.get("excel_dfs", {}).get(_RECETAS_SHEET)
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Nombre", "Receta", "Opciones", "Descripcion", "Fecha"])
+    return df.fillna("").astype(str)
 
 
 @st.dialog("Receta de auto-relleno", width="large")
 def _dialog_receta(n_obj: int):
+    import json as _json
     ss = st.session_state
     df_all = ss.df_preguntas
     blqs = list(ss.bloques or [])
@@ -222,153 +337,358 @@ def _dialog_receta(n_obj: int):
     if not blqs or df_all.empty:
         st.warning("Conecta la base de datos antes de usar el auto-relleno.")
         return
-    opts = {"evitar_meses": {"No": 0, "Últimos 6 meses": 6, "Últimos 12 meses": 12}[ss.get("rec_evitar", "No")],
-            "solo_sol": bool(ss.get("rec_sol", False)),
-            "prioridad": bool(ss.get("rec_prio", True)),
-            "max_tema": int(ss.get("rec_max_tema", 0) or 0)}
-    pool = _pool_receta(df_all, manual, opts)
-    if ss.get("_rec_tab") is None or ss.get("_rec_opts_sig") != (opts["evitar_meses"], opts["solo_sol"]):
-        prev = ss.get("_rec_tab")
-        tab = _tabla_receta(pool, ss.get("auto_recipe", {}) if prev is None else {}, blqs)
-        if prev is not None:   # al cambiar opciones se conservan las cantidades ya puestas
-            for c in ("Fácil", "Media", "Difícil"):
-                tab.loc[tab.index.intersection(prev.index), c] = prev.loc[tab.index.intersection(prev.index), c]
-        ss["_rec_tab"] = tab
-        ss["_rec_opts_sig"] = (opts["evitar_meses"], opts["solo_sol"])
-        ss["_rec_ver"] = ss.get("_rec_ver", 0) + 1
-    tab = ss["_rec_tab"]
+    # cargas pendientes (receta guardada, reparto rápido, vaciar): antes de dibujar los controles
+    if "_rec_pend" in ss:
+        _r, _o = ss.pop("_rec_pend")
+        _cargar_en_widgets(_r, _o if _o is not None else _opts_de_widgets())
+    an = _datos_analisis()
+    opts = _opts_de_widgets()
+    pool = _pool_receta(df_all, manual, opts, an)
+    filas, gen = _filas_receta(pool, blqs)
+    q = _cantidades(blqs, filas, gen)
+    guard = _recetas_guardadas()
 
-    st.markdown(f"<div class='rec-top'><span><b>{len(manual)}</b> fijas</span><span><b>{n_obj}</b> objetivo</span>"
+    h1, h2 = st.columns([2.3, 1.3], vertical_alignment="bottom")
+    h1.markdown(f"<div class='rec-top'><span><b>{len(manual)}</b> fijas</span><span><b>{n_obj}</b> objetivo</span>"
                 f"<span><b>{max(0, n_obj - len(manual))}</b> huecos para la receta</span>"
-                f"<span><b>{len(pool)}</b> preguntas disponibles</span></div>", unsafe_allow_html=True)
-    t1, t2, t3 = st.tabs(["Reparto rápido", "Por bloque y tema", "Opciones"])
+                f"<span><b>{len(pool)}</b> preguntas pueden entrar</span></div>", unsafe_allow_html=True)
+    _nom = ["—"] + guard["Nombre"].tolist()
+    sel_g = h2.selectbox("Recetas guardadas", _nom, key="rec_guardada",
+                         format_func=lambda n: "— Elegir receta guardada —" if n == "—" else n)
+    if sel_g != "—" and ss.get("_rec_cargada") != sel_g:
+        r = guard[guard["Nombre"] == sel_g].iloc[0]
+        try:
+            ss["_rec_pend"] = (_json.loads(r["Receta"] or "{}"), _json.loads(r["Opciones"] or "{}"))
+        except ValueError:
+            ss["_rec_pend"] = ({}, None)
+        ss["_rec_cargada"] = sel_g
+        st.rerun(scope="fragment")
 
-    with t1:
-        st.caption("Indica cuántas preguntas quieres y cómo repartirlas; la tabla de «Por bloque y tema» se "
-                   "rellena sola y allí puedes retocarla.")
-        q1, q2 = st.columns([1, 2.2])
-        n_auto = q1.number_input("Preguntas a rellenar", min_value=0, max_value=500,
-                                 value=max(0, n_obj - len(manual)), key="rec_n")
-        bsel = q2.multiselect("Bloques", blqs, default=blqs, key="rec_blqs", format_func=nombre_bloque)
-        with st.container(key="seg_rec_rep"):
-            modo = st.radio("Reparto entre bloques", ["Proporcional a las disponibles", "A partes iguales"],
-                            horizontal=True, key="rec_rep")
-        with st.container(key="seg_rec_mix"):
-            mezcla = st.radio("Dificultad", list(_MEZCLAS), horizontal=True, key="rec_mix")
-        if st.button("Calcular reparto", type="primary", key="rec_calc", disabled=not bsel or not n_auto):
-            avb = {b: [int((pool[pool["bloque"] == b]["dificultad"].map(_dif_norm) == x).sum()) for x in _DIFS] for b in bsel}
-            qb = _cuotas(int(n_auto), {b: (sum(avb[b]) if modo.startswith("Proporcional") else 1) for b in bsel},
-                         {b: sum(avb[b]) for b in bsel})
-            tab[["Fácil", "Media", "Difícil"]] = 0
-            for b in bsel:
-                pct = _MEZCLAS[mezcla]
-                w = dict(zip(_DIFS, pct if pct else avb[b]))
-                qd = _cuotas(qb[b], w, dict(zip(_DIFS, avb[b])))
-                tab.loc[f"{b}|__ALL__", ["Fácil", "Media", "Difícil"]] = [qd["facil"], qd["media"], qd["dificil"]]
-            ss["_rec_tab"] = tab
-            ss["_rec_ver"] = ss.get("_rec_ver", 0) + 1
-            falta = int(n_auto) - int(sum(qb.values()))
-            if falta > 0:
-                st.warning(f"Solo hay preguntas para {int(n_auto) - falta}: faltan {falta}.")
-        res = tab[tab["nivel"] == "bloque"]
-        res = res[res[["Fácil", "Media", "Difícil"]].sum(axis=1) > 0]
-        if not res.empty:
-            filas = "".join(f"<div class='rec-r'><span>{r['Elemento'].replace(' (cualquier tema)', '')}</span>"
-                            f"<b>{r['Fácil']}</b><b>{r['Media']}</b><b>{r['Difícil']}</b><b class='t'>{r['Fácil'] + r['Media'] + r['Difícil']}</b></div>"
-                            for _, r in res.iterrows())
-            st.markdown("<div class='rec-tab'><div class='rec-r h'><span>Bloque</span><span>Fácil</span><span>Media</span>"
-                        f"<span>Difícil</span><span>Total</span></div>{filas}</div>", unsafe_allow_html=True)
+    t1, t2, t3, t4 = st.tabs(["Resumen", "Reparto rápido", "Cantidades por bloque, tema y objetivo", "Opciones"])
 
-    with t2:
-        det = st.toggle("Mostrar también temas y objetivos", value=False, key="rec_det",
-                        help="Las cantidades de temas y objetivos se suman a las del bloque.")
-        vista = tab if det else tab[tab["nivel"] == "bloque"]
-        ed = st.data_editor(
-            vista[["Elemento", "Fácil", "Media", "Difícil", "Disponibles F·M·D"]], hide_index=True,
-            use_container_width=True, key=f"rec_ed_{ss.get('_rec_ver', 0)}", height=min(460, 40 + 35 * len(vista)),
-            disabled=["Elemento", "Disponibles F·M·D"],
-            column_config={c: st.column_config.NumberColumn(c, min_value=0, step=1, width="small")
-                           for c in ("Fácil", "Media", "Difícil")} | {
-                "Elemento": st.column_config.TextColumn("Bloque / tema / objetivo", width="large")})
-        ed.index = vista.index
-        tab.loc[ed.index, ["Fácil", "Media", "Difícil"]] = ed[["Fácil", "Media", "Difícil"]].fillna(0).astype(int).values
-        ss["_rec_tab"] = tab
-
-    with t3:
-        with st.container(key="seg_rec_evitar"):
-            st.radio("Evitar preguntas usadas en…", ["No", "Últimos 6 meses", "Últimos 12 meses"],
-                     horizontal=True, key="rec_evitar")
-        st.toggle("Elegir primero las que hace más tiempo que no se usan (y las nunca usadas)", value=True, key="rec_prio",
-                  help="Si está apagado, se eligen al azar entre las disponibles.")
-        st.toggle("Solo preguntas con solución desarrollada", value=False, key="rec_sol")
-        st.number_input("Máximo de preguntas por tema (0 = sin límite)", min_value=0, max_value=50, key="rec_max_tema",
-                        help="Se aplica a lo que se elige «de cualquier tema»: evita que un tema acapare el examen.")
-
-    # ── Resumen y avisos ────────────────────────────────────────────────────
-    tot = tab[["Fácil", "Media", "Difícil"]].sum()
-    n_rec = int(tot.sum())
+    # ── Totales y avisos (se usan en Resumen y en el pie) ───────────────────
+    tot = [sum(v[i] for v in q.values()) for i in range(3)]
+    n_rec = sum(tot)
     total = len(manual) + n_rec
+    man_dif = df_all[df_all["ID_Pregunta"].isin(manual)]["dificultad"].map(_dif_norm)
+    mix = [tot[i] + int((man_dif == d).sum()) for i, d in enumerate(_DIFS)]
     avisos = []
-    for i, r in tab.iterrows():
-        for j, c in enumerate(("Fácil", "Media", "Difícil")):
-            if r[c] > r["_av"][j]:
-                avisos.append(f"{r['Elemento'].strip(' ↳')}: {c.lower()} {r[c]} y solo hay {r['_av'][j]}")
-    col = "var(--ok)" if total == n_obj else ("var(--err)" if total > n_obj else "var(--warn)")
-    st.markdown(f"<div class='rec-sum'><span><b>{len(manual)}</b> fijas + <b>{n_rec}</b> de la receta = "
-                f"<b style='color:{col}'>{total}</b> / {n_obj}</span><span>Fácil <b>{int(tot['Fácil'])}</b> · "
-                f"Media <b>{int(tot['Media'])}</b> · Difícil <b>{int(tot['Difícil'])}</b></span></div>",
-                unsafe_allow_html=True)
-    for a in avisos[:4]:
-        st.caption(f"⚠️ {a}")
-    if total > n_obj:
-        st.caption(f"⚠️ Te pasas del objetivo en {total - n_obj}.")
-    b1, _, b2 = st.columns([1, 2, 1.2])
-    if b1.button("Quitar receta", key="rec_clear"):
-        ss["auto_recipe"] = {}
-        ss.pop("_rec_tab", None)
-        st.rerun()
-    if b2.button("Guardar receta", type="primary", key="rec_save", use_container_width=True):
-        new = {}
-        for i, r in tab.iterrows():
-            if r[["Fácil", "Media", "Difícil"]].sum() <= 0:
+
+    def disp_de(b, k):
+        if b == _GEN:
+            return next((h[2] for h in gen if h[0] == k), [0, 0, 0])
+        if k == "__ALL__":
+            return filas[b]["disp"]
+        return next((h[2] for h in filas[b]["hijos"] if h[0] == k), [0, 0, 0])
+
+    def nombre_de(b, k):
+        if k == "__ALL__":
+            return f"{b} (cualquier tema)"
+        hit = next((h[1] for h in (gen if b == _GEN else filas[b]["hijos"]) if h[0] == k), k)
+        return hit if b == _GEN else f"{b}, {hit}"
+
+    for (b, k), v in q.items():
+        av = disp_de(b, k)
+        for i in range(3):
+            if v[i] > av[i]:
+                avisos.append(f"{nombre_de(b, k)}: pides {v[i]} de dificultad {_DIFL[i].lower()} y solo hay {av[i]}")
+    for b in blqs:   # lo pedido en total por bloque y dificultad no puede superar lo disponible del bloque
+        for i in range(3):
+            pedido = sum(v[i] for (bb, k), v in q.items() if bb == b)
+            if pedido > filas[b]["disp"][i] and not any(f"{b} (" in a or a.startswith(f"{b},") for a in avisos):
+                avisos.append(f"{b}: en total pides {pedido} de dificultad {_DIFL[i].lower()} y solo hay {filas[b]['disp'][i]}")
+
+    # ── 1) Resumen ────────────────────────────────────────────────────────────
+    with t1:
+        col = "var(--ok)" if total == n_obj else ("var(--err)" if total > n_obj else "var(--warn)")
+        sub_t = ("coincide con el objetivo" if total == n_obj else
+                 f"faltan {n_obj - total}" if total < n_obj else f"te pasas en {total - n_obj}")
+        st.markdown(
+            "<div class='rec-k'>"
+            f"<div><span>Fijas</span><b>{len(manual)}</b><small>elegidas a mano</small></div>"
+            f"<div><span>De la receta</span><b style='color:var(--primary)'>{n_rec}</b><small>se eligen al pulsar Generar</small></div>"
+            f"<div><span>Total</span><b style='color:{col}'>{total} / {n_obj}</b><small>{sub_t}</small></div>"
+            f"<div><span>Dificultad</span><b>{mix[0]} · {mix[1]} · {mix[2]}</b><small>fácil · media · difícil</small></div></div>",
+            unsafe_allow_html=True)
+        if sum(mix):
+            pc = [round(100 * x / sum(mix)) for x in mix]
+            st.markdown(f"<div class='rec-mixl'><span>Mezcla de dificultad del examen (fijas + receta)</span>"
+                        f"<span>{pc[0]} % · {pc[1]} % · {pc[2]} %</span></div><div class='rec-mix'>"
+                        + "".join(f"<span style='flex:{x or 0.0001};background:{c}'></span>" for x, c in
+                                  zip(mix, ("var(--ok)", "var(--primary)", "var(--err)"))) + "</div>",
+                        unsafe_allow_html=True)
+        lineas = ""
+        for b in blqs + ([_GEN] if gen else []):
+            partes = [(k, v) for (bb, k), v in q.items() if bb == b and sum(v)]
+            if not partes:
                 continue
-            b, key = i.split("|", 1)
-            new.setdefault(b, {})[key] = {"facil": int(r["Fácil"]), "media": int(r["Media"]), "dificil": int(r["Difícil"])}
-        ss["auto_recipe"] = new
-        ss["auto_opts"] = opts
-        ss.pop("_rec_tab", None)
-        notify(f"✅ Receta guardada: {n_rec} preguntas automáticas. Se eligen al pulsar «Generar».")
+            n_b = sum(sum(v) for _, v in partes)
+            fmd = [sum(v[i] for _, v in partes) for i in range(3)]
+            org = " · ".join(("cualquier tema" if k == "__ALL__" else
+                              (f"objetivo {k[6:]}" if k.startswith("__OBJ_") else f"tema {k}")) + f" ({sum(v)})"
+                             for k, v in partes)
+            nom = "Objetivos generales" if b == _GEN else nombre_bloque(b)
+            lineas += (f"<div class='rec-l'><span><small>{'' if b == _GEN else b}</small>{nom.split(' — ', 1)[-1]}</span>"
+                       f"<span class='o'>{org}</span><span class='mx'>"
+                       + "".join(f"<span style='flex:{x or 0.0001};background:{c}'></span>" for x, c in
+                                 zip(fmd, ("var(--ok)", "var(--primary)", "var(--err)")))
+                       + f"</span><b>{n_b}</b></div>")
+        if lineas:
+            st.markdown(f"<div class='rec-sec'>Por bloque</div>{lineas}", unsafe_allow_html=True)
+        else:
+            st.info("La receta está vacía. Usa «Reparto rápido» o pon cantidades en «Cantidades por bloque, tema y objetivo».")
+        chips = []
+        if opts["evitar_meses"]:
+            chips.append(f"evita usadas en {opts['evitar_meses']} meses")
+        chips += [f"sin preguntas de {an[3].get(e, e)}" for e in opts["excl_examenes"]]
+        chips += [f"excluye «{e}»" for e in opts["excl_etiquetas"]]
+        if opts["solo_etiquetas"]:
+            chips.append("solo " + ", ".join(f"«{e}»" for e in opts["solo_etiquetas"]))
+        if opts["solo_sol"]:
+            chips.append("solo con solución")
+        if opts["excl_revisar"]:
+            chips.append("sin anuladas ni «a revisar»")
+        chips.append({"menos usadas": "primero las menos usadas", "azar": "al azar",
+                      "discrimina": "primero las que mejor discriminan"}[opts["criterio"]])
+        if opts["max_tema"]:
+            chips.append(f"máx. {opts['max_tema']} por tema")
+        if opts["max_obj"]:
+            chips.append(f"máx. {opts['max_obj']} por objetivo")
+        st.markdown("<div class='rec-ch'><span>Opciones:</span>" + "".join(f"<em>{c}</em>" for c in chips) + "</div>",
+                    unsafe_allow_html=True)
+        if avisos:
+            st.markdown(f"<div class='rec-av'><b>{len(avisos)} aviso{'s' if len(avisos) != 1 else ''}</b> · "
+                        + " · ".join(avisos[:4]) + (" …" if len(avisos) > 4 else "") + "</div>", unsafe_allow_html=True)
+
+    # ── 2) Reparto rápido ────────────────────────────────────────────────────
+    with t2:
+        st.caption("Reparte un número de preguntas entre los bloques. Rellena «cualquier tema» de cada bloque; "
+                   "lo que hayas pedido por tema u objetivo se mantiene y se suma.")
+        r1, r2 = st.columns([1, 2.6])
+        libres = max(0, n_obj - len(manual) - sum(sum(v) for (b, k), v in q.items() if k != "__ALL__"))
+        n_auto = r1.number_input("Preguntas a repartir", min_value=0, max_value=500, value=libres, key="rq_n")
+        bsel = r2.multiselect("Bloques", blqs, default=blqs, key="rq_blqs")
+        with st.container(key="seg_rq_modo"):
+            modo = st.radio("Entre bloques", ["Proporcional a las disponibles", "A partes iguales",
+                                              "Según el temario (nº de temas)"], horizontal=True, key="rq_modo")
+        with st.container(key="seg_rq_mix"):
+            mezcla = st.radio("Dificultad", list(_MEZCLAS), horizontal=True, key="rq_mix")
+        pct = _MEZCLAS[mezcla]
+        if pct == "pers":
+            pc1, pc2, pc3, _ = st.columns([1, 1, 1, 2])
+            pct = (pc1.number_input("% fácil", 0, 100, 30, key="rq_pf"), pc2.number_input("% media", 0, 100, 50, key="rq_pm"),
+                   pc3.number_input("% difícil", 0, 100, 20, key="rq_pd"))
+        temas_b = {b: len(filas[b]["hijos"]) or 1 for b in bsel}
+        peso = {b: (sum(filas[b]["disp"]) if modo.startswith("Proporcional") else
+                    1 if modo.startswith("A partes") else temas_b[b]) for b in bsel}
+        qb = _cuotas(int(n_auto), peso, {b: sum(filas[b]["disp"]) for b in bsel})
+        rep = {}
+        for b in bsel:
+            w = dict(zip(_DIFS, pct if pct else filas[b]["disp"]))
+            qd = _cuotas(qb[b], w, dict(zip(_DIFS, filas[b]["disp"])))
+            rep[b] = [qd[d] for d in _DIFS]
+        mxr = max([sum(v) for v in rep.values()] + [1])
+        st.markdown("<div class='rec-sec'>Así quedaría «cualquier tema» en cada bloque</div>"
+                    + "".join(f"<div class='rec-pr'><span>{nombre_bloque(b)}</span><span class='bar'><span style='width:"
+                              f"{100 * sum(v) / mxr:.0f}%'></span></span><span class='m'>{v[0]}·{v[1]}·{v[2]}</span><b>{sum(v)}</b></div>"
+                              for b, v in rep.items()), unsafe_allow_html=True)
+        falta = int(n_auto) - sum(sum(v) for v in rep.values())
+        if falta > 0:
+            st.caption(f"⚠️ Con las opciones actuales solo hay preguntas para {int(n_auto) - falta}: faltan {falta}.")
+        if st.button("Aplicar a la receta", type="primary", key="rq_aplicar", disabled=not bsel or not n_auto):
+            nueva = {}
+            for (b, k), v in q.items():
+                if k != "__ALL__" and sum(v):
+                    nueva.setdefault(b, {})[k] = dict(zip(_DIFS, v))
+            for b, v in rep.items():
+                if sum(v):
+                    nueva.setdefault(b, {})["__ALL__"] = dict(zip(_DIFS, v))
+            ss["_rec_pend"] = (nueva, None)
+            st.rerun(scope="fragment")
+
+    # ── 3) Cantidades ────────────────────────────────────────────────────────
+    with t3:
+        abiertos = ss.setdefault("_rq_open", set())
+        c1, c2, c3 = st.columns([4, 1.2, 1.2], vertical_alignment="center")
+        c1.caption("En la fila de cada bloque pones las de «cualquier tema»; despliégalo (▸) para pedir además "
+                   "preguntas de un tema u objetivo concretos. «Total» lo suma todo.")
+        if c2.button("▾ Desplegar todo" if len(abiertos) < len(blqs) else "▸ Plegar todo", key="rq_fold",
+                     use_container_width=True):
+            abiertos.clear() if len(abiertos) >= len(blqs) else abiertos.update(blqs)
+        if c3.button("Poner todo a 0", key="rq_cero", use_container_width=True):
+            ss["_rec_pend"] = ({}, None)
+            st.rerun(scope="fragment")
+
+        def fila(b, k, nombre, av, nivel, total_fila=None, sub=""):
+            cols = st.columns([3.6, 0.95, 0.95, 0.95, 1.1, 0.5], vertical_alignment="center")
+            if nivel == 0:
+                ab = b in abiertos
+                if cols[0].button(f"{'▾' if ab else '▸'}  {nombre}", key=f"rq_tog_{_rq_key(b, '', 0)}",
+                                  type="tertiary"):
+                    abiertos.symmetric_difference_update({b})   # sus filas se dibujan justo debajo
+                if sub:
+                    cols[0].caption(sub)
+            else:
+                cols[0].markdown(f"<div class='rq-h'>{nombre}</div>", unsafe_allow_html=True)
+            for i in range(3):
+                kk = _rq_key(b, k, i)
+                warn = int(ss.get(kk, 0) or 0) > av[i]
+                with cols[1 + i].container(key=f"rqc{'w' if warn else ''}_{kk}"):
+                    st.number_input(_DIFL[i], min_value=0, max_value=200, step=1, key=kk, label_visibility="collapsed")
+            cols[4].markdown(f"<span class='rq-d'>{av[0]} · {av[1]} · {av[2]}</span>", unsafe_allow_html=True)
+            tt = sum(q[(b, k)]) if total_fila is None else total_fila
+            cols[5].markdown(f"<b class='rq-t{' z' if not tt else ''}'>{tt}</b>", unsafe_allow_html=True)
+
+        hd = st.columns([3.6, 0.95, 0.95, 0.95, 1.1, 0.5])
+        for c, t in zip(hd, ["Bloque · tema · objetivo", "Fácil", "Media", "Difícil", "Disponibles", "Total"]):
+            c.markdown(f"<span class='rq-hd'>{t}</span>", unsafe_allow_html=True)
+        for b in blqs:
+            n_b = sum(sum(v) for (bb, k), v in q.items() if bb == b)
+            extra = [(k, v) for (bb, k), v in q.items() if bb == b and k != "__ALL__" and sum(v)]
+            sub = (f"{sum(q[(b, '__ALL__')])} de cualquier tema + " + " + ".join(
+                f"{sum(v)} del {'objetivo ' + k[6:] if k.startswith('__OBJ_') else 'tema ' + k}" for k, v in extra)) if extra else ""
+            with st.container(key=f"rqb_{_rq_key(b, '', 0)}"):
+                fila(b, "__ALL__", nombre_bloque(b), filas[b]["disp"], 0, n_b, sub)
+                if b in abiertos:
+                    for k, nm, av in filas[b]["hijos"]:
+                        fila(b, k, nm, av, 1)
+        if gen:
+            st.markdown("<div class='rec-sec' style='margin-top:12px'>Objetivos generales (de cualquier bloque)</div>",
+                        unsafe_allow_html=True)
+            for k, nm, av in gen:
+                fila(_GEN, k, nm, av, 1)
+
+    # ── 4) Opciones ──────────────────────────────────────────────────────────
+    with t4:
+        o1, o2 = st.columns([1.2, 1], gap="medium")
+        with o1.container(border=True, key="card_rec_o1"):
+            st.markdown("**Qué preguntas pueden entrar**")
+            with st.container(key="seg_rec_evitar"):
+                st.radio("Evitar las usadas en…", ["No", "6 meses", "12 meses", "24 meses"], horizontal=True, key="rec_evitar")
+            st.multiselect("No repetir preguntas de estos exámenes", list(an[3]), key="rec_excl_ex",
+                           format_func=lambda e: an[3].get(e, e), placeholder="Ninguno",
+                           help="Exámenes registrados (Análisis › Exámenes)")
+            coms = sorted({str(x).strip() for x in df_all.get("comentario", pd.Series(dtype=str)).astype(str)
+                           if str(x).strip() not in ("", "nan", "None")})
+            e1, e2 = st.columns(2)
+            e1.multiselect("Excluir etiquetas", coms, key="rec_excl_et", placeholder="Ninguna")
+            e2.multiselect("Solo con estas etiquetas", coms, key="rec_solo_et", placeholder="Cualquiera")
+            st.toggle("Solo preguntas con solución desarrollada", key="rec_sol")
+            st.toggle("Excluir las anuladas o marcadas «a revisar» en Análisis", key="rec_revisar")
+        with o2:
+            with st.container(border=True, key="card_rec_o2"):
+                st.markdown("**Cómo elegir entre las posibles**")
+                with st.container(key="seg_rec_crit"):
+                    st.radio("Criterio", ["Primero las menos usadas", "Al azar", "Primero las que mejor discriminan"],
+                             horizontal=True, key="rec_criterio", label_visibility="collapsed")
+                st.caption("«Mejor discriminan» usa los análisis guardados; las preguntas sin análisis van detrás.")
+            with st.container(border=True, key="card_rec_o3"):
+                st.markdown("**Límites**")
+                l1, l2 = st.columns(2)
+                l1.number_input("Máximo por tema (0 = sin límite)", 0, 50, key="rec_max_tema")
+                l2.number_input("Máximo por objetivo (0 = sin límite)", 0, 50, key="rec_max_obj")
+            with st.container(border=True, key="card_rec_o4"):
+                st.markdown("**Recetas guardadas**")
+                st.caption("Se guardan en la base de datos (hoja «Cfg_Recetas»): las tienes cada curso y las ven tus compañeros.")
+                if guard.empty:
+                    st.caption("Todavía no hay ninguna. Usa «Guardar como…» abajo.")
+                for i, r in guard.iterrows():
+                    g1, g2, g3 = st.columns([3, 0.8, 0.8], vertical_alignment="center")
+                    g1.markdown(f"<span class='rq-g'><b>{r['Nombre']}</b> <small>{r['Descripcion']}</small></span>",
+                                unsafe_allow_html=True)
+                    if g2.button("Cargar", key=f"rq_load_{i}", type="tertiary"):
+                        ss["_rec_pend"] = (_json.loads(r["Receta"] or "{}"), _json.loads(r["Opciones"] or "{}"))
+                        ss["_rec_cargada"] = r["Nombre"]
+                        st.rerun(scope="fragment")
+                    if g3.button("Borrar", key=f"rq_del_{i}", type="tertiary"):
+                        ss.excel_dfs[_RECETAS_SHEET] = guard[guard["Nombre"] != r["Nombre"]]
+                        guardar_hojas([_RECETAS_SHEET])
+                        st.rerun(scope="fragment")
+
+    # ── Pie: resumen y botones ───────────────────────────────────────────────
+    st.markdown(f"<div class='rec-sum'><span><b>{len(manual)}</b> fijas + <b>{n_rec}</b> de la receta = "
+                f"<b style='color:{'var(--ok)' if total == n_obj else ('var(--err)' if total > n_obj else 'var(--warn)')}'>"
+                f"{total}</b> / {n_obj}</span><span>Fácil <b>{tot[0]}</b> · Media <b>{tot[1]}</b> · Difícil <b>{tot[2]}</b></span></div>",
+                unsafe_allow_html=True)
+
+    def _receta_dict():
+        out = {}
+        for (b, k), v in q.items():
+            if sum(v):
+                out.setdefault(b, {})[k] = dict(zip(_DIFS, v))
+        return out
+
+    f1, _, f2, f3 = st.columns([1.1, 1.6, 1.2, 1.5])
+    if f1.button("Quitar receta", key="rec_clear"):
+        ss["auto_recipe"], ss["auto_opts"] = {}, {}
+        for k in [k for k in ss.keys() if _es_rq_cantidad(k)]:
+            del ss[k]
+        ss["_rq_vals"] = {}
         st.rerun()
+    if f2.button("Guardar como…", key="rec_saveas", use_container_width=True):
+        ss["_rec_saving"] = not ss.get("_rec_saving", False)
+    if f3.button("Usar esta receta", type="primary", key="rec_save", use_container_width=True):
+        ss["auto_recipe"], ss["auto_opts"] = _receta_dict(), opts
+        notify(f"✅ Receta lista: {n_rec} preguntas automáticas. Se eligen al pulsar «Generar» en Preview.")
+        st.rerun()
+    if ss.get("_rec_saving"):
+        s1, s2 = st.columns([3, 1], vertical_alignment="bottom")
+        nombre = s1.text_input("Nombre de la receta", value=ss.get("_rec_cargada", ""), key="rec_nombre",
+                               placeholder="Parcial 1, Final ordinaria…")
+        if s2.button("Guardar", type="primary", key="rec_save_ok", use_container_width=True) and not nombre.strip():
+            st.error("Escribe un nombre para la receta.")
+        elif ss.get("rec_save_ok") and nombre.strip():
+            nb = len({b for (b, k), v in q.items() if sum(v) and b != _GEN})
+            desc = f"{n_rec} preguntas · {nb} bloque{'s' if nb != 1 else ''}" + (
+                f" · evita usadas {opts['evitar_meses']} meses" if opts["evitar_meses"] else "")
+            fila_g = {"Nombre": nombre.strip(), "Receta": _json.dumps(_receta_dict(), ensure_ascii=False),
+                      "Opciones": _json.dumps(opts, ensure_ascii=False), "Descripcion": desc,
+                      "Fecha": datetime.date.today().isoformat()}
+            ss.excel_dfs[_RECETAS_SHEET] = pd.concat([guard[guard["Nombre"] != nombre.strip()], pd.DataFrame([fila_g])],
+                                                     ignore_index=True)
+            guardar_hojas([_RECETAS_SHEET])
+            ss["_rec_saving"], ss["_rec_cargada"] = False, nombre.strip()
+            st.toast(f"Receta «{nombre.strip()}» guardada", icon="✅")
+            st.rerun(scope="fragment")
 
 
-def _elegir_receta(pool_ids, n, rng, df_lookup, exam_ids, opts, sin_tope=False):
+def _elegir_receta(pool_ids, n, rng, df_lookup, exam_ids, opts, sin_tope=False, an=None):
     """Elige `n` preguntas de `pool_ids` según las opciones de la receta."""
-    ids = list(pool_ids)
-    m = int(opts.get("evitar_meses", 0) or 0)
-    if m:
-        ids = [p for p in ids if not str(df_lookup.get(p, {}).get("usada", "") or "").strip()
-               or es_uso_antiguo(str(df_lookup[p].get("usada", "")), m)]
-    if opts.get("solo_sol"):
-        ids = [p for p in ids if str(df_lookup.get(p, {}).get("solucion", "") or "").strip() not in ("", "nan", "None")]
+    if not n or not pool_ids:
+        return []
+    an = an or _datos_analisis()
+    sub = pd.DataFrame([{"ID_Pregunta": p, **df_lookup.get(p, {})} for p in pool_ids])
+    ids = _filtrar_opciones(sub, opts, an)["ID_Pregunta"].tolist()
     rng.shuffle(ids)
-    if opts.get("prioridad", True):   # nunca usadas primero; después, las usadas hace más tiempo
+    crit = opts.get("criterio", "menos usadas" if opts.get("prioridad", True) else "azar")
+    if crit == "menos usadas":   # nunca usadas primero; después, las usadas hace más tiempo
         ids.sort(key=lambda p: str(df_lookup.get(p, {}).get("usada", "") or "").strip() or "0000")
-    tope = int(opts.get("max_tema", 0) or 0)
-    if not tope or sin_tope:
-        return ids[:max(0, n)]
-    cuenta = {}
+    elif crit == "discrimina":
+        ids.sort(key=lambda p: -an[2].get(p, -9))
+    t_max = int(opts.get("max_tema", 0) or 0)
+    o_max = int(opts.get("max_obj", 0) or 0)
+    if sin_tope or (not t_max and not o_max):
+        return ids[:n]
+    ct, co = {}, {}
     for p in exam_ids:
-        t = (df_lookup.get(p, {}).get("bloque"), str(df_lookup.get(p, {}).get("Tema")))
-        cuenta[t] = cuenta.get(t, 0) + 1
+        r = df_lookup.get(p, {})
+        ct[(r.get("bloque"), str(r.get("Tema")))] = ct.get((r.get("bloque"), str(r.get("Tema"))), 0) + 1
+        co[str(r.get("objetivo", ""))] = co.get(str(r.get("objetivo", "")), 0) + 1
     out = []
     for p in ids:
         if len(out) >= n:
             break
-        t = (df_lookup.get(p, {}).get("bloque"), str(df_lookup.get(p, {}).get("Tema")))
-        if cuenta.get(t, 0) < tope:
-            out.append(p)
-            cuenta[t] = cuenta.get(t, 0) + 1
+        r = df_lookup.get(p, {})
+        t, o = (r.get("bloque"), str(r.get("Tema"))), str(r.get("objetivo", "") or "")
+        if t_max and ct.get(t, 0) >= t_max:
+            continue
+        if o_max and o not in ("", "nan", "None") and co.get(o, 0) >= o_max:
+            continue
+        out.append(p)
+        ct[t] = ct.get(t, 0) + 1
+        co[o] = co.get(o, 0) + 1
     return out
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 @st.dialog("🤖 Configuración de relleno automático", width="large")
@@ -633,7 +953,8 @@ with tab_sel:
                      help="Configurar selección automática por bloque / tema / dificultad",
                      type="secondary"):
             if get_estilo() == "bitacora":
-                st.session_state.pop("_rec_tab", None)   # la tabla se rehace desde la receta guardada
+                st.session_state["_rec_pend"] = (st.session_state.get("auto_recipe", {}),
+                                                 st.session_state.get("auto_opts", {}))
                 _dialog_receta(n_obj)
             else:
                 _dialog_autofill(n_obj)
@@ -645,15 +966,20 @@ with tab_sel:
         for blq, temas_cfg in recipe.items():
             blq_t = sum(v for difs in temas_cfg.values() for v in difs.values())
             if blq_t > 0:
-                parts.append(f"{blq}: {blq_t}")
+                parts.append(f"{'Objetivos generales' if blq == '__GEN__' else blq}: {blq_t}")
                 total_r += blq_t
         summary_str = " · ".join(parts[:4]) + (" ···" if len(parts) > 4 else "")
         if get_estilo() == "bitacora" and total_r:
             _o = st.session_state.get("auto_opts", {}) or {}
             _ops = [x for x in (f"evita usadas en {_o['evitar_meses']} meses" if _o.get("evitar_meses") else "",
-                                "primero las menos usadas" if _o.get("prioridad", True) else "al azar",
+                                f"sin {len(_o['excl_examenes'])} examen(es) anterior(es)" if _o.get("excl_examenes") else "",
+                                "excluye " + ", ".join(_o["excl_etiquetas"]) if _o.get("excl_etiquetas") else "",
+                                {"azar": "al azar", "discrimina": "primero las que mejor discriminan"}.get(
+                                    _o.get("criterio"), "primero las menos usadas"),
                                 "solo con solución" if _o.get("solo_sol") else "",
-                                f"máx. {_o['max_tema']} por tema" if _o.get("max_tema") else "") if x]
+                                "sin anuladas ni «a revisar»" if _o.get("excl_revisar") else "",
+                                f"máx. {_o['max_tema']} por tema" if _o.get("max_tema") else "",
+                                f"máx. {_o['max_obj']} por objetivo" if _o.get("max_obj") else "") if x]
             _chips = "".join(f"<span class='rec-chip'>{p}</span>" for p in parts)
             rc1, rc2 = st.columns([9, 1.3], vertical_alignment="center")
             rc1.markdown(f"<div class='rec-act'><b>Receta</b> <span class='rec-n'>{total_r} automáticas</span>"
@@ -2103,6 +2429,7 @@ with tab_prev:
             st.warning("⚠️ Sin preguntas seleccionadas ni receta automática — ve a la pestaña Selección.")
         else:
             rng          = random.Random(seed_prev if seed_prev else None)
+            _an_gen      = _datos_analisis() if auto_rec else None
             df_lookup    = df_total.set_index("ID_Pregunta").to_dict("index")
             exam_ids     = list(sel_prev)     # empezar con las manuales fijas
             already_used = set(exam_ids)
@@ -2118,11 +2445,11 @@ with tab_prev:
                             already_fixed = [
                                 p for p in sel_prev
                                 if df_lookup.get(p, {}).get("bloque", "") == bloque
-                                and df_lookup.get(p, {}).get("dificultad", "").lower() == dif_name.lower()
+                                and _dif_norm(df_lookup.get(p, {}).get("dificultad", "")) == _dif_norm(dif_name)
                             ]
                             pool_ids = df_total[
                                 (df_total["bloque"] == bloque) &
-                                (df_total["dificultad"].str.lower() == dif_name.lower()) &
+                                (df_total["dificultad"].map(_dif_norm) == _dif_norm(dif_name)) &
                                 (~df_total["ID_Pregunta"].isin(already_used))
                             ]["ID_Pregunta"].tolist()
                             label_str = "(cualquier tema)"
@@ -2130,13 +2457,13 @@ with tab_prev:
                             obj_cod = tema_key[len("__OBJ_"):]
                             already_fixed = [
                                 p for p in sel_prev
-                                if df_lookup.get(p, {}).get("bloque", "") == bloque
+                                if (bloque == "__GEN__" or df_lookup.get(p, {}).get("bloque", "") == bloque)
                                 and str(df_lookup.get(p, {}).get("objetivo", "")) == obj_cod
-                                and df_lookup.get(p, {}).get("dificultad", "").lower() == dif_name.lower()
+                                and _dif_norm(df_lookup.get(p, {}).get("dificultad", "")) == _dif_norm(dif_name)
                             ]
                             _obj_mask = (
-                                (df_total["bloque"] == bloque) &
-                                (df_total["dificultad"].str.lower() == dif_name.lower()) &
+                                ((df_total["bloque"] == bloque) | (bloque == "__GEN__")) &
+                                (df_total["dificultad"].map(_dif_norm) == _dif_norm(dif_name)) &
                                 (~df_total["ID_Pregunta"].isin(already_used))
                             )
                             if "objetivo" in df_total.columns:
@@ -2148,12 +2475,12 @@ with tab_prev:
                                 p for p in sel_prev
                                 if df_lookup.get(p, {}).get("bloque", "") == bloque
                                 and str(df_lookup.get(p, {}).get("Tema", "")) == str(tema_key)
-                                and df_lookup.get(p, {}).get("dificultad", "").lower() == dif_name.lower()
+                                and _dif_norm(df_lookup.get(p, {}).get("dificultad", "")) == _dif_norm(dif_name)
                             ]
                             pool_ids = df_total[
                                 (df_total["bloque"] == bloque) &
                                 (df_total["Tema"].astype(str) == str(tema_key)) &
-                                (df_total["dificultad"].str.lower() == dif_name.lower()) &
+                                (df_total["dificultad"].map(_dif_norm) == _dif_norm(dif_name)) &
                                 (~df_total["ID_Pregunta"].isin(already_used))
                             ]["ID_Pregunta"].tolist()
                             label_str = f"Tema {tema_key}"
@@ -2162,7 +2489,8 @@ with tab_prev:
                         if get_estilo() == "bitacora" or st.session_state.get("auto_opts"):
                             picked = _elegir_receta(pool_ids, needed, rng, df_lookup, exam_ids,
                                                     st.session_state.get("auto_opts", {}) or {},
-                                                    sin_tope=tema_key not in ("__ALL__",) and not tema_key.startswith("__OBJ_"))
+                                                    sin_tope=tema_key not in ("__ALL__",) and not tema_key.startswith("__OBJ_"),
+                                                    an=_an_gen)
                             actual = len(picked)
                         else:
                             actual = min(needed, len(pool_ids))
