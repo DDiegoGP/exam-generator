@@ -23,7 +23,8 @@ body { margin: 0; font-family: 'Figtree', system-ui, sans-serif; font-size: 14px
 .grp { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 14px; background: var(--card2);
   border-top: 1px solid var(--bd); cursor: pointer; user-select: none; }
 .grp:first-child { border-top: none; }
-.grp b { font-weight: 700; }
+.grp > span:first-child { min-width: 0; overflow: hidden; }
+.grp b { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grp .meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .row { min-height: 42px; padding-top: 6px; padding-bottom: 6px; border-top: 1px solid var(--row); cursor: pointer; }
 .row:hover { background: var(--hover); }
@@ -141,7 +142,7 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--pri); curs
         if (r.grp !== cur) {
           cur = r.grp;
           const c = collapsed.has(cur);
-          body += `<div class="grp" data-grp="${esc(cur)}"><span><b>${c ? "▸" : "▾"}&nbsp; ${esc(r.grp)}</b></span><span class="meta">${esc(r.grp_meta || "")}</span></div>`;
+          body += `<div class="grp" data-grp="${esc(cur)}" title="${esc(r.grp)}"><span><b>${c ? "▸" : "▾"}&nbsp; ${esc(r.grp)}</b></span><span class="meta">${esc(r.grp_meta || "")}</span></div>`;
         }
         if (!collapsed.has(cur)) body += rowHtml(r, i);
       });

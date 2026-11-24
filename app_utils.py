@@ -1742,6 +1742,30 @@ def filtros_bitacora(p: str, df: pd.DataFrame, bloques: list, contar_en: pd.Data
     return d
 
 
+def grupo_pregunta(r: dict, modo: str) -> str:
+    """Cabecera de grupo de la tabla: por bloque («BLOQUE III — Ondas…») o por tema («Tema 6: … · BLOQUE III»)."""
+    b = str(r.get("bloque", ""))
+    if modo == "Tema":
+        return f"{nombre_tema(str(r.get('Tema', '')).removesuffix('.0'))} · {b}"
+    return nombre_bloque(b)
+
+
+def selector_agrupar(key: str) -> str:
+    """Bloque | Tema, recordado en la sesión."""
+    with st.container(key=f"seg_{key}"):
+        return st.radio("Agrupar por", ["Bloque", "Tema"], horizontal=True, key=key)
+
+
+def orden_bloque(b) -> tuple:
+    """Orden de los bloques como en la base de datos (BLOQUE IX después de VIII, no antes de V)."""
+    bl = list(st.session_state.get("bloques") or [])
+    return (bl.index(b) if b in bl else len(bl), _nsort(str(b)))
+
+
+def n_preg(n: int) -> str:
+    return f"{n} pregunta{'s' if n != 1 else ''}"
+
+
 def marcar_preguntas_usadas(pids: list, fecha_str: str) -> int:
     """Marca una lista de IDs de pregunta como usadas con la fecha dada.
     Devuelve el número de preguntas actualizadas correctamente."""

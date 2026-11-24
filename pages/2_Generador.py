@@ -36,6 +36,7 @@ from app_utils import (
     nombre_bloque, nombre_tema, nombre_objetivo,
     OUTPUT_DIR, _nsort,
     _dialog_editar_pregunta, marcar_preguntas_usadas, guardar_hojas, filtros_bitacora,
+    grupo_pregunta, selector_agrupar, n_preg, orden_bloque,
 )
 from app_theme import get_preview_mode, get_estilo, qtable, qtable_row
 
@@ -880,13 +881,14 @@ with tab_sel:
         if _bit_sel:
             # Tabla a medida: agrupada por bloque y tema, «+» añade como fija, la fila abre la pregunta
             _recs = df_filt.to_dict("records")
-            _recs.sort(key=lambda r: (_nsort(str(r.get("bloque", ""))), _nsort(str(r.get("Tema", ""))),
+            _recs.sort(key=lambda r: (orden_bloque(str(r.get("bloque", ""))), _nsort(str(r.get("Tema", ""))),
                                       str(r.get("ID_Pregunta", ""))))
-            _grp_of = lambda r: f'{nombre_bloque(str(r.get("bloque", "")))} · {nombre_tema(str(r.get("Tema", "")))}'
+            _gmodo = selector_agrupar("sel_grp")
+            _grp_of = lambda r: grupo_pregunta(r, _gmodo)
             _cnt = {}
             for r in _recs:
                 _cnt[_grp_of(r)] = _cnt.get(_grp_of(r), 0) + 1
-            _act = qtable([qtable_row(r, grp=_grp_of(r), grp_meta=f"{_cnt[_grp_of(r)]} preguntas") for r in _recs],
+            _act = qtable([qtable_row(r, grp=_grp_of(r), grp_meta=n_preg(_cnt[_grp_of(r)])) for r in _recs],
                           "seleccion", key="qt_avail", height=560, collapse_default=True, toolbar=True,
                           foot="Pulsa una fila para ver la pregunta · + la añade como fija",
                           empty="No hay preguntas disponibles con estos filtros")

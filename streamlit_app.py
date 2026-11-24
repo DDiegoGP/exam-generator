@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 from app_utils import (init_session_state, render_sidebar, handle_oauth_callback, apply_theme,
-                       nombre_bloque, nombre_tema, es_uso_antiguo, _nsort)
+                       nombre_bloque, nombre_tema, es_uso_antiguo, _nsort, orden_bloque)
 from app_theme import get_estilo, kpi_html, bar_html
 import os
 
@@ -441,7 +441,7 @@ def _home_bitacora():
         cfg_b = ss.get("cfg_bloques", {}) or {}
         cfg_t = ss.get("cfg_temas", {}) or {}
         tiles = ""
-        for blq in sorted(df["bloque"].dropna().unique().tolist(), key=_nsort):
+        for blq in sorted(df["bloque"].dropna().unique().tolist(), key=orden_bloque):
             d_b = df[df["bloque"] == blq]
             tot = len(d_b)
             frescas = int(d_b["usada"].astype(str).apply(

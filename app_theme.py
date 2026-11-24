@@ -646,6 +646,12 @@ hr { border-color: var(--border) !important; }
 .or .on { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 .or b { text-align: right; font-family: var(--mono); color: var(--text); }
 
+/* ── Selector «Agrupar por» encima de las tablas ── */
+.st-key-seg_sel_grp, .st-key-seg_man_grp { margin-bottom: -6px; }
+.st-key-seg_sel_grp label[data-testid="stWidgetLabel"], .st-key-seg_man_grp label[data-testid="stWidgetLabel"] { display: none; }
+.st-key-seg_sel_grp [role="radiogroup"]::before, .st-key-seg_man_grp [role="radiogroup"]::before {
+  content: "Agrupar por"; align-self: center; margin-right: 10px; font-size: 13px; color: var(--muted); }
+
 /* ── Receta de auto-relleno ── */
 .rec-top { display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--card2); border-radius: 10px; padding: 9px 14px;
   font-size: .88rem; color: var(--muted); margin-bottom: 4px; } .rec-top b { color: var(--text); }

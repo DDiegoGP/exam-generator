@@ -35,6 +35,7 @@ from app_utils import (
     es_uso_antiguo, render_question_card_html, mathjax_html, _nsort,
     sync_hoja_gsheets, sync_bloques_gsheets,
     _dialog_editar_pregunta, filtros_bitacora, limpiar_filtros, marcar_preguntas_usadas,
+    grupo_pregunta, selector_agrupar, n_preg, orden_bloque,
 )
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -676,7 +677,7 @@ def _estadisticas_bitacora(df_all):
     filas = ([(t, nombre_tema(t).split(": ", 1)[-1] if ":" in nombre_tema(t) else "", tema_s == t) for t in todos_temas]
              if blq else
              [(b, (ss.get("cfg_bloques", {}) or {}).get(b, "") or "", df["bloque"] == b)
-              for b in sorted(df["bloque"].unique(), key=_nsort)])
+              for b in sorted(df["bloque"].unique(), key=orden_bloque)])
     mx = 1
     datos = []
     for k, nom, m in filas:
@@ -1380,11 +1381,12 @@ with tab_man:
             if _bit:
                 # Tabla a medida: agrupada por bloque, casillas para acciones en grupo, la fila abre la pregunta
                 _recs = df_filt.to_dict("records")
-                _recs.sort(key=lambda r: (_nsort(str(r.get("bloque", ""))), _nsort(str(r.get("Tema", ""))),
+                _recs.sort(key=lambda r: (orden_bloque(str(r.get("bloque", ""))), _nsort(str(r.get("Tema", ""))),
                                           str(r.get("ID_Pregunta", ""))))
+                _gmodo = selector_agrupar("man_grp")
                 _meta = {}
                 for r in _recs:
-                    g = nombre_bloque(str(r.get("bloque", "")))
+                    g = grupo_pregunta(r, _gmodo)
                     m = _meta.setdefault(g, [0, 0, 0])
                     m[0] += 1
                     m[1] += bool(str(r.get("usada", "") or "").strip())
@@ -1393,8 +1395,8 @@ with tab_man:
                 _checked = [i for i in st.session_state.get("man_checked", []) if i in _ids_ok]
                 _rows = []
                 for r in _recs:
-                    g = nombre_bloque(str(r.get("bloque", "")))
-                    _rows.append(qtable_row(r, grp=g, grp_meta=(f"{_meta[g][0]} preguntas · {_meta[g][1]} usadas"
+                    g = grupo_pregunta(r, _gmodo)
+                    _rows.append(qtable_row(r, grp=g, grp_meta=(f"{n_preg(_meta[g][0])} · {_meta[g][1]} usadas"
                                                                 f" · {_meta[g][2]} con solución")))
                 _bar_slot = st.container()   # barra de acciones: se rellena tras leer la tabla
                 _act = qtable(_rows, "gestor", key="qt_gestor", height=540, checked=_checked,
