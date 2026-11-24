@@ -173,6 +173,7 @@ def _dialog_editar_staging():
             "letra_correcta": ed_corr, "bloque": ed_blq,
             "tema": ed_tema, "dificultad": ed_dif,
             "usada": ed_usada, "comentario": ed_com.strip(), "objetivo": ed_obj_stg, "_warnings": [],
+            "_auto": ({**q["_auto"], "conf": "revisada"} if q.get("_auto") else None),
         }
         st.session_state.import_staging = staging
         st.session_state["_staging_edit_idx"] = None
@@ -632,6 +633,176 @@ def _barra_acciones(ids):
             st.rerun()
 
 
+
+def _estadisticas_bitacora(df_all):
+    """Gestor › Estadísticas como panel (Bitácora)."""
+    import analisis_lib as _A
+    from app_theme import kpi_html
+    ss = st.session_state
+    _vacio = lambda v: str(v).strip() in ("", "nan", "None", "NaT")
+
+    c1, c2, _ = st.columns([1.3, 1.6, 4], vertical_alignment="bottom")
+    with c1.container(key="seg_est_ver"):
+        ver = st.radio("Ver", ["Toda la base", "Un bloque"], horizontal=True, key="est_ver")
+    blq = c2.selectbox("Bloque", bloques, key="est_blq", format_func=nombre_bloque) if ver == "Un bloque" and bloques else None
+    df = df_all if not blq else df_all[df_all["bloque"] == blq]
+    n = len(df)
+    if not n:
+        st.info("Este bloque todavía no tiene preguntas.")
+        return
+    tema_s = df["Tema"].astype(str).str.removesuffix(".0")
+    dif = df["dificultad"].astype(str).str.lower().str.replace("á", "a").str.replace("í", "i")
+    uso = df["usada"].astype(str).apply(lambda v: "" if _vacio(v) else v.strip()[:10])
+    sol = ~df.get("solucion", pd.Series("", index=df.index)).apply(_vacio)
+    obj = df.get("objetivo", pd.Series("", index=df.index)).astype(str)
+    con_obj = ~obj.apply(_vacio)
+    disp = uso.apply(lambda v: not v or es_uso_antiguo(v, 12))
+    cfg_t = ss.get("cfg_temas", {}) or {}
+    temas_cfg = {str(t) for t, d in cfg_t.items() if not blq or (isinstance(d, dict) and d.get("bloque") in ("", blq))}
+    todos_temas = sorted(temas_cfg | set(tema_s), key=_nsort)
+    vacios = [t for t in todos_temas if t not in set(tema_s)]
+    pct = lambda k: f"{round(100 * k / n)} % del banco"
+
+    st.markdown(kpi_html([
+        ("Preguntas", n, f"{df['bloque'].nunique()} bloques · {len(set(tema_s))} temas", False),
+        ("Con solución", int(sol.sum()), pct(int(sol.sum())), False),
+        ("Disponibles", int(disp.sum()), "sin usar en 12 meses", False),
+        ("Temas sin preguntas", len(vacios), ", ".join(f"Tema {t}" for t in vacios[:3]) or "ninguno", False),
+        ("Con objetivo", int(con_obj.sum()), pct(int(con_obj.sum())), False),
+    ], compact=True), unsafe_allow_html=True)
+
+    # ── Mapa de calor · uso por mes ─────────────────────────────────────────
+    g1, g2 = st.columns([1.15, 1], gap="medium")
+    filas = ([(t, nombre_tema(t).split(": ", 1)[-1] if ":" in nombre_tema(t) else "", tema_s == t) for t in todos_temas]
+             if blq else
+             [(b, (ss.get("cfg_bloques", {}) or {}).get(b, "") or "", df["bloque"] == b)
+              for b in sorted(df["bloque"].unique(), key=_nsort)])
+    mx = 1
+    datos = []
+    for k, nom, m in filas:
+        v = [int((dif[m] == "facil").sum()), int((dif[m] == "media").sum()), int((dif[m] == "dificil").sum())]
+        mx = max(mx, *v)
+        datos.append((k, nom, v))
+
+    def celda(v):
+        if v == 0:
+            return "<span class='hm0'>0</span>"
+        a = 12 + 70 * v / mx
+        return (f"<span style='background:color-mix(in srgb, var(--primary) {a:.0f}%, transparent);"
+                f"color:{'#fff' if a > 50 else 'var(--text)'}'>{v}</span>")
+
+    rows = "".join(f"<div class='hmr'><span class='hn'><small>{'Tema ' + k if blq else k}</small>"
+                   f"{nom if nom and str(nom) not in ('nan', 'None') else ''}</span>"
+                   + "".join(celda(x) for x in v) + f"<b>{sum(v)}</b></div>" for k, nom, v in datos)
+    g1.markdown("<div class='card est'><div class='est-h'><b>Preguntas por "
+                + ("tema" if blq else "bloque") + " y dificultad</b><small>más oscuro = más preguntas · rojo = ninguna</small></div>"
+                "<div class='hmr hdr'><span></span><span>Fácil</span><span>Media</span><span>Difícil</span><span>Total</span></div>"
+                f"{rows}</div>", unsafe_allow_html=True)
+
+    hoy = datetime.date.today()
+    meses = []
+    for i in range(11, -1, -1):
+        y, mth = hoy.year, hoy.month - i
+        while mth <= 0:
+            mth += 12
+            y -= 1
+        meses.append(f"{y}-{mth:02d}")
+    cnt = uso.str[:7].value_counts().to_dict()
+    vm = [cnt.get(m, 0) for m in meses]
+    top = max(vm) or 1
+    MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    bars = "".join(f"<div class='ub'><small>{v or ''}</small><span style='height:{max(3, 120 * v / top):.0f}px'"
+                   f"{' class=z' if not v else ''}></span><em>{MES[int(m[5:]) - 1]}</em></div>" for m, v in zip(meses, vm))
+    nunca = int((uso == "").sum())
+    ult6 = int(uso.apply(lambda v: bool(v) and not es_uso_antiguo(v, 6)).sum())
+    g2.markdown("<div class='card est'><div class='est-h'><b>Uso en exámenes</b><small>preguntas usadas por mes · "
+                f"último año</small></div><div class='ubars'>{bars}</div><div class='mini3'>"
+                f"<div><b>{nunca}</b><small>nunca usadas</small></div>"
+                f"<div><b>{int(disp.sum())}</b><small>disponibles (sin usar en 12 meses)</small></div>"
+                f"<div><b>{ult6}</b><small>usadas en los últimos 6 meses</small></div></div>"
+                "<div class='est-n'>Se cuenta la última fecha de uso de cada pregunta.</div></div>", unsafe_allow_html=True)
+
+    # ── Temas ───────────────────────────────────────────────────────────────
+    st.write("")
+    h1, h2 = st.columns([3, 2.2], vertical_alignment="bottom")
+    h1.markdown("<div class='sec-title' style='margin:0'>Temas</div>", unsafe_allow_html=True)
+    with h2.container(key="seg_est_orden"):
+        orden = st.radio("Ordenar por", ["Menos preguntas", "Más sin solución", "Número de tema"],
+                         horizontal=True, key="est_orden")
+    tdat = []
+    for t in todos_temas:
+        m = tema_s == t
+        k = int(m.sum())
+        b = df.loc[m, "bloque"].iloc[0] if k else (cfg_t.get(t, {}) or {}).get("bloque", "") if isinstance(cfg_t.get(t), dict) else ""
+        tdat.append(dict(t=t, b=b, n=k, f=int((dif[m] == "facil").sum()), m=int((dif[m] == "media").sum()),
+                         d=int((dif[m] == "dificil").sum()), ss=int((~sol[m]).sum()), u=max(uso[m]) if k and any(uso[m]) else ""))
+    if orden == "Menos preguntas":
+        tdat.sort(key=lambda r: (r["n"], _nsort(r["t"])))
+    elif orden == "Más sin solución":
+        tdat.sort(key=lambda r: (-r["ss"], _nsort(r["t"])))
+    mxn = max([r["n"] for r in tdat] + [1])
+    trs = ""
+    for r in tdat:
+        nom = nombre_tema(r["t"])
+        nom = nom.split(": ", 1)[1] if ": " in nom else ""
+        mini = "".join(f"<span style='flex:{v or 0.001};background:{c}'></span>"
+                       for v, c in ((r["f"], "var(--ok)"), (r["m"], "var(--primary)"), (r["d"], "var(--err)")))
+        chip = (f"<span class='tg w'>{r['ss']} sin sol.</span>" if r["ss"] else
+                ("<span class='tg f'>completas</span>" if r["n"] else "<span class='tg n'>—</span>"))
+        trs += (f"<div class='tr'><span><b>Tema {r['t']}</b> {nom}</span><span class='mono'>{r['b']}</span>"
+                f"<span class='bw'><span class='bar'><span style='width:{100 * r['n'] / mxn:.0f}%'></span></span>"
+                f"<b class='{'z' if not r['n'] else ''}'>{r['n']}</b></span>"
+                f"<span class='mini'>{mini}</span>{chip}<span class='mono'>{r['u'][:7] or '—'}</span></div>")
+    with st.container(height=min(520, 70 + 42 * len(tdat)), key="card_est_temas"):
+        st.markdown("<div class='tr hdr'><span>Tema</span><span>Bloque</span><span>Preguntas</span>"
+                    f"<span>F · M · D</span><span>Solución</span><span>Último uso</span></div>{trs}",
+                    unsafe_allow_html=True)
+
+    # ── Dificultad banco vs observada · objetivos ───────────────────────────
+    d1, d2 = st.columns(2, gap="medium")
+    res = _A.get_resultados(ss.get("excel_dfs", {}))
+    res = res[res["ID_Pregunta"].isin(set(df["ID_Pregunta"]))] if not res.empty else res
+    if res.empty:
+        d1.markdown("<div class='card est'><div class='est-h'><b>Dificultad: banco frente a lo observado</b></div>"
+                    "<div class='est-n'>Aún no hay análisis guardados de preguntas de este banco. Se rellena al guardar "
+                    "el análisis de un examen en la página Análisis.</div></div>", unsafe_allow_html=True)
+    else:
+        last = res.sort_values("Fecha").groupby("ID_Pregunta").tail(1)
+        bank = df.set_index("ID_Pregunta")["dificultad"].astype(str).str.lower().str.replace("á", "a").str.replace("í", "i")
+        M = {(a, b): 0 for a in ("facil", "media", "dificil") for b in ("facil", "media", "dificil")}
+        for _, r in last.iterrows():
+            real = _A.dificultad_real(float(r["Pct_Acierto"] or "nan")).lower()
+            bk = bank.get(r["ID_Pregunta"], "")
+            if real and bk in ("facil", "media", "dificil"):
+                M[(bk, real)] += 1
+        tot = sum(M.values())
+        dis = sum(v for (a, b), v in M.items() if a != b)
+        cells = ""
+        for a in ("facil", "media", "dificil"):
+            cells += f"<span class='ml'>banco {a.replace('facil', 'fácil').replace('dificil', 'difícil')}</span>"
+            for b in ("facil", "media", "dificil"):
+                v = M[(a, b)]
+                cls = "ok" if a == b else ("w" if v else "n")
+                cells += f"<span class='mc {cls}'>{v}</span>"
+        d1.markdown("<div class='card est'><div class='est-h'><b>Dificultad: banco frente a lo observado</b>"
+                    f"<small>{tot} preguntas con análisis guardado</small></div><div class='mat'><span></span>"
+                    "<span class='ml c'>real fácil</span><span class='ml c'>real media</span><span class='ml c'>real difícil</span>"
+                    f"{cells}</div><div class='est-n'><b>{dis} de {tot}</b> no coinciden con la dificultad del banco. "
+                    "Puedes cambiarla desde Análisis › modo revisión.</div></div>", unsafe_allow_html=True)
+    cfg_o = ss.get("cfg_objetivos", {}) or {}
+    objs = [(c, d) for c, d in cfg_o.items() if not blq or d.get("bloque") in ("", blq)]
+    cnt_o = obj.value_counts().to_dict()
+    mxo = max([cnt_o.get(c, 0) for c, _ in objs] + [1])
+    orow = "".join(f"<div class='or'><span class='mono'>{c}</span><span class='on'>{d.get('nombre_corto') or '—'}</span>"
+                   f"<span class='bar'><span style='width:{100 * cnt_o.get(c, 0) / mxo:.0f}%'></span></span>"
+                   f"<b class='{'z' if not cnt_o.get(c, 0) else ''}'>{cnt_o.get(c, 0)}</b></div>" for c, d in objs)
+    d2.markdown("<div class='card est'><div class='est-h'><b>Objetivos docentes</b><small>preguntas asignadas a cada "
+                "objetivo</small></div>"
+                + (orow or "<div class='est-n'>No hay objetivos. Créalos en Configuración › Objetivos.</div>")
+                + f"<div class='est-n'><b>{int((~con_obj).sum())} preguntas</b> sin objetivo asignado.</div></div>",
+                unsafe_allow_html=True)
+
+
 def _stg_sin_correcta(q: dict) -> bool:
     if str(q.get("letra_correcta", "")).upper() not in ("A", "B", "C", "D"):
         return True
@@ -647,6 +818,14 @@ def _stg_tags(q: dict) -> str:
         return (f"<span style='display:inline-block;padding:0 7px;border-radius:999px;font-size:.78em;"
                 f"font-weight:600;margin-left:4px;background:var(--{c}-bg, #fdf0d5);color:var(--{c}, #7a4f00)'>{t}</span>")
     out = ""
+    a = q.get("_auto")
+    if a:
+        _c = {"alta": "ok", "media": "primary", "baja": "warn", "revisada": "used"}.get(a["conf"], "primary")
+        _bg = {"primary": "var(--primary-soft, #e6edf8)", "used": "var(--used-bg, #eee8f8)"}.get(_c, f"var(--{_c}-bg)")
+        _txt = f"{q.get('bloque', '')} · Tema {q.get('tema', '')}" + (f" · {q['objetivo']}" if q.get("objetivo") else "")
+        out += (f"<span style='display:inline-block;padding:0 7px;border-radius:999px;font-size:.78em;font-weight:600;"
+                f"margin-left:4px;background:{_bg};color:var(--{_c})' title='Propuesta automática · confianza {a['conf']}'>"
+                f"{_txt} · {a['conf']}</span>")
     if q.get("_dup"):
         out += chip(f"posible duplicado ({q['_dup']} %)", "err")
     if q.get("_dup_file"):
@@ -693,6 +872,11 @@ with tab_imp:
         key="imp_comentario",
         help="Etiqueta que se asignará a todas las preguntas importadas. Después podrás filtrar por ella."
     )
+    auto_cls = st.toggle(
+        "Proponer bloque, tema y objetivo de cada pregunta", value=True, key="imp_auto",
+        help="Compara cada pregunta con las del banco y con los nombres de bloques, temas y objetivos "
+             "(Configuración). Es una propuesta: la revisas en la tabla antes de importar. "
+             "Sin propuesta, todas van al bloque y tema elegidos arriba.")
 
     if st.button("👁️ Previsualizar", key="btn_preview_imp") and up_file is not None:
         try:
@@ -717,6 +901,17 @@ with tab_imp:
                 _n = lib._normalizar_texto(p.get("enunciado", ""))
                 p["_dup_file"] = bool(_n) and _n in _seen
                 _seen.append(_n)
+            if auto_cls and not df_total.empty:
+                from clasificador import Clasificador
+                _cls = Clasificador(df_total, st.session_state.get("cfg_bloques", {}),
+                                    st.session_state.get("cfg_temas", {}), st.session_state.get("cfg_objetivos", {}))
+                for p in preguntas:
+                    c = _cls.clasificar(p.get("enunciado", ""), p.get("opciones_list", []))
+                    if c["bloque"]:
+                        p["bloque"], p["tema"] = c["bloque"], c["tema"]
+                        if c["objetivo"]:
+                            p["objetivo"] = c["objetivo"]
+                        p["_auto"] = c
             st.session_state.import_staging = preguntas
             st.session_state["_staging_edit_idx"] = None
             # Selección inicial: se desmarcan las que tienen problemas
@@ -750,6 +945,21 @@ div[data-testid="stCheckbox"] { margin-top:4px!important; }
         _n_sc  = sum(1 for q in staging if _stg_sin_correcta(q))
         st.markdown(f"**{len(staging)}** detectadas · **{_n_dup}** posibles duplicados · **{_n_sc}** sin respuesta "
                     f"correcta clara" + (" — se han desmarcado; revísalas con ✏️" if (_n_dup or _n_sc) else ""))
+        _autos = [q["_auto"]["conf"] for q in staging if q.get("_auto")]
+        if _autos:
+            ca1, ca2 = st.columns([3, 1.3], vertical_alignment="center")
+            ca1.markdown(
+                f"Bloque y tema propuestos: **{_autos.count('alta')}** con confianza alta · "
+                f"**{_autos.count('media')}** media · **{_autos.count('baja')}** baja"
+                + (f" · **{_autos.count('revisada')}** revisadas" if "revisada" in _autos else "")
+                + ". Revisa sobre todo las de confianza baja (✏️ para cambiarlas).")
+            if ca2.button("Usar el bloque y tema de arriba", key="btn_stg_no_auto", use_container_width=True,
+                          help="Descarta las propuestas: todas irán al bloque y tema elegidos arriba"):
+                for q in staging:
+                    q["bloque"], q["tema"] = bloque_imp, str(tema_imp)
+                    q.pop("objetivo", None)
+                    q.pop("_auto", None)
+                st.rerun()
 
         # Cabecera
         h0, h2, h3, h4 = st.columns([0.5, 8, 0.8, 0.7])
@@ -1413,6 +1623,9 @@ with tab_man:
 # TAB 4 · ESTADÍSTICAS
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_stat:
+  if get_estilo() == "bitacora" and not df_total.empty:
+    _estadisticas_bitacora(df_total)
+  else:
     try:
         import plotly.graph_objects as go
     except ImportError:

@@ -137,6 +137,238 @@ def _dialog_subapartados(q_idx: int):
 
 # ═════════════════════════════════════════════════════════════════════════════
 # DIALOG: CONFIGURACIÓN DE RELLENO AUTOMÁTICO
+
+# ═════════════════════════════════════════════════════════════════════════════
+# RECETA DE AUTO-RELLENO (Bitácora): reparto rápido + tabla de todos los bloques + opciones
+# ═════════════════════════════════════════════════════════════════════════════
+_DIFS = ("facil", "media", "dificil")
+_MEZCLAS = {"Como el banco": None, "Equilibrada · 30/50/20": (30, 50, 20),
+            "Más fácil · 50/40/10": (50, 40, 10), "Exigente · 20/50/30": (20, 50, 30)}
+
+
+def _cuotas(total: int, pesos: dict, topes: dict) -> dict:
+    """Reparte `total` según `pesos` (resto mayor) sin pasar de `topes`; lo que sobra va a los demás."""
+    out = {k: 0 for k in pesos}
+    resto = total
+    activos = {k for k in pesos if topes.get(k, 0) > 0 and pesos[k] > 0}
+    while resto > 0 and activos:
+        w = sum(pesos[k] for k in activos)
+        ideal = {k: resto * pesos[k] / w for k in activos}
+        base = {k: min(int(ideal[k]), topes[k] - out[k]) for k in activos}
+        dado = sum(base.values())
+        for k in sorted(activos, key=lambda k: -(ideal[k] - int(ideal[k]))):
+            if dado >= resto:
+                break
+            if out[k] + base[k] < topes[k]:
+                base[k] += 1
+                dado += 1
+        if dado == 0:
+            break
+        for k in activos:
+            out[k] += base[k]
+        resto -= dado
+        activos = {k for k in activos if out[k] < topes[k]}
+    return out
+
+
+def _dif_norm(v) -> str:
+    return str(v).lower().replace("á", "a").replace("í", "i")
+
+
+def _pool_receta(df_all, manual, opts):
+    """Preguntas que la receta puede usar (sin las fijas y respetando las opciones)."""
+    d = df_all[~df_all["ID_Pregunta"].isin(set(manual))]
+    m = int(opts.get("evitar_meses", 0) or 0)
+    if m:
+        u = d["usada"].astype(str).replace({"nan": "", "None": ""}).str.strip()
+        d = d[(u == "") | u.apply(lambda v: es_uso_antiguo(v, m))]
+    if opts.get("solo_sol"):
+        d = d[~d.get("solucion", pd.Series("", index=d.index)).astype(str).str.strip().isin(["", "nan", "None"])]
+    return d
+
+
+def _tabla_receta(df_pool, recipe, blqs):
+    """Filas: bloque (cualquier tema), sus temas y sus objetivos, con lo pedido y lo disponible."""
+    cfg_o = st.session_state.get("cfg_objetivos", {}) or {}
+    rows = []
+    for b in blqs:
+        db = df_pool[df_pool["bloque"] == b]
+        rb = recipe.get(b, {})
+
+        def fila(key, nivel, nombre, dsub):
+            dd = dsub["dificultad"].map(_dif_norm)
+            av = [int((dd == x).sum()) for x in _DIFS]
+            r = rb.get(key, {})
+            rows.append({"id": f"{b}|{key}", "nivel": nivel, "Elemento": nombre,
+                         "Fácil": int(r.get("facil", 0)), "Media": int(r.get("media", 0)), "Difícil": int(r.get("dificil", 0)),
+                         "Disponibles F·M·D": f"{av[0]} · {av[1]} · {av[2]}", "_av": av})
+        fila("__ALL__", "bloque", f"{nombre_bloque(b)} (cualquier tema)", db)
+        for t in sorted({str(x).removesuffix(".0") for x in db["Tema"].astype(str)}, key=_nsort):
+            fila(t, "tema", f"   ↳ {nombre_tema(t)}", db[db["Tema"].astype(str).str.removesuffix(".0") == t])
+        for c, d in cfg_o.items():
+            if d.get("bloque") in ("", b):
+                fila(f"__OBJ_{c}", "objetivo", f"   ↳ Objetivo {c} · {d.get('nombre_corto', '')}",
+                     db[db.get("objetivo", pd.Series("", index=db.index)).astype(str) == c])
+    return pd.DataFrame(rows).set_index("id")
+
+
+@st.dialog("Receta de auto-relleno", width="large")
+def _dialog_receta(n_obj: int):
+    ss = st.session_state
+    df_all = ss.df_preguntas
+    blqs = list(ss.bloques or [])
+    manual = list(ss.manual_order or [])
+    if not blqs or df_all.empty:
+        st.warning("Conecta la base de datos antes de usar el auto-relleno.")
+        return
+    opts = {"evitar_meses": {"No": 0, "Últimos 6 meses": 6, "Últimos 12 meses": 12}[ss.get("rec_evitar", "No")],
+            "solo_sol": bool(ss.get("rec_sol", False)),
+            "prioridad": bool(ss.get("rec_prio", True)),
+            "max_tema": int(ss.get("rec_max_tema", 0) or 0)}
+    pool = _pool_receta(df_all, manual, opts)
+    if ss.get("_rec_tab") is None or ss.get("_rec_opts_sig") != (opts["evitar_meses"], opts["solo_sol"]):
+        prev = ss.get("_rec_tab")
+        tab = _tabla_receta(pool, ss.get("auto_recipe", {}) if prev is None else {}, blqs)
+        if prev is not None:   # al cambiar opciones se conservan las cantidades ya puestas
+            for c in ("Fácil", "Media", "Difícil"):
+                tab.loc[tab.index.intersection(prev.index), c] = prev.loc[tab.index.intersection(prev.index), c]
+        ss["_rec_tab"] = tab
+        ss["_rec_opts_sig"] = (opts["evitar_meses"], opts["solo_sol"])
+        ss["_rec_ver"] = ss.get("_rec_ver", 0) + 1
+    tab = ss["_rec_tab"]
+
+    st.markdown(f"<div class='rec-top'><span><b>{len(manual)}</b> fijas</span><span><b>{n_obj}</b> objetivo</span>"
+                f"<span><b>{max(0, n_obj - len(manual))}</b> huecos para la receta</span>"
+                f"<span><b>{len(pool)}</b> preguntas disponibles</span></div>", unsafe_allow_html=True)
+    t1, t2, t3 = st.tabs(["Reparto rápido", "Por bloque y tema", "Opciones"])
+
+    with t1:
+        st.caption("Indica cuántas preguntas quieres y cómo repartirlas; la tabla de «Por bloque y tema» se "
+                   "rellena sola y allí puedes retocarla.")
+        q1, q2 = st.columns([1, 2.2])
+        n_auto = q1.number_input("Preguntas a rellenar", min_value=0, max_value=500,
+                                 value=max(0, n_obj - len(manual)), key="rec_n")
+        bsel = q2.multiselect("Bloques", blqs, default=blqs, key="rec_blqs", format_func=nombre_bloque)
+        with st.container(key="seg_rec_rep"):
+            modo = st.radio("Reparto entre bloques", ["Proporcional a las disponibles", "A partes iguales"],
+                            horizontal=True, key="rec_rep")
+        with st.container(key="seg_rec_mix"):
+            mezcla = st.radio("Dificultad", list(_MEZCLAS), horizontal=True, key="rec_mix")
+        if st.button("Calcular reparto", type="primary", key="rec_calc", disabled=not bsel or not n_auto):
+            avb = {b: [int((pool[pool["bloque"] == b]["dificultad"].map(_dif_norm) == x).sum()) for x in _DIFS] for b in bsel}
+            qb = _cuotas(int(n_auto), {b: (sum(avb[b]) if modo.startswith("Proporcional") else 1) for b in bsel},
+                         {b: sum(avb[b]) for b in bsel})
+            tab[["Fácil", "Media", "Difícil"]] = 0
+            for b in bsel:
+                pct = _MEZCLAS[mezcla]
+                w = dict(zip(_DIFS, pct if pct else avb[b]))
+                qd = _cuotas(qb[b], w, dict(zip(_DIFS, avb[b])))
+                tab.loc[f"{b}|__ALL__", ["Fácil", "Media", "Difícil"]] = [qd["facil"], qd["media"], qd["dificil"]]
+            ss["_rec_tab"] = tab
+            ss["_rec_ver"] = ss.get("_rec_ver", 0) + 1
+            falta = int(n_auto) - int(sum(qb.values()))
+            if falta > 0:
+                st.warning(f"Solo hay preguntas para {int(n_auto) - falta}: faltan {falta}.")
+        res = tab[tab["nivel"] == "bloque"]
+        res = res[res[["Fácil", "Media", "Difícil"]].sum(axis=1) > 0]
+        if not res.empty:
+            filas = "".join(f"<div class='rec-r'><span>{r['Elemento'].replace(' (cualquier tema)', '')}</span>"
+                            f"<b>{r['Fácil']}</b><b>{r['Media']}</b><b>{r['Difícil']}</b><b class='t'>{r['Fácil'] + r['Media'] + r['Difícil']}</b></div>"
+                            for _, r in res.iterrows())
+            st.markdown("<div class='rec-tab'><div class='rec-r h'><span>Bloque</span><span>Fácil</span><span>Media</span>"
+                        f"<span>Difícil</span><span>Total</span></div>{filas}</div>", unsafe_allow_html=True)
+
+    with t2:
+        det = st.toggle("Mostrar también temas y objetivos", value=False, key="rec_det",
+                        help="Las cantidades de temas y objetivos se suman a las del bloque.")
+        vista = tab if det else tab[tab["nivel"] == "bloque"]
+        ed = st.data_editor(
+            vista[["Elemento", "Fácil", "Media", "Difícil", "Disponibles F·M·D"]], hide_index=True,
+            use_container_width=True, key=f"rec_ed_{ss.get('_rec_ver', 0)}", height=min(460, 40 + 35 * len(vista)),
+            disabled=["Elemento", "Disponibles F·M·D"],
+            column_config={c: st.column_config.NumberColumn(c, min_value=0, step=1, width="small")
+                           for c in ("Fácil", "Media", "Difícil")} | {
+                "Elemento": st.column_config.TextColumn("Bloque / tema / objetivo", width="large")})
+        ed.index = vista.index
+        tab.loc[ed.index, ["Fácil", "Media", "Difícil"]] = ed[["Fácil", "Media", "Difícil"]].fillna(0).astype(int).values
+        ss["_rec_tab"] = tab
+
+    with t3:
+        with st.container(key="seg_rec_evitar"):
+            st.radio("Evitar preguntas usadas en…", ["No", "Últimos 6 meses", "Últimos 12 meses"],
+                     horizontal=True, key="rec_evitar")
+        st.toggle("Elegir primero las que hace más tiempo que no se usan (y las nunca usadas)", value=True, key="rec_prio",
+                  help="Si está apagado, se eligen al azar entre las disponibles.")
+        st.toggle("Solo preguntas con solución desarrollada", value=False, key="rec_sol")
+        st.number_input("Máximo de preguntas por tema (0 = sin límite)", min_value=0, max_value=50, key="rec_max_tema",
+                        help="Se aplica a lo que se elige «de cualquier tema»: evita que un tema acapare el examen.")
+
+    # ── Resumen y avisos ────────────────────────────────────────────────────
+    tot = tab[["Fácil", "Media", "Difícil"]].sum()
+    n_rec = int(tot.sum())
+    total = len(manual) + n_rec
+    avisos = []
+    for i, r in tab.iterrows():
+        for j, c in enumerate(("Fácil", "Media", "Difícil")):
+            if r[c] > r["_av"][j]:
+                avisos.append(f"{r['Elemento'].strip(' ↳')}: {c.lower()} {r[c]} y solo hay {r['_av'][j]}")
+    col = "var(--ok)" if total == n_obj else ("var(--err)" if total > n_obj else "var(--warn)")
+    st.markdown(f"<div class='rec-sum'><span><b>{len(manual)}</b> fijas + <b>{n_rec}</b> de la receta = "
+                f"<b style='color:{col}'>{total}</b> / {n_obj}</span><span>Fácil <b>{int(tot['Fácil'])}</b> · "
+                f"Media <b>{int(tot['Media'])}</b> · Difícil <b>{int(tot['Difícil'])}</b></span></div>",
+                unsafe_allow_html=True)
+    for a in avisos[:4]:
+        st.caption(f"⚠️ {a}")
+    if total > n_obj:
+        st.caption(f"⚠️ Te pasas del objetivo en {total - n_obj}.")
+    b1, _, b2 = st.columns([1, 2, 1.2])
+    if b1.button("Quitar receta", key="rec_clear"):
+        ss["auto_recipe"] = {}
+        ss.pop("_rec_tab", None)
+        st.rerun()
+    if b2.button("Guardar receta", type="primary", key="rec_save", use_container_width=True):
+        new = {}
+        for i, r in tab.iterrows():
+            if r[["Fácil", "Media", "Difícil"]].sum() <= 0:
+                continue
+            b, key = i.split("|", 1)
+            new.setdefault(b, {})[key] = {"facil": int(r["Fácil"]), "media": int(r["Media"]), "dificil": int(r["Difícil"])}
+        ss["auto_recipe"] = new
+        ss["auto_opts"] = opts
+        ss.pop("_rec_tab", None)
+        notify(f"✅ Receta guardada: {n_rec} preguntas automáticas. Se eligen al pulsar «Generar».")
+        st.rerun()
+
+
+def _elegir_receta(pool_ids, n, rng, df_lookup, exam_ids, opts, sin_tope=False):
+    """Elige `n` preguntas de `pool_ids` según las opciones de la receta."""
+    ids = list(pool_ids)
+    m = int(opts.get("evitar_meses", 0) or 0)
+    if m:
+        ids = [p for p in ids if not str(df_lookup.get(p, {}).get("usada", "") or "").strip()
+               or es_uso_antiguo(str(df_lookup[p].get("usada", "")), m)]
+    if opts.get("solo_sol"):
+        ids = [p for p in ids if str(df_lookup.get(p, {}).get("solucion", "") or "").strip() not in ("", "nan", "None")]
+    rng.shuffle(ids)
+    if opts.get("prioridad", True):   # nunca usadas primero; después, las usadas hace más tiempo
+        ids.sort(key=lambda p: str(df_lookup.get(p, {}).get("usada", "") or "").strip() or "0000")
+    tope = int(opts.get("max_tema", 0) or 0)
+    if not tope or sin_tope:
+        return ids[:max(0, n)]
+    cuenta = {}
+    for p in exam_ids:
+        t = (df_lookup.get(p, {}).get("bloque"), str(df_lookup.get(p, {}).get("Tema")))
+        cuenta[t] = cuenta.get(t, 0) + 1
+    out = []
+    for p in ids:
+        if len(out) >= n:
+            break
+        t = (df_lookup.get(p, {}).get("bloque"), str(df_lookup.get(p, {}).get("Tema")))
+        if cuenta.get(t, 0) < tope:
+            out.append(p)
+            cuenta[t] = cuenta.get(t, 0) + 1
+    return out
+
 # ═════════════════════════════════════════════════════════════════════════════
 @st.dialog("🤖 Configuración de relleno automático", width="large")
 def _dialog_autofill(n_obj: int):
@@ -399,7 +631,11 @@ with tab_sel:
         if st.button("🤖 Auto-relleno", use_container_width=True, key="btn_auto_dlg",
                      help="Configurar selección automática por bloque / tema / dificultad",
                      type="secondary"):
-            _dialog_autofill(n_obj)
+            if get_estilo() == "bitacora":
+                st.session_state.pop("_rec_tab", None)   # la tabla se rehace desde la receta guardada
+                _dialog_receta(n_obj)
+            else:
+                _dialog_autofill(n_obj)
 
     # ── Resumen receta activa ─────────────────────────────────────────────────
     recipe = st.session_state.get("auto_recipe", {})
@@ -411,14 +647,29 @@ with tab_sel:
                 parts.append(f"{blq}: {blq_t}")
                 total_r += blq_t
         summary_str = " · ".join(parts[:4]) + (" ···" if len(parts) > 4 else "")
-        rc1, rc2 = st.columns([9, 1])
-        rc1.markdown(
+        if get_estilo() == "bitacora" and total_r:
+            _o = st.session_state.get("auto_opts", {}) or {}
+            _ops = [x for x in (f"evita usadas en {_o['evitar_meses']} meses" if _o.get("evitar_meses") else "",
+                                "primero las menos usadas" if _o.get("prioridad", True) else "al azar",
+                                "solo con solución" if _o.get("solo_sol") else "",
+                                f"máx. {_o['max_tema']} por tema" if _o.get("max_tema") else "") if x]
+            _chips = "".join(f"<span class='rec-chip'>{p}</span>" for p in parts)
+            rc1, rc2 = st.columns([9, 1.3], vertical_alignment="center")
+            rc1.markdown(f"<div class='rec-act'><b>Receta</b> <span class='rec-n'>{total_r} automáticas</span>"
+                         f"{_chips}<small>{' · '.join(_ops)} · se eligen al pulsar «Generar» en Preview</small></div>",
+                         unsafe_allow_html=True)
+            if rc2.button("Quitar receta", key="btn_clear_recipe_sel", use_container_width=True):
+                st.session_state["auto_recipe"] = {}
+                st.rerun()
+            recipe = {}   # ya mostrada
+        rc1, rc2 = (st.columns([9, 1]) if recipe else (st.empty(), st.empty()))
+        if recipe: rc1.markdown(
             f"<div style='background:var(--primary-soft, #e8f4fd);border:1px solid var(--border2, #aed6f1);border-radius:6px;"
             f"padding:5px 12px;font-size:0.83em;color:var(--primary, #1a5276)'>"
             f"🤖 <b>Receta activa</b> — {total_r} preg. auto  ·  {summary_str}</div>",
             unsafe_allow_html=True
         )
-        if rc2.button("✖", key="btn_clear_recipe_sel", help="Eliminar receta automática"):
+        if recipe and rc2.button("✖", key="btn_clear_recipe_sel", help="Eliminar receta automática"):
             st.session_state["auto_recipe"] = {}
             st.rerun()
 
@@ -1906,8 +2157,14 @@ with tab_prev:
                             label_str = f"Tema {tema_key}"
 
                         needed = max(0, n_req - len(already_fixed))
-                        actual = min(needed, len(pool_ids))
-                        picked = rng.sample(pool_ids, actual) if actual > 0 else []
+                        if get_estilo() == "bitacora" or st.session_state.get("auto_opts"):
+                            picked = _elegir_receta(pool_ids, needed, rng, df_lookup, exam_ids,
+                                                    st.session_state.get("auto_opts", {}) or {},
+                                                    sin_tope=tema_key not in ("__ALL__",) and not tema_key.startswith("__OBJ_"))
+                            actual = len(picked)
+                        else:
+                            actual = min(needed, len(pool_ids))
+                            picked = rng.sample(pool_ids, actual) if actual > 0 else []
                         if actual < needed:
                             warns_gen.append(
                                 f"**{bloque}** {label_str} {dif_name}: "

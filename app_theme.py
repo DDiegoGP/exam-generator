@@ -602,6 +602,87 @@ hr { border-color: var(--border) !important; }
 [class*="st-key-pill_"] label[data-baseweb="radio"]:has(input:checked) { background: var(--chip); border-color: var(--chip); }
 [class*="st-key-pill_"] label[data-baseweb="radio"]:has(input:checked) p { color: var(--chip-ink) !important; font-weight: 600; }
 
+/* ── Gestor › Estadísticas ── */
+.card.est { padding: 16px 18px; margin-bottom: 0; height: 100%; }
+.est-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.est-h b { font-size: 1rem; color: var(--text); } .est-h small, .est-n { font-size: 12.5px; color: var(--muted); }
+.est-n { margin-top: 10px; } .est-n b { color: var(--text); }
+.hmr { display: grid; grid-template-columns: minmax(0,1fr) 62px 62px 62px 46px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.hmr.hdr span { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.hmr .hn { min-width: 0; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hmr .hn small { display: block; font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--muted); }
+.hmr > span:not(.hn) { text-align: center; border-radius: 7px; padding: 7px 0; font-family: var(--mono); font-size: 13px; }
+.hmr .hm0 { background: var(--err-bg); color: var(--err); font-weight: 700; }
+.hmr > b { text-align: right; font-family: var(--mono); color: var(--text); }
+.ubars { display: flex; gap: 4px; align-items: flex-end; height: 160px; }
+.ub { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.ub span { width: 70%; background: var(--primary); border-radius: 4px 4px 0 0; } .ub span.z { background: var(--track); }
+.ub small { font-family: var(--mono); font-size: 11px; color: var(--muted); } .ub em { font-style: normal; font-size: 11.5px; color: var(--muted); }
+.mini3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.mini3 div { background: var(--card2); border-radius: 9px; padding: 8px 10px; }
+.mini3 b { display: block; font-size: 1.1rem; color: var(--text); } .mini3 small { font-size: 11.5px; color: var(--muted); }
+.st-key-card_est_temas { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px; }
+.tr { display: grid; grid-template-columns: minmax(0,1.6fr) 100px 150px 110px 100px 80px; gap: 12px; align-items: center;
+  padding: 9px 0; border-top: 1px solid var(--border); font-size: .9rem; color: var(--text2); }
+.tr b { color: var(--text); } .tr.hdr { border-top: none; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); position: sticky; top: 0; background: var(--card); z-index: 1; }
+.tr > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr .mono, .or .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.tr .bw { display: flex; align-items: center; gap: 8px; } .tr .bw b { width: 20px; text-align: right; font-family: var(--mono); }
+.tr b.z, .or b.z { color: var(--err); }
+.tr .bar, .or .bar { flex: 1; height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; display: block; }
+.tr .bar span, .or .bar span { display: block; height: 8px; background: var(--primary); border-radius: 4px; }
+.tr .mini { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--track); }
+.tg { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; white-space: nowrap; justify-self: start; }
+.tg.w { background: var(--warn-bg); color: var(--warn); } .tg.f { background: var(--ok-bg); color: var(--ok); }
+.tg.n { background: var(--card2); color: var(--muted); }
+.mat { display: grid; grid-template-columns: 96px repeat(3, 1fr); gap: 6px; }
+.mat .ml { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); align-self: center; }
+.mat .ml.c { text-align: center; }
+.mat .mc { text-align: center; border-radius: 7px; padding: 9px 0; font-family: var(--mono); font-weight: 700; }
+.mat .mc.ok { background: var(--ok-bg); color: var(--ok); } .mat .mc.w { background: var(--warn-bg); color: var(--warn); }
+.mat .mc.n { background: var(--card2); color: var(--muted); }
+.or { display: grid; grid-template-columns: 56px minmax(0,1fr) 110px 26px; gap: 10px; align-items: center; padding: 5px 0; }
+.or .on { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.or b { text-align: right; font-family: var(--mono); color: var(--text); }
+
+/* ── Receta de auto-relleno ── */
+.rec-top { display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--card2); border-radius: 10px; padding: 9px 14px;
+  font-size: .88rem; color: var(--muted); margin-bottom: 4px; } .rec-top b { color: var(--text); }
+.rec-tab { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 8px; }
+.rec-r { display: grid; grid-template-columns: minmax(0,1fr) 64px 64px 64px 64px; gap: 6px; padding: 7px 12px;
+  border-top: 1px solid var(--border); font-size: .9rem; } .rec-r:first-child { border-top: none; }
+.rec-r.h { background: var(--card2); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.rec-r > b, .rec-r.h > span:not(:first-child) { text-align: center; font-family: var(--mono); } .rec-r b.t { color: var(--primary); }
+.rec-sum { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--border);
+  padding-top: 10px; margin-top: 6px; font-size: .92rem; color: var(--text2); } .rec-sum b { color: var(--text); }
+.rec-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; background: var(--primary-soft);
+  border-radius: 10px; padding: 8px 14px; color: var(--text); font-size: .9rem; }
+.rec-act .rec-n { font-weight: 700; color: var(--primary); margin-right: 4px; }
+.rec-act small { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+.rec-chip { font-family: var(--mono); font-size: 12px; background: var(--card); border-radius: 999px; padding: 2px 9px; color: var(--text2); }
+
+/* ── Panel «Base de datos» ── */
+.dbp-t { font-size: .9rem; color: var(--text2); margin-bottom: 4px; }
+.dbp-acc { display: flex; align-items: center; gap: 10px; }
+.dbp-acc .av { width: 34px; height: 34px; border-radius: 50%; background: var(--primary); color: #fff; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex: none; }
+.dbp-acc b { display: block; color: var(--text); } .dbp-acc small { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+[class*="st-key-dbcur_"] { background: var(--card2); border-radius: 10px; padding: 12px 14px; }
+.dbp-st { display: flex; align-items: center; gap: 7px; } .dbp-st small { color: var(--muted); }
+.dbp-st .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); } .dbp-st .dot.ok { background: var(--ok); }
+.dbp-name { font-size: 1.02rem; font-weight: 700; color: var(--text); margin-top: 2px; word-break: break-word; }
+.dbp-sub { font-size: 12.5px; color: var(--muted); }
+.dbp-lbl { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 6px 0 2px; }
+.dbp-rec { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dbp-rec .ic { width: 28px; height: 28px; border-radius: 7px; background: var(--ok-bg); color: var(--ok); flex: none;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.dbp-rec b { display: block; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dbp-rec small { font-size: 12px; color: var(--muted); }
+[class*="st-key-dbrec_"] { border-radius: 9px; padding: 2px 6px; }
+[class*="st-key-dbrec_"]:hover { background: var(--card2); }
+.dbp-tag { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; background: var(--ok-bg); color: var(--ok); }
+
 /* ── Filtros comunes: etiquetas de filtros activos y recuento ── */
 .chips-lbl { font-size: 13px; color: var(--muted); }
 .chips-count { text-align: right; font-family: var(--mono); font-size: 13px; color: var(--muted); }

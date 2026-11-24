@@ -236,6 +236,10 @@ _HOME_CSS = """<style>
 .hm-chip.ok { background:var(--ok-bg); color:var(--ok); } .hm-chip.warn { background:var(--warn-bg); color:var(--warn); }
 .hm-chip.mut { background:var(--card2); color:var(--muted); }
 .hm-tile .kpi-val { font-size:1.75rem; }
+.hm-id { font-family:var(--mono); font-size:.8rem; color:var(--text); white-space:nowrap; }
+.hm-rv { display:flex; justify-content:space-between; gap:10px; align-items:center; font-size:.88rem; color:var(--text2); }
+.hm-rv > span:first-child { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.hm-chip.err { background:var(--err-bg); color:var(--err); }
 .hm-tema { display:grid; grid-template-columns:minmax(0,1fr) 90px 34px; gap:12px; align-items:center; padding:7px 0; }
 .hm-tema .t { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .hm-tema .t small { color:var(--muted); margin-left:6px; }
@@ -343,6 +347,68 @@ def _home_bitacora():
             st.markdown(rows, unsafe_allow_html=True)
         if st.button("Analizar un examen", key="btn_home_an"):
             st.switch_page("pages/5_Analisis.py")
+
+    # ── Preguntas a revisar · exámenes sin analizar (solo si hay algo) ────────
+    _res = _A.get_resultados(ss.get("excel_dfs", {}))
+    _bank = df.set_index("ID_Pregunta")
+    revisar = []   # (prioridad, id, motivo, clase)
+    if not _res.empty:
+        _ex_nom = dict(zip(exs["ID_Examen"], exs["Nombre"])) if not exs.empty else {}
+        for _, r in _res.sort_values("Fecha").groupby("ID_Pregunta").tail(1).iterrows():
+            pid = r["ID_Pregunta"]
+            if pid not in _bank.index:
+                continue
+            try:
+                disc = float(r["Discriminacion"])
+            except ValueError:
+                disc = float("nan")
+            real = _A.dificultad_real(float(r["Pct_Acierto"] or "nan"))
+            banco = str(_bank.loc[pid, "dificultad"])
+            if r["Decision"] == "anular":
+                revisar.append((0, pid, f"anulada · {_ex_nom.get(r['ID_Examen'], r['ID_Examen'])}", "err"))
+            elif disc == disc and disc < 0:
+                revisar.append((1, pid, "discrimina al revés", "err"))
+            elif str(r["Revisar_Distractores"]) in ("1", "True"):
+                revisar.append((2, pid, "reescribir distractores", "warn"))
+            elif r["Decision"] in ("cambiar", "aceptar"):
+                revisar.append((3, pid, "clave revisada en el análisis", "warn"))
+            elif real and banco and real.lower() != banco.lower().replace("á", "a").replace("í", "i"):
+                _t = lambda x: {"facil": "fácil", "dificil": "difícil"}.get(x.lower().replace("á", "a").replace("í", "i"), x.lower())
+                revisar.append((4, pid, f"real {_t(real)} · banco {_t(banco)}", "mut"))
+    revisar.sort()
+    sin_an = exs[exs["Fecha_Analisis"].astype(str).str.strip() == ""] if not exs.empty else exs
+    if revisar or not sin_an.empty:
+        r1, r2 = st.columns([1.2, 1], gap="medium")
+        if revisar:
+            with r1.container(border=True, key="card_home_rev"):
+                st.markdown(f"<div class='sec-title'>Preguntas a revisar<span class='sec-meta'>{len(revisar)} según "
+                            "los análisis guardados</span></div>", unsafe_allow_html=True)
+                for _, pid, mot, cls in revisar[:5]:
+                    a, b, c = st.columns([1.5, 3, 0.8], vertical_alignment="center")
+                    enun = str(_bank.loc[pid, "enunciado"])
+                    a.markdown(f"<span class='hm-id'>{pid}</span>", unsafe_allow_html=True)
+                    b.markdown(f"<div class='hm-rv'><span>{enun[:70] + ('…' if len(enun) > 70 else '')}</span>"
+                               f"<span class='hm-chip {cls}'>{mot}</span></div>", unsafe_allow_html=True)
+                    if c.button("Abrir", key=f"btn_home_rev_{pid}", type="tertiary"):
+                        st.session_state["_open_q"] = pid
+                        st.rerun()
+                if len(revisar) > 5:
+                    st.caption(f"y {len(revisar) - 5} más · están todas en Análisis › modo revisión")
+        if not sin_an.empty:
+            with (r2 if revisar else r1).container(border=True, key="card_home_sinan"):
+                st.markdown("<div class='sec-title'>Exámenes sin analizar<span class='sec-meta'>exportados sin "
+                            "análisis guardado</span></div>", unsafe_allow_html=True)
+                for _, r in sin_an.sort_values("Fecha", ascending=False).head(3).iterrows():
+                    a, b = st.columns([4, 1.1], vertical_alignment="center")
+                    sub = " · ".join(x for x in (r["Curso"], r["Convocatoria"], f"{r['N_Preguntas']} preguntas",
+                                                 f"{r['N_Modelos']} modelo(s)") if x)
+                    a.markdown(f"<div class='hm-ex' style='border:none;padding:4px 0'><span class='d'>{r['Fecha'][:10]}</span>"
+                               f"<span class='t'>{r['Nombre']}<small>{sub}</small></span><span></span></div>",
+                               unsafe_allow_html=True)
+                    if b.button("Analizar", key=f"btn_home_an_{r['ID_Examen']}", use_container_width=True):
+                        st.session_state["an_exam"] = r["ID_Examen"]
+                        st.switch_page("pages/5_Analisis.py")
+                st.caption("Cuando tengas el Excel del corrector, súbelo en Análisis.")
 
     # ── Fila 2: estado del banco (cada dato lleva al Gestor ya filtrado) ──────
     st.markdown("<div class='sec-title' style='margin-top:6px'>Estado del banco</div>", unsafe_allow_html=True)

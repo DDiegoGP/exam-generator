@@ -397,6 +397,7 @@ def connect_db(path: str):
         st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state.db_connected  = True
+        st.session_state["_db_loaded_at"] = datetime.datetime.now()
         n_blq = len(st.session_state.bloques)
         return True, f"{len(df)} preguntas en {n_blq} bloque(s)"
     except FileNotFoundError:
@@ -464,6 +465,7 @@ def connect_db_from_gsheets(token: dict, spreadsheet_url: str) -> tuple:
         st.session_state.df_preguntas  = df
         st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state.db_connected  = True
+        st.session_state["_db_loaded_at"] = datetime.datetime.now()
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state["_gsheets_url"]  = spreadsheet_url
         st.session_state["_gsheets_title"] = sh.title
@@ -489,6 +491,7 @@ def connect_db_from_upload(uploaded_file) -> tuple:
         st.session_state.df_preguntas  = df
         st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state.db_connected  = True
+        st.session_state["_db_loaded_at"] = datetime.datetime.now()
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
         st.session_state["_upload_name"] = uploaded_file.name
         return True, f"Conectado: {uploaded_file.name}"
@@ -512,6 +515,7 @@ def reload_db():
         st.session_state.df_preguntas  = df
         st.session_state.bloques       = [k for k in dfs if k not in lib.CFG_SHEETS]
         st.session_state.db_connected  = True
+        st.session_state["_db_loaded_at"] = datetime.datetime.now()
         st.session_state["excel_bytes"] = lib.generar_excel_bytes(dfs)
 
 def sync_hoja_gsheets(bloque: str) -> bool:
@@ -707,10 +711,178 @@ def _render_gsheets_oauth(p: str = ""):
     st.divider()
 
 
+# ── Panel «Base de datos» (Bitácora): cuenta, conexión actual, hojas recientes ──
+def _hace(dt) -> str:
+    """'hace 5 min', 'hoy, 9:42', 'ayer', 'hace 3 días'… para una fecha (naive local o aware UTC)."""
+    if not dt:
+        return ""
+    now = datetime.datetime.now(dt.tzinfo) if getattr(dt, "tzinfo", None) else datetime.datetime.now()
+    s = (now - dt).total_seconds()
+    if s < 60:
+        return "hace un momento"
+    if s < 3600:
+        return f"hace {int(s // 60)} min"
+    local = dt.astimezone() if getattr(dt, "tzinfo", None) else dt
+    d = (now.date() - local.date()).days
+    if d == 0:
+        return f"hoy, {local:%H:%M}"
+    if d == 1:
+        return "ayer"
+    if d < 14:
+        return f"hace {d} días"
+    if d < 60:
+        return f"hace {d // 7} semanas"
+    return f"{local:%d/%m/%Y}"
+
+
+def _hojas_recientes(n: int = 6):
+    """Últimas hojas de cálculo de Google abiertas por la cuenta (Google Drive; la app no guarda nada).
+    Devuelve lista de dicts {id, name, viewedByMeTime} o None si falla. Se guarda 5 min en la sesión."""
+    import time as _time
+    ss = st.session_state
+    tok = (ss.get("google_token") or {}).get("access_token")
+    if not tok:
+        return None
+    c = ss.get("_recent_sheets")
+    if c and _time.time() - c[0] < 300:
+        return c[1]
+    try:
+        import requests
+        r = requests.get(
+            "https://www.googleapis.com/drive/v3/files",
+            params={"q": "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+                    "orderBy": "viewedByMeTime desc", "pageSize": n,
+                    "fields": "files(id,name,viewedByMeTime,modifiedTime)"},
+            headers={"Authorization": f"Bearer {tok}"}, timeout=10)
+        if r.status_code != 200:
+            ss["_recent_sheets_err"] = f"{r.status_code}: {r.text[:200]}"
+            return None
+        files = r.json().get("files", [])
+        ss["_recent_sheets"] = (_time.time(), files)
+        ss.pop("_recent_sheets_err", None)
+        return files
+    except Exception as e:
+        ss["_recent_sheets_err"] = str(e)[:200]
+        return None
+
+
+def _render_db_panel_bitacora(p: str = ""):
+    ss = st.session_state
+    cfg = _oauth_cfg()
+    con_google = bool(cfg.get("client_id"))
+    token = ss.get("google_token")
+
+    # ── Cuenta ────────────────────────────────────────────────────────────
+    if con_google and not token:
+        st.markdown("<div class='dbp-t'>Entra con tu cuenta de Google para abrir tus hojas de cálculo.</div>",
+                    unsafe_allow_html=True)
+        st.link_button("Entrar con Google", url=_google_oauth_url(cfg), type="primary", use_container_width=True)
+    elif con_google:
+        email = ss.get("google_user_email", "") or "sesión activa"
+        c1, c2 = st.columns([4, 1.6], vertical_alignment="center")
+        c1.markdown(f"<div class='dbp-acc'><span class='av'>{(email[:1] or 'G').upper()}</span>"
+                    f"<span><b>Cuenta de Google</b><small>{email}</small></span></div>", unsafe_allow_html=True)
+        if c2.button("Cerrar sesión", key=p + "btn_logout_google", type="tertiary"):
+            for k in ("google_token", "google_user_email", "_gsheets_url", "_gsheets_title", "_recent_sheets"):
+                ss.pop(k, None)
+            st.rerun()
+
+    # ── Conexión actual ───────────────────────────────────────────────────
+    with st.container(key=f"dbcur_{p or 'side'}"):
+        if ss.db_connected:
+            if ss.get("_gsheets_id") and ss.get("_gsheets_title"):
+                nombre, origen = ss["_gsheets_title"], "Google Sheets"
+            elif ss.get("_upload_name"):
+                nombre, origen = ss["_upload_name"], "Excel subido"
+            else:
+                nombre, origen = os.path.basename(ss.get("excel_path", "") or "") or "base_datos.xlsx", "Archivo local"
+            df = ss.df_preguntas
+            hace = _hace(ss.get("_db_loaded_at"))
+            st.markdown(f"<div class='dbp-st'><span class='dot ok'></span><b>Conectado</b><small>· {origen}</small></div>"
+                        f"<div class='dbp-name'>{nombre}</div>"
+                        f"<div class='dbp-sub'>{len(df)} preguntas · {len(ss.bloques)} bloques"
+                        f"{' · cargada ' + hace if hace else ''}</div>", unsafe_allow_html=True)
+            b1, b2 = st.columns(2)
+            if b1.button("Recargar", use_container_width=True, key=p + "btn_reload"):
+                _gid, _tok = ss.get("_gsheets_id"), ss.get("google_token")
+                if _gid and _tok:
+                    connect_db_from_gsheets(_tok, f"https://docs.google.com/spreadsheets/d/{_gid}")
+                else:
+                    reload_db()
+                ss["_db_loaded_at"] = datetime.datetime.now()
+                ss["_reload_toast"] = True
+                st.rerun()
+            if ss.pop("_reload_toast", False):
+                st.toast(f"Base de datos recargada · {len(ss.df_preguntas)} preguntas", icon="✅")
+            if ss.get("excel_bytes"):
+                fname = nombre if nombre.lower().endswith(".xlsx") else f"{nombre}.xlsx"
+                b2.download_button("Descargar Excel", data=ss["excel_bytes"], file_name=fname,
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   use_container_width=True, key=p + "btn_download_excel")
+        else:
+            st.markdown("<div class='dbp-st'><span class='dot'></span><b>Sin conexión</b></div>"
+                        "<div class='dbp-sub'>Elige una de tus hojas o sube un Excel.</div>", unsafe_allow_html=True)
+
+    # ── Hojas recientes de la cuenta ──────────────────────────────────────
+    if token:
+        rec = _hojas_recientes()
+        st.markdown("<div class='dbp-lbl'>Hojas recientes de tu cuenta</div>", unsafe_allow_html=True)
+        if rec is None:
+            st.caption("No se ha podido leer la lista de Google Drive. Si es la primera vez, puede que haya que "
+                       "activar la «Google Drive API» en Google Cloud. Mientras, usa «Otras formas de conectar».")
+        elif not rec:
+            st.caption("No hay hojas de cálculo recientes en esta cuenta.")
+        for f in (rec or []):
+            cur = f.get("id") == ss.get("_gsheets_id")
+            try:
+                vt = datetime.datetime.fromisoformat(str(f.get("viewedByMeTime", "")).replace("Z", "+00:00"))
+            except ValueError:
+                vt = None
+            with st.container(key=f"dbrec_{p or 'side'}_{re.sub(r'[^A-Za-z0-9]', '', f['id'])[:20]}"):
+                r1, r2 = st.columns([5, 1.4], vertical_alignment="center")
+                r1.markdown(f"<div class='dbp-rec{' cur' if cur else ''}'><span class='ic'>▦</span><span>"
+                            f"<b>{f.get('name', '')}</b><small>{('abierta ' + _hace(vt)) if vt else ''}</small></span></div>",
+                            unsafe_allow_html=True)
+                if cur:
+                    r2.markdown("<span class='dbp-tag'>conectada</span>", unsafe_allow_html=True)
+                elif r2.button("Abrir", key=f"{p}rec_{f['id']}", type="tertiary"):
+                    with st.spinner(f"Abriendo «{f.get('name', '')}»…"):
+                        ok, msg = connect_db_from_gsheets(token, f"https://docs.google.com/spreadsheets/d/{f['id']}")
+                    if ok:
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    # ── Otras formas de conectar ──────────────────────────────────────────
+    with st.expander("Otras formas de conectar", expanded=not ss.db_connected and not token):
+        if token:
+            gs_url = st.text_input("URL de una hoja de Google", value=ss.get("_gsheets_url", ""),
+                                   key=p + "sidebar_gsheets_url",
+                                   placeholder="https://docs.google.com/spreadsheets/d/...")
+            if st.button("Abrir esta hoja", key=p + "btn_load_gsheets", use_container_width=True):
+                with st.spinner("Conectando…"):
+                    ok, msg = connect_db_from_gsheets(token, gs_url)
+                st.rerun() if ok else st.error(msg)
+        uploaded = st.file_uploader("Subir un Excel (.xlsx)", type=["xlsx"], key=p + "sidebar_upload")
+        if uploaded is not None and uploaded.name != ss.get("_upload_name"):
+            ok, msg = connect_db_from_upload(uploaded)
+            st.rerun() if ok else st.error(msg)
+        path_m = st.text_input("Ruta local (solo en tu ordenador)", value=ss.excel_path,
+                               key=p + "sidebar_path_manual", placeholder="C:/ruta/archivo.xlsx")
+        if st.button("Conectar", key=p + "btn_conectar_manual", use_container_width=True):
+            ok, msg = connect_db(path_m)
+            st.rerun() if ok else st.error(msg)
+
+    render_estilo_quick(p)
+
+
 def _render_db_panel(p: str = ""):
     """Conexión a la base de datos: Google Sheets, Excel, ruta local, estado, recargar y descargar.
     Se usa en la barra lateral (p="") y en el desplegable de la barra superior (p="pop_");
     el prefijo `p` evita claves de widget repetidas."""
+    if get_estilo() == "bitacora":
+        _render_db_panel_bitacora(p)
+        return
     # ── Google Sheets OAuth (si está configurado) ─────────────────────────
     _render_gsheets_oauth(p)
 
