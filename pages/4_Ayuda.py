@@ -4,7 +4,9 @@ pages/4_Ayuda.py  –  Manual de uso y referencia de la aplicación.
 import streamlit as st
 import os as _o, sys as _s
 _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))
-import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
+import _recarga, importlib as _il_r, os as _os_r   # _recarga también se recarga a sí mismo si cambió
+_recarga = (_il_r.reload(_recarga) if getattr(_recarga, "_MTIME", None) != _os_r.path.getmtime(_recarga.__file__) else _recarga)
+_recarga.comprobar()
 from app_theme import initial_sidebar
 from app_utils import init_session_state, render_sidebar, apply_theme
 from app_theme import get_estilo

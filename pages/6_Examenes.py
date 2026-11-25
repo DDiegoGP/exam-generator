@@ -16,7 +16,9 @@ import streamlit as st
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
-import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
+import _recarga, importlib as _il_r, os as _os_r   # _recarga también se recarga a sí mismo si cambió
+_recarga = (_il_r.reload(_recarga) if getattr(_recarga, "_MTIME", None) != _os_r.path.getmtime(_recarga.__file__) else _recarga)
+_recarga.comprobar()
 
 import analisis_lib as A
 import examen_estado as E

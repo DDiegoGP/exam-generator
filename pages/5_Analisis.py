@@ -20,7 +20,9 @@ import streamlit.components.v1 as stcomponents
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
-import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
+import _recarga, importlib as _il_r, os as _os_r   # _recarga también se recarga a sí mismo si cambió
+_recarga = (_il_r.reload(_recarga) if getattr(_recarga, "_MTIME", None) != _os_r.path.getmtime(_recarga.__file__) else _recarga)
+_recarga.comprobar()
 
 import os as _o, sys as _s
 _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))

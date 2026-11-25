@@ -27,4 +27,18 @@ def comprobar():
         if recargar or getattr(m, "_MTIME", None) != actual:
             importlib.reload(m)
             recargar = True   # lo que depende de un módulo recargado también se recarga
+    # cualquier otro módulo del proyecto que lleve _MTIME y haya cambiado (por si falta en la lista)
+    base = os.path.dirname(os.path.abspath(__file__))
+    for nombre, m in list(sys.modules.items()):
+        f = getattr(m, "__file__", None) or ""
+        if nombre in _ORDEN or not hasattr(m, "_MTIME") or os.path.dirname(os.path.abspath(f)) != base:
+            continue
+        try:
+            if m._MTIME != os.path.getmtime(f):
+                importlib.reload(m)
+        except OSError:
+            pass
+
+
+_MTIME = os.path.getmtime(__file__)
 

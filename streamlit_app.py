@@ -6,7 +6,9 @@ Ejecutar con:
 """
 import streamlit as st
 import datetime
-import _recarga; _recarga.comprobar()   # recarga módulos compartidos si cambiaron (despliegues en Streamlit Cloud)
+import _recarga, importlib as _il_r, os as _os_r   # _recarga también se recarga a sí mismo si cambió
+_recarga = (_il_r.reload(_recarga) if getattr(_recarga, "_MTIME", None) != _os_r.path.getmtime(_recarga.__file__) else _recarga)
+_recarga.comprobar()
 from app_theme import initial_sidebar
 
 # ── Configuración de página (DEBE ser el primer comando Streamlit) ────────────
