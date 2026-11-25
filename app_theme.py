@@ -33,8 +33,9 @@ NAV_PAGES = [
     ("inicio",        "streamlit_app.py",         "Inicio"),
     ("gestor",        "pages/1_Gestor_DB.py",     "Gestor DB"),
     ("generador",     "pages/2_Generador.py",     "Generador"),
-    ("configuracion", "pages/3_Configuracion.py", "Configuración"),
+    ("examenes",      "pages/6_Examenes.py",      "Exámenes"),
     ("analisis",      "pages/5_Analisis.py",      "Análisis"),
+    ("configuracion", "pages/3_Configuracion.py", "Configuración"),
     ("ayuda",         "pages/4_Ayuda.py",         "Ayuda"),
 ]
 
@@ -521,6 +522,30 @@ hr { border-color: var(--border) !important; }
 .imp-f { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) auto; gap: 12px; align-items: center;
          padding: 7px 2px; border-bottom: 1px solid var(--border-light, #e4e8ef); font-size: 13.5px; }
 .imp-f code { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imp-f.imp-h { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.imp-f .tag { margin-left: 0; justify-self: start; white-space: normal; }
+.imp-warn { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; margin: 8px 0; }
+.imp-mh { display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; }
+.imp-cb { display: grid; grid-template-columns: 34px minmax(0, 1fr) 44px auto; gap: 8px; align-items: center; font-size: 13px;
+          padding: 5px 0; border-top: 1px solid var(--border-light, #e4e8ef); }
+.imp-cb span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .imp-cb .ok { color: var(--ok); }
+/* página Exámenes */
+[class*="st-key-exrow"] { border-radius: 9px; padding: 8px 10px; border-bottom: 1px solid var(--border-light, #e4e8ef); overflow: visible; }
+[class*="st-key-exrow"] .devq-s { white-space: normal; }
+[class*="st-key-exrow_on"] { background: var(--primary-soft); outline: 1.5px solid var(--primary); border-bottom: none; }
+.exf-t { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.exf-d { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.exf-k { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 6px; }
+.exf-k div { background: var(--card2); border-radius: 9px; padding: 8px 11px; }
+.exf-k small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.exf-k b { font-size: 1.15rem; color: var(--text); } .exf-k span { display: block; font-size: 12px; color: var(--muted); }
+.exf-key { font-family: var(--mono); font-size: 12.5px; letter-spacing: 1px; word-break: break-all; background: var(--card2);
+           border-radius: 8px; padding: 7px 10px; }
+.exf-ok { font-size: 12.5px; margin: 4px 0; } .exf-ok.b { color: var(--ok); } .exf-ok.m { color: var(--err); font-weight: 600; }
+.exf-b { display: grid; grid-template-columns: 96px 1fr 30px; gap: 8px; align-items: center; font-size: 13px; margin: 3px 0; }
+.exf-b b { text-align: right; }
+.exf-bar { height: 7px; background: var(--track, #e4e8ef); border-radius: 4px; overflow: hidden; }
+.exf-bar > div { height: 100%; background: var(--primary); border-radius: 4px; }
 
 /* ── Cabecera de bloque (preview) ── */
 .bloque-header { background: var(--card2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;

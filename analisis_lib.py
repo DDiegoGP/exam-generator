@@ -22,7 +22,8 @@ SHEET_PREGUNTAS = "An_Preguntas"
 EX_COLS = ["ID_Examen", "Curso", "Convocatoria", "Nombre", "Fecha", "N_Preguntas", "N_Modelos",
            "Origen", "Claves", "Posiciones", "Permutaciones",
            "N_Alumnos", "Media", "KR20", "Fecha_Analisis",
-           "Estado", "Contenido", "Usuario", "Actualizado"]   # Estado: Borrador | Exportado | Importado
+           "Estado", "Contenido", "Usuario", "Actualizado",   # Estado: Borrador | Exportado | Importado
+           "Creado", "Comprobacion"]   # Creado: cuándo se guardó/importó (Fecha = cuándo se hizo el examen)
 PR_COLS = ["ID_Examen", "Pos", "ID_Pregunta", "N", "Pct_Acierto", "Pct_Blanco", "Discriminacion",
            "Pct_A", "Pct_B", "Pct_C", "Pct_D", "Decision", "Letra_Extra", "Revisar_Distractores", "Fecha"]
 
@@ -393,6 +394,9 @@ def upsert_examen(dfs: dict, fila: dict) -> dict:
         for c in ("N_Alumnos", "Media", "KR20", "Fecha_Analisis", "Contenido", "Usuario"):
             if not fila.get(c):
                 fila[c] = prev.iloc[0][c]
+    if not fila.get("Creado"):
+        fila["Creado"] = (prev.iloc[0]["Creado"] if not prev.empty and prev.iloc[0]["Creado"]
+                          else datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
     dfs[SHEET_EXAMENES] = pd.concat([df, pd.DataFrame([{c: fila.get(c, "") for c in EX_COLS}])],
                                     ignore_index=True)
     return dfs
@@ -463,6 +467,69 @@ def unificar(alumnos: pd.DataFrame, info: dict) -> tuple:
             fila[j] = inv_base[j].get(orig, "")
         rows.append(fila)
     return np.array(rows, dtype=object).reshape(len(rows), n), info["claves"][base]
+
+
+def cuadran(M: np.ndarray, acc: list, totales, pen: float = 0.33, tol: float = 0.02) -> tuple:
+    """(alumnos cuyas puntuaciones coinciden con las del corrector, alumnos con puntuación del corrector)."""
+    t = np.asarray(totales, dtype=float)
+    ok = np.isfinite(t)
+    if not ok.any():
+        return 0, 0
+    d = np.abs(puntuar(M, acc, pen)["Total"].to_numpy() - t)
+    return int((d[ok] <= tol).sum()), int(ok.sum())
+
+
+def buscar_clave(M: np.ndarray, clave: str, totales, pen: float = 0.33, max_cambios: int = 20) -> list:
+    """Busca la clave que reproduce las puntuaciones del corrector cambiando el mínimo de preguntas.
+    Devuelve [(pos, tipo, letra)] con tipo en cambiar | aceptar | buena | anular (como las decisiones)."""
+    t = np.asarray(totales, dtype=float)
+    fin = np.isfinite(t)
+    N, n = M.shape
+    blank = M == ""
+
+    def contrib(j, S):
+        if S == "buena":
+            return np.ones(N)
+        if S == "anular":
+            return np.zeros(N)
+        hit = np.isin(M[:, j], list(S))
+        return hit * 1.0 - (~hit & ~blank[:, j]) * pen
+
+    cur = {j: {clave[j]} for j in range(min(n, len(clave)))}
+    C = {j: contrib(j, cur[j]) for j in cur}
+    T = sum(C.values())
+    err = lambda x: float(np.abs(x[fin] - t[fin]).sum())
+    e0 = err(T)
+    cambios = {}
+    for _ in range(max_cambios):
+        if e0 < 1e-6:
+            break
+        best = None
+        for j in cur:
+            c = clave[j]
+            cands = [{L} for L in LETRAS] + [{c, L} for L in LETRAS if L != c] + ["buena", "anular"]
+            for S in cands:
+                if S == cur[j]:
+                    continue
+                cj = contrib(j, S)
+                e = err(T - C[j] + cj)
+                if best is None or e < best[0] - 1e-9:
+                    best = (e, j, S, cj)
+        if best is None or best[0] >= e0 - 1e-6:
+            break
+        e0, j, S, cj = best
+        T = T - C[j] + cj
+        C[j], cur[j] = cj, S
+        c = clave[j]
+        if S in ("buena", "anular"):
+            cambios[j] = (j, S, "")
+        elif S == {c}:
+            cambios.pop(j, None)
+        elif len(S) == 1:
+            cambios[j] = (j, "cambiar", next(iter(S)))
+        else:
+            cambios[j] = (j, "aceptar", next(iter(S - {c})))
+    return sorted(cambios.values())
 
 
 def puede_unificar(info: dict) -> bool:

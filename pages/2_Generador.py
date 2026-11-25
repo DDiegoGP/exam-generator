@@ -1527,10 +1527,11 @@ def _historial_bd():
                     notify("Borrador borrado.")
                     st.rerun()
             elif h[5].button("Análisis", key=f"hb_an_{r['ID_Examen']}", use_container_width=True):
-                ss["an_exam"] = r["ID_Examen"]
+                ss["_an_exam_next"] = r["ID_Examen"]
                 st.switch_page("pages/5_Analisis.py")
     st.caption("«Abrir» carga el examen en Selección, Desarrollo y Preview. Los exportados e importados se abren "
                "bloqueados y con sus modelos exactos; los borradores, para seguir trabajando.")
+    st.page_link("pages/6_Examenes.py", label="Todos los exámenes, con su ficha, importar exámenes anteriores, editar y borrar ›")
 
 tab_sel, tab_dev, tab_prev, tab_exp, tab_hist = st.tabs(
     ["🔢 Selección", "✍️ Desarrollo", "👁️ Preview", "💾 Exportar", "📋 Historial"]

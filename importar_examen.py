@@ -189,6 +189,40 @@ def _desc_claves(c: dict) -> str:
             + (f" · {dobles // max(1, len(c))} con dos respuestas válidas" if dobles else ""))
 
 
+def elegir(archivos: list) -> dict:
+    """Si hay varios archivos del mismo tipo, elige el mejor y dice para qué se usa cada uno.
+    Devuelve {"meta", "claves", "tex", "docs", "papel": [(texto, tipo_tag)] en el orden de `archivos`}."""
+    idx = {t: [i for i, a in enumerate(archivos) if a["tipo"] == t] for t in ("meta", "claves", "tex", "docx")}
+    def mejor(t, key):
+        return max(idx[t], key=key) if idx[t] else None
+    i_meta = mejor("meta", lambda i: (len(archivos[i]["datos"]), max(len(x) for x in archivos[i]["datos"].values())))
+    i_cla = mejor("claves", lambda i: (len(archivos[i]["datos"]), max(len(x) for x in archivos[i]["datos"].values())))
+    i_tex = mejor("tex", lambda i: (sum(1 for q in archivos[i]["datos"] if q["ok"]), len(archivos[i]["datos"])))
+    hay_doc = bool(idx["docx"])
+    papel = []
+    for i, a in enumerate(archivos):
+        t = a["tipo"]
+        if t == "docx":
+            papel.append((f"orden y opciones del modelo {a['datos']['ver']}", "m"))
+        elif t == "meta":
+            papel.append(("qué pregunta es cada una" + (" · orden de los otros modelos" if len(a["datos"]) > 1 else ""), "f")
+                         if i == i_meta else ("no se usa: hay otro METADATA más completo", "n"))
+        elif t == "claves":
+            papel.append(("clave (se comprueba con el corrector)", "f") if i == i_cla
+                         else ("no se usa: hay otra clave más completa", "n"))
+        elif t == "tex":
+            papel.append((("texto y correcta" + ("" if hay_doc else " · orden y opciones (no hay Word)")), "f" if hay_doc else "w")
+                         if i == i_tex else ("no se usa: ya hay otro .tex con la correcta marcada", "n"))
+        elif t == "error":
+            papel.append(("no se ha podido leer", "d"))
+        else:
+            papel.append(("se ignora", "n"))
+    return {"meta": archivos[i_meta]["datos"] if i_meta is not None else {},
+            "claves": archivos[i_cla]["datos"] if i_cla is not None else {},
+            "tex": archivos[i_tex]["datos"] if i_tex is not None else [],
+            "docs": [archivos[i]["datos"] for i in idx["docx"]], "papel": papel}
+
+
 # ── base de datos ─────────────────────────────────────────────────────────────
 class IndiceBD:
     def __init__(self, df: pd.DataFrame):
@@ -221,10 +255,8 @@ def _perm(ops_examen: list, ops_bd: list) -> str:
 # ── montar el examen ──────────────────────────────────────────────────────────
 def montar(archivos: list, df_bd: pd.DataFrame) -> dict:
     """Combina los archivos reconocidos. Devuelve {ref, items, modelos{v: {...}}, avisos}."""
-    meta = next((a["datos"] for a in archivos if a["tipo"] == "meta"), {})
-    claves = next((a["datos"] for a in archivos if a["tipo"] == "claves"), {})
-    tex = next((a["datos"] for a in archivos if a["tipo"] == "tex"), [])
-    docs = [a["datos"] for a in archivos if a["tipo"] == "docx"]
+    el = elegir(archivos)
+    meta, claves, tex, docs = el["meta"], el["claves"], el["tex"], el["docs"]
     idx = IndiceBD(df_bd)
     avisos = []
 
@@ -362,21 +394,29 @@ def registro(res: dict, elegidos: list, nombre: str, curso: str, convocatoria: s
         for j, i in enumerate(m["orden"]):
             q = items[i]
             letras = m["clave"][j] or q["ok"] or "A"
+            d_ = (m.get("decisiones") or {}).get(j)
             cl += letras[0]
             pos.append(ids[i])
             if m["opciones"] == "desconocidas" or not q.get("ops"):
                 pr.append("????")
             else:
                 pr.append(q.get("perm") or "ABCD")
-            if v == sorted(elegidos)[0] and len(letras) > 1:
-                extra.append((j + 1, ids[i], letras[1:]))
+            if v == sorted(elegidos)[0]:
+                if d_:
+                    extra.append((j + 1, ids[i], d_[0], d_[1]))
+                elif len(letras) > 1:
+                    extra.append((j + 1, ids[i], "aceptar", letras[1]))
         claves[v], posiciones[v], perms[v] = cl, pos, pr
     test = posiciones[sorted(elegidos)[0]] if elegidos else []
     fila = {"ID_Examen": nombre, "Curso": curso, "Convocatoria": convocatoria, "Nombre": nombre, "Fecha": fecha,
             "N_Preguntas": str(res["n"]), "N_Modelos": str(len(elegidos)), "Origen": "Importado",
             "Claves": json.dumps(claves), "Posiciones": json.dumps(posiciones), "Permutaciones": json.dumps(perms),
             "Estado": "Importado", "Actualizado": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "Contenido": json.dumps({"v": 1, "test": [i for i in test if not i.startswith("?")]}, ensure_ascii=False)}
+            "Contenido": json.dumps({"v": 1, "test": [i for i in test if not i.startswith("?")],
+                                     "dec_corrector": {str(p - 1): [tp, L or ""] for p, _pid, tp, L in extra}},
+                                    ensure_ascii=False),
+            "Comprobacion": json.dumps({v: res["modelos"][v].get("comprobado") for v in elegidos
+                                        if res["modelos"][v].get("comprobado")})}
     return fila, extra
 
 
