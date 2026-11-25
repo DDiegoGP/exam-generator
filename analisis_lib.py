@@ -21,7 +21,8 @@ SHEET_EXAMENES = "An_Examenes"
 SHEET_PREGUNTAS = "An_Preguntas"
 EX_COLS = ["ID_Examen", "Curso", "Convocatoria", "Nombre", "Fecha", "N_Preguntas", "N_Modelos",
            "Origen", "Claves", "Posiciones", "Permutaciones",
-           "N_Alumnos", "Media", "KR20", "Fecha_Analisis"]
+           "N_Alumnos", "Media", "KR20", "Fecha_Analisis",
+           "Estado", "Contenido", "Usuario", "Actualizado"]   # Estado: Borrador | Exportado | Importado
 PR_COLS = ["ID_Examen", "Pos", "ID_Pregunta", "N", "Pct_Acierto", "Pct_Blanco", "Discriminacion",
            "Pct_A", "Pct_B", "Pct_C", "Pct_D", "Decision", "Letra_Extra", "Revisar_Distractores", "Fecha"]
 
@@ -379,6 +380,7 @@ def registro_desde_master(master: list, nombre: str, convocatoria: str = "", fec
         "N_Preguntas": str(n), "N_Modelos": str(len(master)), "Origen": "Generador",
         "Claves": json.dumps(claves), "Posiciones": json.dumps(pos), "Permutaciones": json.dumps(perms),
         "N_Alumnos": "", "Media": "", "KR20": "", "Fecha_Analisis": "",
+        "Estado": "Exportado", "Actualizado": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
 
 
@@ -388,7 +390,7 @@ def upsert_examen(dfs: dict, fila: dict) -> dict:
     old = get_examenes(dfs)
     prev = old[old["ID_Examen"] == fila["ID_Examen"]]
     if not prev.empty:   # conservar los datos del análisis si se re-exporta con el mismo nombre
-        for c in ("N_Alumnos", "Media", "KR20", "Fecha_Analisis"):
+        for c in ("N_Alumnos", "Media", "KR20", "Fecha_Analisis", "Contenido", "Usuario"):
             if not fila.get(c):
                 fila[c] = prev.iloc[0][c]
     dfs[SHEET_EXAMENES] = pd.concat([df, pd.DataFrame([{c: fila.get(c, "") for c in EX_COLS}])],
@@ -426,6 +428,8 @@ def mapa_ver(vers: list, modelos: list) -> dict:
             out[v] = s
         elif s.isdigit() and 1 <= int(s) <= len(modelos):
             out[v] = modelos[int(s) - 1]
+        elif len(s) == 1 and s in "ABCDEF":
+            out[v] = None          # modelo que no está en el registro (p. ej. se importó solo el A): no se analiza
         else:
             out[v] = modelos[0] if modelos else ""
     return out

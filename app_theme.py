@@ -504,6 +504,23 @@ hr { border-color: var(--border) !important; }
 .tag-d { background: var(--err-bg); color: var(--err); }
 .tag-u { background: var(--used-bg); color: var(--used); }
 .tag-n { background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
+.tag-w { background: var(--warn-bg); color: var(--warn); }
+/* estado del examen: borrador, bloqueo, confirmación y deshacer */
+.bor-st { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 7px; margin: -6px 0 6px; }
+.bor-st .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.bor-st .dot.ok { background: var(--ok); } .bor-st .dot.pd { background: var(--warn); } .bor-st .dot.lk { background: var(--primary); }
+.st-key-pv_lock { background: var(--primary-soft); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.st-key-pv_lock p { color: var(--primary); margin: 0; }
+.st-key-pv_genconf { background: var(--warn-bg); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.st-key-pv_genconf p { color: var(--warn); margin: 0; }
+.st-key-pv_undo { margin: 2px 0 8px; }
+.pv-ult { font-size: 12.5px; color: var(--muted); }
+.st-key-card_ex_actual { border-color: var(--primary) !important; }
+.imp-step { display: inline-block; font-size: 13px; padding: 3px 11px; border-radius: 999px; background: var(--card2); color: var(--muted); margin: 4px 6px 8px 0; }
+.imp-step.on { background: var(--primary); color: #fff; font-weight: 600; }
+.imp-f { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) auto; gap: 12px; align-items: center;
+         padding: 7px 2px; border-bottom: 1px solid var(--border-light, #e4e8ef); font-size: 13.5px; }
+.imp-f code { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Cabecera de bloque (preview) ── */
 .bloque-header { background: var(--card2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;

@@ -29,7 +29,7 @@ import analisis_lib as A
 from app_theme import initial_sidebar, notify, get_estilo
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
-    mathjax_html, render_question_card_html, nombre_bloque, nombre_tema,
+    mathjax_html, render_question_card_html, nombre_bloque, nombre_tema, temas_de_bloque,
     sync_bloques_gsheets, reload_db, guardar_hojas, datos_de_fila,
 )
 
@@ -147,6 +147,7 @@ def _zona_kr(lo, hi, v):
 # Origen de los datos: examen registrado + Excel del corrector (solo en memoria)
 # ══════════════════════════════════════════════════════════════════════════════
 exs = A.get_examenes(dfs)
+exs = exs[exs["Estado"] != "Borrador"]   # los borradores del Generador no se analizan
 res_db = A.get_resultados(dfs)
 _ex_opts = ["__none__"] + exs["ID_Examen"].tolist()
 _ex_lbl = {r["ID_Examen"]: f'{r["Curso"]} · {r["Convocatoria"] or "—"} · {r["Nombre"]}' for _, r in exs.iterrows()}
@@ -155,8 +156,10 @@ _ex_lbl["__none__"] = "Examen sin registrar (clave a mano)"
 with st.container(border=True, key="card_an_src"):
     c1, c2 = st.columns([1.2, 1], gap="medium")
     with c1:
+        if "_an_exam_next" in _ss:
+            _ss["an_exam"] = _ss.pop("_an_exam_next")
         if _ss.get("an_exam") not in _ex_opts:
-            _ss["an_exam"] = _ex_opts[-1] if len(_ex_opts) > 1 else "__none__"
+            _ss["_an_exam_next"] = _ex_opts[-1] if len(_ex_opts) > 1 else "__none__"
         ex_id = st.selectbox("Examen", _ex_opts, key="an_exam", format_func=lambda x: _ex_lbl.get(x, x),
                              help="Los exámenes exportados desde el Generador se registran solos. "
                                   "Los anteriores se pueden registrar en la pestaña «Exámenes».")
@@ -200,6 +203,207 @@ def _dec_store(key: str, cargar: bool) -> dict:
     return allp[key]
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Importar examen anterior (archivos de versiones anteriores de la app)
+# ══════════════════════════════════════════════════════════════════════════════
+_TAG = {"bd": ("En la BD", "f"), "cambiada": ("En la BD · texto cambiado", "w"), "nueva": ("No está", "d")}
+
+
+def _imp_reset():
+    for k in [k for k in list(_ss.keys()) if str(k).startswith("imp_")]:
+        _ss.pop(k, None)
+
+
+@st.dialog("Editar antes de añadir", width="large")
+def _imp_editar(i: int):
+    res = _ss["imp_res"]
+    q = res["base"][i]
+    bls = list(st.session_state.bloques or [])
+    c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1.4])
+    b = c1.selectbox("Bloque", bls, index=bls.index(q["bloque"]) if q["bloque"] in bls else 0, key=f"imp_e_b_{i}",
+                     format_func=nombre_bloque)
+    tms = temas_de_bloque(b) or [str(t) for t in range(1, 60)]
+    t = c2.selectbox("Tema", tms, index=tms.index(str(q["tema"])) if str(q["tema"]) in tms else 0, key=f"imp_e_t_{i}",
+                     format_func=nombre_tema)
+    difs = ["Facil", "Media", "Dificil"]
+    d = c3.selectbox("Dificultad", difs, index=difs.index(q["dificultad"]) if q["dificultad"] in difs else 1, key=f"imp_e_d_{i}")
+    et = c4.text_input("Etiqueta", q.get("etiqueta", ""), key=f"imp_e_et_{i}")
+    en = st.text_area("Enunciado", q["enun"], height=110, key=f"imp_e_en_{i}")
+    ops = [st.text_input(f"Opción {L}", (q["ops"] + [""] * 4)[k], key=f"imp_e_o{L}_{i}") for k, L in enumerate("ABCD")]
+    okL = st.radio("Respuesta correcta", list("ABCD"), index="ABCD".index(q["ok"]) if q.get("ok") in list("ABCD") else 0,
+                   horizontal=True, key=f"imp_e_ok_{i}")
+    if st.button("Guardar cambios", type="primary", key=f"imp_e_save_{i}"):
+        q.update({"bloque": b, "tema": t, "dificultad": d, "etiqueta": et.strip(), "enun": en.strip(),
+                  "ops": [o.strip() for o in ops], "ok": okL, "editada": True})
+        st.rerun()
+
+
+def _importar_ui():
+    import importar_examen as IMP
+    st.markdown("<div class='sec-title' style='margin-top:18px'>Importar examen anterior<span class='sec-meta'>"
+                "para exámenes hechos con versiones anteriores de la app: las preguntas que no estén se pueden "
+                "añadir a la base de datos</span></div>", unsafe_allow_html=True)
+    res = _ss.get("imp_res")
+    if res is None:
+        with st.container(border=True, key="card_imp1"):
+            st.markdown("<span class='imp-step on'>1 · Archivos</span><span class='imp-step'>2 · Revisar preguntas</span>"
+                        "<span class='imp-step'>3 · Registrar y analizar</span>", unsafe_allow_html=True)
+            ups = st.file_uploader("Archivos del examen: METADATA, claves, _SOL.tex y el Word final si lo retocaste",
+                                   type=["csv", "xlsx", "xls", "tex", "docx"], accept_multiple_files=True, key="imp_files")
+            st.caption("Con el METADATA y el _SOL.tex basta; el Word final manda si lo retocaste a mano. "
+                       "El Excel del corrector se sube arriba, como siempre (solo en memoria).")
+            arch = []
+            for u in ups or []:
+                a = IMP.leer(u.name, u.getvalue())
+                arch.append(a)
+                k = {"meta": "f", "claves": "f", "tex": "f", "docx": "m", "otro": "n", "error": "d"}[a["tipo"]]
+                lbl = {"docx": "Manda sobre el resto", "otro": "Se ignora", "error": "Error"}.get(a["tipo"], "Reconocido")
+                st.markdown(f"<div class='imp-f'><code>{u.name}</code><span>{a['desc']}</span>"
+                            f"<span class='tag tag-{k}'>{lbl}</span></div>", unsafe_allow_html=True)
+            r1, r2, r3, r4 = st.columns([1, 1.2, 1, 2])
+            cur = r1.text_input("Curso", A.curso_academico(), key="imp_cur")
+            con = r2.text_input("Convocatoria", "Ordinaria", key="imp_con")
+            fec = r3.date_input("Fecha", datetime.date.today(), format="DD/MM/YYYY", key="imp_fec")
+            asig = (st.session_state.get("cfg_general", {}) or {}).get("asignatura", "") or "Física Médica"
+            import examen_estado as _E
+            nom = r4.text_input("Nombre", _E.nombre_auto(con, asig, fec.strftime("%d/%m/%Y")), key="imp_nom")
+            ok = any(a["tipo"] in ("meta", "tex", "docx") for a in arch)
+            if st.button("Siguiente: revisar preguntas", type="primary", key="imp_next", disabled=not ok):
+                with st.spinner("Comparando con la base de datos…"):
+                    r = IMP.montar(arch, df_preg)
+                if r.get("error"):
+                    st.error(r["error"])
+                else:
+                    r["datos"] = {"cur": cur.strip(), "con": con.strip(), "fec": fec.isoformat(), "nom": nom.strip()}
+                    _ss["imp_res"] = r
+                    st.rerun()
+        return
+
+    d = res["datos"]
+    with st.container(border=True, key="card_imp2"):
+        h1, h2 = st.columns([5, 1], vertical_alignment="center")
+        h1.markdown(f"**Importar examen anterior · {d['nom']}**<br><span class='imp-step'>1 · Archivos</span>"
+                    "<span class='imp-step on'>2 · Revisar preguntas</span><span class='imp-step'>3 · Registrar y analizar</span>",
+                    unsafe_allow_html=True)
+        if h2.button("Cancelar", key="imp_cancel", use_container_width=True):
+            _imp_reset(); st.rerun()
+        for w in res["avisos"]:
+            st.warning(w)
+        st.markdown("**Modelos a analizar**")
+        mcols = st.columns(len(res["modelos"]))
+        elegidos = []
+        for c, (v, m) in zip(mcols, sorted(res["modelos"].items())):
+            with c.container(border=True):
+                on = st.checkbox(f"Modelo {v}", value=not m.get("propuesto"), key=f"imp_m_{v}")
+                co, tot = m["coincide"]
+                st.caption((f"Orden y opciones del {m['fuente']}" if not m.get("propuesto") else
+                            f"Sin documento: orden deducido ({m['fuente']}); opciones {m['opciones']}")
+                           + f" · su clave coincide en {co}/{tot}")
+                if m.get("propuesto"):
+                    with st.popover("Ver correspondencia"):
+                        st.markdown(" · ".join(f"{v}{j + 1}={res['ref']}{i + 1}" for j, i in enumerate(m["orden"])))
+                if on:
+                    elegidos.append(v)
+        st.caption("Los alumnos de los modelos que no marques no se analizan. Un modelo sin documento solo se puede "
+                   "deducir: márcalo si estás seguro. Al analizar, la app avisa si las notas no cuadran con las del corrector.")
+
+        base = res["base"]
+        cnt = {k: sum(1 for q in base if q["estado"] == k) for k in _TAG}
+        with st.container(key="pill_imp_f"):
+            f = st.radio("Mostrar", ["Todas", "En la BD", "Texto cambiado", "No están"], horizontal=True,
+                         key="imp_filtro", label_visibility="collapsed",
+                         format_func=lambda x: f"{x} · {len(base) if x == 'Todas' else cnt[{'En la BD': 'bd', 'Texto cambiado': 'cambiada', 'No están': 'nueva'}[x]]}")
+        fk = {"En la BD": "bd", "Texto cambiado": "cambiada", "No están": "nueva"}.get(f)
+        otros = {v: {i: j + 1 for j, i in enumerate(m["orden"])} for v, m in res["modelos"].items() if v != res["ref"]}
+        hd = st.columns([0.7, 0.6, 4.2, 1.6, 2.4])
+        for c, t in zip(hd, [res["ref"], " · ".join(otros) or "", "Pregunta", "Estado", "Qué hacer"]):
+            c.markdown(f"<span class='dev-hd'>{t}</span>", unsafe_allow_html=True)
+        with st.container(height=520, key="card_imp_tabla"):
+            for i, q in enumerate(base):
+                if fk and q["estado"] != fk:
+                    continue
+                r = st.columns([0.7, 0.6, 4.2, 1.6, 2.4], vertical_alignment="center")
+                r[0].markdown(f"**{q['label']}**")
+                r[1].markdown(" · ".join(str(o.get(q["pos"], "—")) for o in otros.values()) if q["pos"] is not None else "—")
+                r[2].markdown(f"<div class='devq-t' style='font-weight:500'>{q['enun'][:140]}</div>"
+                              f"<div class='devq-s'>{q['id'] or 'nueva'}{' · editada' if q.get('editada') else ''}</div>",
+                              unsafe_allow_html=True)
+                lbl, k = _TAG[q["estado"]]
+                r[3].markdown(f"<span class='tag tag-{k}'>{lbl}</span>", unsafe_allow_html=True)
+                with r[4]:
+                    if q["estado"] == "bd":
+                        st.caption("Se vincula")
+                    elif q["estado"] == "cambiada":
+                        cc1, cc2 = st.columns([1, 1.4])
+                        with cc1.popover("Comparar"):
+                            st.markdown(f"**En el examen**\n\n{q['enun']}")
+                            st.markdown(f"**En la base de datos ({q['id']})**\n\n{_bank.get(q['id'], {}).get('enunciado', '')}")
+                        q["vincular"] = cc2.selectbox("acción", ["Vincular", "Añadir como nueva"], index=0 if q["vincular"] else 1,
+                                                      key=f"imp_v_{i}", label_visibility="collapsed") == "Vincular"
+                        if not q["vincular"]:
+                            if st.button("Editar", key=f"imp_ed_{i}"):
+                                _imp_editar(i)
+                    else:
+                        cc1, cc2 = st.columns([1.4, 1])
+                        q["anadir"] = cc1.checkbox("Añadir a la BD", value=q["anadir"], key=f"imp_a_{i}")
+                        if cc2.button("Editar", key=f"imp_ed_{i}", disabled=not q["anadir"]):
+                            _imp_editar(i)
+                        st.caption(f"{q['bloque'] or 'sin bloque'} · T{q['tema'] or '?'}"
+                                   + (f" · correcta {q['ok']}" if q.get("ok") else " · correcta sin indicar")
+                                   + (f" · «{q['etiqueta']}»" if q.get("etiqueta") else "")
+                                   + (" · no se analiza" if q["bis"] else ""))
+        nuevas = [q for q in base if (q["estado"] == "nueva" and q["anadir"]) or (q["estado"] == "cambiada" and not q["vincular"])]
+        sin_blq = [q["label"] for q in nuevas if not q["bloque"] or not q.get("ok")]
+        if sin_blq:
+            st.warning(f"Revisa con «Editar» el bloque y la respuesta correcta de: {', '.join(sin_blq)}")
+        f1, f2 = st.columns([1, 3])
+        if f1.button("‹ Archivos", key="imp_back"):
+            _ss.pop("imp_res", None); st.rerun()
+        lbl_ok = "Registrar examen" + (f" y añadir {len(nuevas)} pregunta(s)" if nuevas else "")
+        if f2.button(lbl_ok, type="primary", key="imp_ok", disabled=not elegidos or bool(sin_blq)):
+            _imp_registrar(res, elegidos, nuevas)
+        st.caption("Después: sube arriba el Excel del corrector (solo en memoria) y elige este examen. "
+                   "Queda también en Generador › Historial como «Importado».")
+
+
+def _imp_registrar(res, elegidos, nuevas):
+    import importar_examen as IMP
+    from app_utils import insertar_preguntas, marcar_preguntas_usadas
+    d = res["datos"]
+    if d["nom"] in set(A.get_examenes(dfs)["ID_Examen"]):
+        st.error(f"Ya existe un examen llamado «{d['nom']}». Cambia el nombre en el paso 1 (‹ Archivos).")
+        return
+    with st.spinner("Añadiendo preguntas y registrando el examen…"):
+        if nuevas:
+            ids = insertar_preguntas([{
+                "enunciado": q["enun"], "opciones_list": (q["ops"] + [""] * 4)[:4], "letra_correcta": q.get("ok") or "A",
+                "bloque": q["bloque"], "tema": str(q["tema"]), "dificultad": q["dificultad"] or "Media",
+                "usada": d["fec"], "comentario": q.get("etiqueta", ""), "objetivo": "", "solucion": "", "notas": ""}
+                for q in nuevas])
+            for q, nid in zip(nuevas, ids):
+                q["id"], q["perm"] = nid, "ABCD"
+        # las vinculadas quedan como usadas en la fecha del examen (si no tenían un uso más reciente)
+        _dfp = st.session_state.df_preguntas.set_index("ID_Pregunta")
+        vinc = [q["id"] for q in res["items"] if q.get("id") and q["id"] in _dfp.index
+                and str(_dfp.loc[q["id"], "usada"] or "")[:10] < d["fec"]]
+        if vinc:
+            marcar_preguntas_usadas(vinc, d["fec"])
+        fila, extra = IMP.registro(res, elegidos, d["nom"], d["cur"], d["con"], d["fec"])
+        A.upsert_examen(st.session_state.excel_dfs, fila)
+        if extra:   # respuestas dobles de la clave → «aceptar también otra letra»
+            pr = A.get_resultados(st.session_state.excel_dfs)
+            filas = [{"ID_Examen": d["nom"], "Pos": str(p), "ID_Pregunta": pid, "Decision": "aceptar",
+                      "Letra_Extra": L[0], "Fecha": d["fec"]} for p, pid, L in extra]
+            st.session_state.excel_dfs[A.SHEET_PREGUNTAS] = pd.concat(
+                [pr, pd.DataFrame([{c: f.get(c, "") for c in A.PR_COLS} for f in filas])], ignore_index=True)
+        guardar_hojas([A.SHEET_EXAMENES, A.SHEET_PREGUNTAS])
+    _ss["_an_exam_next"] = d["nom"]
+    _imp_reset()
+    notify(f"✅ Examen «{d['nom']}» importado" + (f" y {len(nuevas)} pregunta(s) añadidas" if nuevas else "")
+           + ". Sube el Excel del corrector para analizarlo.")
+    st.rerun()
+
+
 def _tab_examenes():
     st.markdown("<div class='sec-title'>Exámenes registrados</div>", unsafe_allow_html=True)
     if exs.empty:
@@ -235,9 +439,10 @@ def _tab_examenes():
                 notify("🗑️ Examen borrado del registro.")
                 st.rerun()
 
-    st.markdown("<div class='sec-title' style='margin-top:18px'>Registrar un examen anterior</div>",
+    _importar_ui()
+    st.markdown("<div class='sec-title' style='margin-top:18px'>Registrar solo con la clave</div>",
                 unsafe_allow_html=True)
-    st.caption("Para exámenes que no se hicieron con el Generador. Basta con la clave de cada modelo; "
+    st.caption("Si no tienes los archivos del examen: basta con la clave de cada modelo; "
                "vincular las preguntas con la base de datos es opcional.")
     with st.form("an_form_reg", clear_on_submit=False):
         r1, r2, r3, r4 = st.columns(4)
@@ -277,7 +482,7 @@ def _tab_examenes():
                     "Fecha": g_fec.isoformat(), "N_Preguntas": str(n), "N_Modelos": str(len(claves)),
                     "Origen": "Manual", "Claves": json.dumps(claves), "Posiciones": "{}", "Permutaciones": "{}"})
                 guardar_hojas([A.SHEET_EXAMENES])
-                _ss["an_exam"] = eid
+                _ss["_an_exam_next"] = eid
                 notify(f"✅ Examen «{g_nom.strip()}» registrado.")
                 st.rerun()
 
@@ -343,7 +548,12 @@ if info is not None and info["claves"]:
 else:
     modelos = [str(v).upper() or "A" for v in vers_raw] if vers_raw != [""] else ["A"]
 vmap = A.mapa_ver(vers_raw, modelos)
-alumnos = alumnos.assign(Modelo=alumnos["Ver"].map(vmap).fillna(modelos[0]))
+alumnos = alumnos.assign(Modelo=alumnos["Ver"].map(vmap))
+_fuera = alumnos[alumnos["Modelo"].isna()]
+if not _fuera.empty:
+    st.caption(f"{len(_fuera)} alumno(s) del modelo {', '.join(sorted(_fuera['Ver'].astype(str).unique()))} no se analizan: "
+               "ese modelo no está en el registro del examen.")
+    alumnos = alumnos[alumnos["Modelo"].notna()]
 
 claves = dict(info["claves"]) if info is not None else {}
 if info is None:

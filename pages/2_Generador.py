@@ -28,6 +28,7 @@ sys.path.insert(0, PROJECT_DIR)
 
 import streamlit.components.v1 as stcomponents
 import examen_lib_latex as lib
+import examen_estado as E
 from app_utils import (
     init_session_state, render_sidebar, handle_oauth_callback, apply_theme, page_header,
     reload_db, bloques_disponibles, temas_de_bloque, objetivos_de_tema,
@@ -56,6 +57,7 @@ page_header("🎲", "Generador de Exámenes", _sub_gen, color="#1a6b3a")
 if not st.session_state.db_connected:
     st.warning("⚠️ Conecta la base de datos desde la barra lateral antes de continuar.")
     st.stop()
+E.indicador_borrador()
 
 df_total: pd.DataFrame = st.session_state.df_preguntas
 bloques = bloques_disponibles()
@@ -1207,7 +1209,7 @@ def _preview_bitacora(cache, show_sol, vista):
     ss = st.session_state
     cfg = ss.get("exam_cfg", {}) or {}
     dev_qs = ss.get("dev_questions", []) or []
-    editable = vista == "Vista previa"
+    editable = vista == "Vista previa" and not E.bloqueado()
     avisos = _avisos_preguntas(cache)
     pts_dev = sum(DU.puntos(q) for q in dev_qs)
     pts_test = DU._f(cfg.get("pts_test"), 0)
@@ -1224,6 +1226,18 @@ def _preview_bitacora(cache, show_sol, vista):
                     f"{' (' + format(pts_test, 'g') + ' pts)' if pts_test else ''}"
                     f"{' · ' + vista if not editable else ''}</div></div>", unsafe_allow_html=True)
         _render_checks_prev(cache, vista)
+        if editable:
+            with st.container(key="pv_undo"):
+                u1, u2, u3, u4 = st.columns([1, 1, 2.3, 3.6], vertical_alignment="center")
+                if u1.button("↶ Deshacer", key="pv_undo_b", disabled=not ss.get("pv_undo"), use_container_width=True):
+                    E.deshacer(); st.rerun()
+                if u2.button("↷ Rehacer", key="pv_redo_b", disabled=not ss.get("pv_redo"), use_container_width=True):
+                    E.rehacer(); st.rerun()
+                if u3.button("Volver al examen generado", key="pv_base_b", use_container_width=True,
+                             disabled=not (E.n_cambios() and ss.get("pv_base"))):
+                    E.volver_generado(); st.rerun()
+                if ss.get("pv_ultimo"):
+                    u4.markdown(f"<span class='pv-ult'>Último cambio: «{ss['pv_ultimo']}»</span>", unsafe_allow_html=True)
         if filtro:
             fx1, fx2 = st.columns([4, 1], vertical_alignment="center")
             fx1.markdown(f"Mostrando solo las preguntas con aviso: **{filtro}**")
@@ -1315,24 +1329,42 @@ def _preview_bitacora(cache, show_sol, vista):
         if accion:
             t, i = accion
             if t == "cambiar":
+                _antes = E.snap()
+                _old = cache[i].get("ID_Pregunta")
+                ss.cache_examen = list(cache)
                 if _cambiar_pregunta(i):
+                    E.registrar(f"Cambiada la {i + 1} ({_old} → {ss.cache_examen[i].get('ID_Pregunta')})", "cambiadas", _antes)
                     st.toast("Pregunta cambiada por otra del mismo tema y dificultad", icon="↻")
                 else:
                     st.toast("No hay otra pregunta del mismo bloque y dificultad disponible", icon="⚠️")
             elif t == "editar":
                 ss["_open_q"] = cache[i].get("ID_Pregunta")
             elif t == "fijar":
+                E.registrar(f"Fijada la {i + 1} ({cache[i].get('ID_Pregunta')})", "fijadas")
                 set_sel_ids(get_sel_ids() + [cache[i].get("ID_Pregunta")])
             elif t in ("up", "dn"):
                 j = i - 1 if t == "up" else i + 1
+                E.registrar(f"Movida la {i + 1} {'arriba' if t == 'up' else 'abajo'}", "movidas")
+                cache = ss.cache_examen = list(cache)
                 cache[i], cache[j] = cache[j], cache[i]
             elif t == "rm":
+                E.registrar(f"Quitada la {i + 1} ({cache[i].get('ID_Pregunta')})", "quitadas")
+                cache = ss.cache_examen = list(cache)
                 cache.pop(i)
             st.rerun()
 
     # ── Panel lateral ──
     with col_p.container(key="pv_panel"):
         n_test = len(cache)
+        _cb = ss.get("pv_cambios") or {}
+        if sum(_cb.values()):
+            with st.container(border=True, key="card_pv_camb"):
+                st.markdown("<div class='pv-ph'>Cambios a mano</div>"
+                            + "".join(f"<div class='pv-kv'><span>{lbl}</span><b>{_cb[k]}</b></div>"
+                                      for k, lbl in (("cambiadas", "Preguntas cambiadas"), ("quitadas", "Quitadas"),
+                                                     ("movidas", "Movidas"), ("fijadas", "Fijadas")) if _cb.get(k))
+                            + "<div class='pv-n'>Al pulsar Generar se te pedirá confirmación para no perderlos.</div>",
+                            unsafe_allow_html=True)
         minutos = round(1.5 * n_test + 15 * pts_dev)
         with st.container(border=True, key="card_pv_res"):
             st.markdown("<div class='pv-ph'>Resumen</div>"
@@ -1442,6 +1474,64 @@ def _preview_bitacora(cache, show_sol, vista):
         st.caption("Para ver el PDF definitivo: pestaña **Exportar › Compilar PDF**.")
 
 
+
+def _historial_bd():
+    """Historial › exámenes guardados en la base de datos (borradores, exportados e importados), compartidos."""
+    import analisis_lib as _A
+    ss = st.session_state
+    exs = E.examenes()
+    st.markdown("<div class='sec-title'>Exámenes<span class='sec-meta'>guardados en la base de datos: los ve cualquier "
+                "profesor que la use</span></div>", unsafe_allow_html=True)
+    if exs.empty:
+        st.info("Todavía no hay exámenes guardados. Los borradores se guardan solos mientras trabajas y los exámenes "
+                "al exportarlos; los anteriores se importan en Análisis › Exámenes.")
+        return
+    exs = exs.assign(_est=[E.estado_de(r) for r in exs.to_dict("records")])
+    with st.container(key="pill_hist_f"):
+        filtro = st.radio("Mostrar", ["Todos", "Borradores", "Exportados", "Importados"], horizontal=True,
+                          key="hist_f", label_visibility="collapsed")
+    m = {"Borradores": "Borrador", "Exportados": "Exportado", "Importados": "Importado"}.get(filtro)
+    if m:
+        exs = exs[exs["_est"] == m]
+    exs = exs.assign(_ord=exs["Actualizado"].where(exs["Actualizado"] != "", exs["Fecha"])).sort_values("_ord", ascending=False)
+    k_est = {"Borrador": "w", "Exportado": "f", "Importado": "u"}
+    with st.container(border=True, key="card_hist_bd"):
+        if exs.empty:
+            st.caption("No hay exámenes de este tipo.")
+        for r in exs.to_dict("records"):
+            c = _A._j(r.get("Contenido", ""), {})
+            n_dev = len(c.get("dev") or [])
+            meta = (f"{r['N_Preguntas'] or len(c.get('test') or [])} test"
+                    + (f" + {n_dev} desarrollo" if n_dev else "")
+                    + (f" · {r['N_Modelos']} modelo(s)" if r["_est"] != "Borrador" and r["N_Modelos"] else "")
+                    + (f" · {sum((c.get('cambios') or {}).values())} cambios a mano" if r["_est"] == "Borrador" and (c.get("cambios") or {}) else "")
+                    + (f" · analizado: media {r['Media']}" if r["Media"] else (" · sin analizar" if r["_est"] != "Borrador" else ""))
+                    + (" · guardado automático" if r["_est"] == "Borrador" else ""))
+            actual = r["ID_Examen"] in (ss.get("draft_id"), (ss.get("exam_lock") or {}).get("ID_Examen"))
+            h = st.columns([3.2, 1.0, 1.1, 1.3, 0.9, 0.9], vertical_alignment="center")
+            h[0].markdown(f"<div class='devq-t'>{r['Nombre'] or r['ID_Examen']}{' · abierto ahora' if actual else ''}</div>"
+                          f"<div class='devq-s'>{meta}</div>", unsafe_allow_html=True)
+            h[1].markdown(f"<span class='tag tag-{k_est[r['_est']]}'>{r['_est']}</span>", unsafe_allow_html=True)
+            h[2].markdown(f"<span class='devq-s'>{E.fecha_es(r['Actualizado'] or r['Fecha'])[:16]}</span>", unsafe_allow_html=True)
+            h[3].markdown(f"<span class='devq-s'>{(r['Usuario'] or '').split('@')[0]}</span>", unsafe_allow_html=True)
+            if h[4].button("Abrir", key=f"hb_open_{r['ID_Examen']}", type="primary", use_container_width=True,
+                           disabled=not (c.get("test") or r["Posiciones"])):
+                notify(E.abrir(r))
+                st.rerun()
+            if r["_est"] == "Borrador":
+                if h[5].button("Borrar", key=f"hb_del_{r['ID_Examen']}", use_container_width=True):
+                    _A.borrar_examen(ss.excel_dfs, r["ID_Examen"])
+                    if ss.get("draft_id") == r["ID_Examen"]:
+                        ss["draft_id"] = None
+                    guardar_hojas([_A.SHEET_EXAMENES])
+                    notify("Borrador borrado.")
+                    st.rerun()
+            elif h[5].button("Análisis", key=f"hb_an_{r['ID_Examen']}", use_container_width=True):
+                ss["an_exam"] = r["ID_Examen"]
+                st.switch_page("pages/5_Analisis.py")
+    st.caption("«Abrir» carga el examen en Selección, Desarrollo y Preview. Los exportados e importados se abren "
+               "bloqueados y con sus modelos exactos; los borradores, para seguir trabajando.")
+
 tab_sel, tab_dev, tab_prev, tab_exp, tab_hist = st.tabs(
     ["🔢 Selección", "✍️ Desarrollo", "👁️ Preview", "💾 Exportar", "📋 Historial"]
 )
@@ -1452,6 +1542,28 @@ tab_sel, tab_dev, tab_prev, tab_exp, tab_hist = st.tabs(
 with tab_sel:
     sel_ids_actual = get_sel_ids()
     n_sel = len(sel_ids_actual)
+    _cache_sel = st.session_state.get("cache_examen") or []
+    if _cache_sel and get_estilo() == "bitacora":
+        _fx = set(sel_ids_actual)
+        _nf = sum(1 for p in _cache_sel if p.get("ID_Pregunta") in _fx)
+        _nd = len(st.session_state.get("dev_questions") or [])
+        with st.container(border=True, key="card_ex_actual"):
+            xa1, xa2 = st.columns([4, 1.3], vertical_alignment="center")
+            xa1.markdown(f"<div class='dev-hd'>Examen actual</div><div style='font-size:1.05rem;font-weight:700'>"
+                         f"{len(_cache_sel)} preguntas de test{f' · {_nd} de desarrollo' if _nd else ''}</div>"
+                         f"<div class='devq-s'>{_nf} fijas · {len(_cache_sel) - _nf} de la receta"
+                         f"{f' · {E.n_cambios()} cambios a mano en Preview' if E.n_cambios() else ''}"
+                         f"{' · bloqueado' if E.bloqueado() else ''} · se ve y se cambia en la pestaña Preview</div>",
+                         unsafe_allow_html=True)
+            if xa2.button("Fijar todo el examen", key="btn_fijar_todo", use_container_width=True,
+                          disabled=_nf == len(_cache_sel),
+                          help="Convierte todas las preguntas del examen en fijas y quita la receta: "
+                               "así puedes seguir trabajando a partir de este examen sin que la receta lo cambie."):
+                E.registrar("Fijar todo el examen", None)
+                set_sel_ids([p.get("ID_Pregunta") for p in _cache_sel])
+                st.session_state.auto_recipe = {}
+                notify("Las preguntas del examen son ahora fijas (la receta se ha quitado; puedes volver a ponerla).")
+                st.rerun()
 
     # ── Objetivo + botón auto-relleno ─────────────────────────────────────────
     oc1, oc2 = st.columns([3, 2])
@@ -2900,14 +3012,18 @@ with tab_prev:
 
     # ── Banner de modo recuperación ───────────────────────────────────────────
     if st.session_state.get("recovery_mode"):
-        rb1, rb2 = st.columns([5, 1])
-        rb1.warning(
-            "🔒 **MODO RECUPERACIÓN** — Examen cargado desde CSV. "
-            "El botón **Generar** está deshabilitado para evitar sobreescribir el preview."
-        )
-        if rb2.button("🔓 Desbloquear", key="btn_unlock_prev", use_container_width=True):
-            st.session_state["recovery_mode"] = False
-            st.rerun()
+        _lk = st.session_state.get("exam_lock") or {}
+        with st.container(key="pv_lock"):
+            rb1, rb2 = st.columns([5, 1], vertical_alignment="center")
+            rb1.markdown(
+                (f"**Examen {E.estado_de(_lk).lower()} · {_lk.get('Nombre', '')}** — abierto tal como se guardó: orden"
+                 + (f", modelos {', '.join(sorted(_lk.get('posiciones') or {}))} y sus claves" if _lk.get("posiciones") else "")
+                 + ". Bloqueado para no cambiarlo por accidente; si lo exportas de nuevo saldrá idéntico.")
+                if _lk else "**Examen recuperado desde CSV** — bloqueado para no cambiarlo por accidente.")
+            if rb2.button("Desbloquear", key="btn_unlock_prev", use_container_width=True):
+                E.desbloquear()
+                notify("Examen desbloqueado: los cambios se guardarán como un examen nuevo.")
+                st.rerun()
 
     # ── Controles (Bitácora: en una tarjeta, interruptor y «Renderizar LaTeX») ─
     _bit_prev = get_estilo() == "bitacora"
@@ -2923,7 +3039,8 @@ with tab_prev:
         _locked   = st.session_state.get("recovery_mode", False)
         gen_btn   = ctrl4.button("🎲 Generar", type="primary", key="btn_gen_prev",
                                   use_container_width=True, disabled=_locked)
-        _ef_master = (st.session_state.get("export_files") or {}).get("_master") or []
+        _ef_master = ((st.session_state.get("export_files") or {}).get("_master")
+                      or st.session_state.get("_lock_master") or [])
         if _bit_prev:
             _mods_prev = ["Vista previa"] + [f"Modelo {m['letra_version']}" for m in _ef_master]
             if st.session_state.get("prev_modelo") not in _mods_prev:
@@ -2940,6 +3057,21 @@ with tab_prev:
 
     sel_prev  = get_sel_ids()          # manuales fijas
     auto_rec  = st.session_state.get("auto_recipe", {})
+
+    if gen_btn and E.n_cambios() and st.session_state.get("cache_examen"):
+        st.session_state["_gen_conf"] = True
+        gen_btn = False
+    if st.session_state.get("_gen_conf"):
+        with st.container(key="pv_genconf"):
+            gc1, gc2, gc3 = st.columns([5, 1.3, 1], vertical_alignment="center")
+            gc1.markdown(f"**Este examen tiene {E.n_cambios()} cambio(s) hechos a mano.** Si generas de nuevo se rehace "
+                         "con la receta y se pierden (podrás recuperarlos con Deshacer).")
+            if gc2.button("Generar igualmente", type="primary", key="pv_genconf_ok", use_container_width=True):
+                st.session_state.pop("_gen_conf", None)
+                gen_btn = True
+            if gc3.button("Cancelar", key="pv_genconf_no", use_container_width=True):
+                st.session_state.pop("_gen_conf", None)
+                st.rerun()
 
     if gen_btn:
         if not sel_prev and not auto_rec:
@@ -3045,6 +3177,7 @@ with tab_prev:
                     g = list(grp); rng.shuffle(g); new_pool.extend(g)
                 pool = new_pool
 
+            E.al_generar(pool)
             st.session_state.cache_examen = pool
             st.session_state.pop("prev_mathjax", None)
             st.rerun()
@@ -3372,7 +3505,7 @@ def _ejecutar_export():
 
     for _sfx, _pool, _cfg in _runs:
         _arch = nombre_arch + _sfx
-        _master = lib.generar_master_examen(_pool, n_mod, _cfg)
+        _master = E.master_bloqueado(_pool) or lib.generar_master_examen(_pool, n_mod, _cfg)
 
         if not _sfx or (partes_modo == "separados" and _sfx == "_TEST"):
             ef["_master"] = _master   # el mismo que da las claves del CSV
@@ -3436,7 +3569,7 @@ def _ejecutar_export():
         ef["formulario_name"]  = _form_name_final
 
     # usar primer master para referencias internas
-    master = lib.generar_master_examen(
+    master = ef.get("_master") or lib.generar_master_examen(   # el mismo que dio las claves (también para la versión adaptada)
         pool if partes_modo not in ("solo_dev",) else [],
         n_mod, cfg_export
     )
@@ -3488,8 +3621,9 @@ def _ejecutar_export():
 
     ef["zip_bytes"] = lib.generar_zip_bytes(ef["_zip_all"])
 
-    # Marcar preguntas como usadas en la DB
-    hoy = datetime.date.today().strftime("%Y-%m-%d")
+    # Marcar preguntas como usadas en la DB (con la fecha del examen; todas las del examen, no solo las fijas)
+    hoy = E.fecha_iso(cfg.get("fecha", ""))
+    sel_actual = [p.get("ID_Pregunta") for p in pool] or sel_actual
     dfs = st.session_state.excel_dfs
     for bloque_name, df_sheet in dfs.items():
         if bloque_name in lib.CFG_SHEETS:   # solo hojas de preguntas (no análisis, recetas ni banco de desarrollo)
@@ -3539,8 +3673,11 @@ def _ejecutar_export():
     if _mreg and _mreg[0]["preguntas"]:
         try:
             import analisis_lib as _A
-            _A.upsert_examen(st.session_state.excel_dfs, _A.registro_desde_master(
-                _mreg, nombre_arch, convocatoria=cfg.get("tipo", "")))
+            _fila = _A.registro_desde_master(_mreg, nombre_arch, convocatoria=cfg.get("tipo", ""),
+                                             fecha=E.fecha_iso(cfg.get("fecha", "")))
+            _fila.update({"Contenido": E._json(E.contenido()), "Usuario": E.usuario()})
+            _A.upsert_examen(st.session_state.excel_dfs, _fila)
+            E.borrar_borrador()
             guardar_hojas([_A.SHEET_EXAMENES])
             ef["_registrado"] = nombre_arch
         except Exception as _e:
@@ -3570,9 +3707,20 @@ def _dialog_confirmar_export():
     if cfg.get("sol_color"): sol_lb.append(_clbl.get(cfg["sol_color"], cfg["sol_color"]))
     if cfg.get("sol_ast"):  sol_lb.append("asterisco (*)")
     if sol_lb: st.caption(f"Soluciones marcadas con: {', '.join(sol_lb)}")
+    _exs = E.examenes(incluir_borradores=False)
+    _nom = cfg.get("file", "")
+    _lk = st.session_state.get("exam_lock") or {}
+    _dup = _nom in set(_exs["ID_Examen"]) and not (E.bloqueado() and _lk.get("ID_Examen") == _nom)
+    _ok_dup = True
+    if _dup:
+        st.warning(f"Ya existe un examen llamado «{_nom}». Si exportas, se reemplaza su registro "
+                   "(el análisis guardado se conserva). Para no reemplazarlo, cambia el nombre en Exportar.")
+        _ok_dup = st.checkbox("Reemplazarlo", key="dlg_dup_ok")
+    if E.bloqueado():
+        st.caption("Examen bloqueado: se exportan exactamente los mismos modelos y claves.")
     st.markdown("---")
     c1, c2 = st.columns(2)
-    if c1.button("✅ Exportar", type="primary", use_container_width=True, key="dlg_ok"):
+    if c1.button("✅ Exportar", type="primary", use_container_width=True, key="dlg_ok", disabled=not _ok_dup):
         with st.spinner("Generando archivos…"):
             try:
                 _ejecutar_export()
@@ -4076,7 +4224,15 @@ with tab_exp:
                 e4, e5, e6 = st.columns(3)
                 fecha         = e4.text_input("Fecha",          value=cfg.get("fecha", datetime.date.today().strftime("%d/%m/%Y")), key="exp_fecha")
                 tiem          = e5.text_input("Tiempo",         value=cfg.get("tiem",  "90 min"),       key="exp_tiem")
-                nombre_archivo = e6.text_input("Nombre archivo", value=cfg.get("file", f"Examen_{datetime.date.today()}"), key="exp_file")
+                _auto_nom = E.nombre_auto(tipo, asig, fecha)
+                if ("exp_file" not in st.session_state
+                        or st.session_state["exp_file"] in ("", st.session_state.get("_exp_file_auto"))
+                        or str(st.session_state["exp_file"]).startswith("Examen_")):
+                    st.session_state["exp_file"] = cfg.get("file") if ("exp_file" not in st.session_state and cfg.get("file")
+                                                                         and not str(cfg.get("file")).startswith("Examen_")) else _auto_nom
+                st.session_state["_exp_file_auto"] = _auto_nom
+                nombre_archivo = e6.text_input("Nombre del examen y de los archivos", key="exp_file",
+                                               help="Se forma solo con el tipo, la asignatura y la fecha (DD-MM-AAAA); puedes cambiarlo.")
                 _campos_def   = cfg.get("campos_alumno", ["nombre", "dni", "grupo", "firma"])
                 _campos_map   = {"nombre": "Nombre", "dni": "DNI/NIU", "grupo": "Grupo", "firma": "Firma"}
                 _campos_sel   = st.multiselect("Campos del alumno en el examen", list(_campos_map.keys()),
@@ -4888,10 +5044,15 @@ with tab_hist:
     if get_estilo() == "clasico":
         st.subheader("Historial de exámenes generados")
     else:
-        st.markdown("<div class='sec-title'>Exámenes generados<span class='sec-meta'>los 20 más recientes</span></div>",
-                    unsafe_allow_html=True)
+        pass
 
+    _historial_bd()
     hist = st.session_state.historial
+    if get_estilo() == "bitacora":
+        _hist_box = st.expander(f"Historial antiguo de este ordenador · {len(hist)}")
+    else:
+        _hist_box = st.container()
+    _hist_box.__enter__()
     if not hist:
         st.info("No hay exámenes en el historial aún. Exporta tu primer examen.")
     else:
@@ -4969,6 +5130,7 @@ with tab_hist:
                     notify(f"Restauradas {len(valid)} preguntas y configuración. Ve a Selección o Exportar.")
                     st.rerun()
 
+    _hist_box.__exit__(None, None, None)
     # ── Recuperar desde CSV ────────────────────────────────────────────────
     st.divider()
     st.markdown("**Recuperar examen desde CSV de metadatos:**")
@@ -4983,8 +5145,11 @@ with tab_hist:
             valid = [pid for pid in ids_csv if pid in df_total["ID_Pregunta"].values]
             if valid:
                 set_sel_ids(valid)
-                pool = df_total[df_total["ID_Pregunta"].isin(valid)].to_dict("records")
+                _by = {r["ID_Pregunta"]: r for r in df_total[df_total["ID_Pregunta"].isin(valid)].to_dict("records")}
+                pool = [_by[i] for i in valid]          # en el orden del examen
+                E.al_generar(pool)
                 st.session_state.cache_examen = pool
+                st.session_state.pop("exam_lock", None)
                 st.session_state["recovery_mode"] = True  # activa modo recuperación
                 st.success(
                     f"✅ Recuperadas {len(valid)} de {len(ids_csv)} preguntas del CSV. "

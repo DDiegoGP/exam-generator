@@ -325,8 +325,7 @@ df_total: pd.DataFrame = st.session_state.df_preguntas
 bloques = bloques_disponibles()
 
 # Columnas estándar para crear un bloque nuevo desde cero
-_STD_COLS = ["ID_Pregunta", "Tema", "Enunciado", "OpcionA", "OpcionB",
-             "OpcionC", "OpcionD", "Correcta", "Usada en Examen", "Dificultad", "Notas", "Comentario", "Objetivo", "Solución"]
+from app_utils import STD_COLS as _STD_COLS, asegurar_bloque as _asegurar_bloque, fila_nueva as _fill_row
 _NUEVO_BLQ = "__nuevo__"
 
 
@@ -340,78 +339,6 @@ def _bloque_selectbox(label: str, key: str, col_widget=None) -> str:
         return (col_widget or st).text_input("Nombre del nuevo bloque", key=f"{key}_nuevo",
                                              placeholder="ej: Bloque I")
     return sel
-
-
-def _asegurar_bloque(excel_dfs: dict, bloque: str) -> pd.DataFrame:
-    """Si el bloque no existe o está vacío sin columnas, lo inicializa con columnas estándar."""
-    existing = excel_dfs.get(bloque)
-    if existing is None or len(existing.columns) == 0:
-        excel_dfs[bloque] = pd.DataFrame(columns=_STD_COLS)
-        st.session_state.bloques = [k for k in excel_dfs if k not in lib.CFG_SHEETS]
-    return excel_dfs[bloque]
-
-
-def _fill_row(blk_df: pd.DataFrame, p_data: dict, nid: str) -> dict:
-    """Construye una fila nueva usando coincidencia por palabras clave + posicional seguro para opciones.
-
-    p_data puede tener: enunciado, opciones_list, letra_correcta, tema (o Tema),
-                        dificultad, usada, notas.
-    El relleno posicional solo toca columnas NO reclamadas por la coincidencia de palabras clave,
-    evitando así sobreescribir 'Usada en Examen' o 'Dificultad' si el GSheet tiene un orden distinto.
-    """
-    new_row = {col: "" for col in blk_df.columns}
-    tema_val = p_data.get("tema") or p_data.get("Tema") or ""
-
-    claimed: set[int] = set()
-    for idx, col in enumerate(blk_df.columns):
-        cl = str(col).strip().lower()
-        if "id_preg" in cl or cl == "id":
-            new_row[col] = nid
-            claimed.add(idx)
-        elif "tema" in cl and "id" not in cl:
-            new_row[col] = str(tema_val)
-            claimed.add(idx)
-        elif "dificultad" in cl:
-            new_row[col] = p_data.get("dificultad", "")
-            claimed.add(idx)
-        elif "correcta" in cl:
-            new_row[col] = p_data.get("letra_correcta", "")
-            claimed.add(idx)
-        elif "enunciado" in cl:
-            new_row[col] = p_data.get("enunciado", "")
-            claimed.add(idx)
-        elif "usada" in cl or "fecha" in cl:
-            new_row[col] = p_data.get("usada", "")
-            claimed.add(idx)
-        elif "soluci" in cl:
-            new_row[col] = p_data.get("solucion", "")
-            claimed.add(idx)
-        elif "nota" in cl:
-            new_row[col] = p_data.get("notas", "")
-            claimed.add(idx)
-        elif "comentar" in cl:
-            new_row[col] = p_data.get("comentario", "")
-            claimed.add(idx)
-        elif cl == "objetivo":
-            new_row[col] = p_data.get("objetivo", "")
-            claimed.add(idx)
-
-    # Opciones: relleno posicional SOLO en columnas no reclamadas, justo después de Enunciado
-    enun_idx = next((i for i, c in enumerate(blk_df.columns)
-                     if "enunciado" in str(c).lower()), None)
-    if enun_idx is not None:
-        opts = list(p_data.get("opciones_list", []))
-        op_n = 0
-        for j in range(1, len(blk_df.columns)):
-            if op_n >= 4:
-                break
-            ci = enun_idx + j
-            if ci >= len(blk_df.columns):
-                break
-            if ci not in claimed:
-                new_row[blk_df.columns[ci]] = opts[op_n] if op_n < len(opts) else ""
-                op_n += 1
-    return new_row
 
 
 # ═════════════════════════════════════════════════════════════════════════════
