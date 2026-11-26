@@ -5165,7 +5165,8 @@ with tab_exp:
 
                 _word_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"word_exam{s}")]
                 if _word_sfxs:
-                    (st.markdown("**Word:**") if not _bit_exp else None)
+                    if not _bit_exp:
+                        st.markdown("**Word:**")
                     _wlbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
                     for _ws in _word_sfxs:
                         _wlbl = _wlbl_map[_ws]
@@ -5187,7 +5188,8 @@ with tab_exp:
 
                 _latex_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"latex_exam{s}")]
                 if _latex_sfxs:
-                    (st.markdown("**LaTeX:**") if not _bit_exp else None)
+                    if not _bit_exp:
+                        st.markdown("**LaTeX:**")
                     _llbl_map = {"": "", "_TEST": " · TEST", "_DEV": " · DEV"}
                     for _ls in _latex_sfxs:
                         _llbl = _llbl_map[_ls]
@@ -5207,7 +5209,8 @@ with tab_exp:
                             file_name=f"{_nef}_latex_adaptada.zip", mime="application/zip",
                             use_container_width=True, key="dl_latex_adapt")
 
-                (st.markdown("**CSV:**") if not _bit_exp else None)
+                if not _bit_exp:
+                    st.markdown("**CSV:**")
                 _cc1, _cc2 = st.columns(2)
                 _cc1.download_button(f"📊 {_fc}Clave",     data=ef["csv_claves"], file_name=f"{_nef}_CLAVES.csv",
                                      mime="text/csv", use_container_width=True, key="dl_csv_claves")

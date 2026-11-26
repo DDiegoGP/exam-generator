@@ -297,43 +297,55 @@ def _imp_paso3(res):
                 if M is not None and not bien:
                     k_cl = "".join((x or "A")[0] for x in m["clave"])
                     prop = _ss.get(f"imp_prop_{v}")
-                    if prop is None and st.button("Buscar la clave que usó el corrector", key=f"imp_busca_{v}", type="primary"):
-                        with st.spinner("Buscando…"):
-                            _ss[f"imp_prop_{v}"] = A.buscar_clave(M, k_cl, T)
-                        st.rerun()
-                    if prop is not None:
-                        dec_ = {j: {"tipo": tp, "letra": L} for j, tp, L in prop}
-                        n2, _ = A.cuadran(M, A.aceptadas(k_cl, dec_), T)
-                        if prop and n2 >= 0.9 * tot and len(prop) <= 8:
-                            st.markdown(f"Con estos {len(prop)} cambios cuadran **{n2}/{tot}**:")
-                            st.caption("Ojo: «Usar la clave del corrector» copia también sus errores. Si el corrector se "
-                                       "equivocó en alguna (la correcta es la del examen impreso), mantén la del examen: "
-                                       "en el Análisis verás qué alumnos cambian de nota.")
-                            st.markdown("".join(
-                                f"<div class='imp-cb'><b>{j + 1}</b><span>{_bank.get(res['items'][m['orden'][j]].get('id') or '', {}).get('enunciado', res['items'][m['orden'][j]]['enun'])[:70]}</span>"
-                                f"<code>{m['clave'][j] or '—'}</code><b class='ok'>{A.DECISIONES.get(tp, tp) if tp != 'cambiar' else L}</b></div>"
-                                for j, tp, L in prop), unsafe_allow_html=True)
-                            b1, b2 = st.columns(2)
-                            if b1.button("Usar la clave del corrector", type="primary", key=f"imp_usa_{v}", use_container_width=True):
+                    if prop is None:      # se busca sola (tarda menos de un segundo)
+                        prop = _ss[f"imp_prop_{v}"] = A.buscar_clave(M, k_cl, T)
+                    elegida = _ss.get(f"imp_elec_{v}")
+                    dec_ = {j: {"tipo": tp, "letra": L} for j, tp, L in prop}
+                    n2, _ = A.cuadran(M, A.aceptadas(k_cl, dec_), T)
+                    if prop and n2 >= 0.9 * tot and len(prop) <= 8:
+                        def _desc(j, tp, L):
+                            en = _bank.get(res["items"][m["orden"][j]].get("id") or "", {}).get(
+                                "enunciado", res["items"][m["orden"][j]]["enun"])
+                            hace = (f"usó la <b>{L}</b>" if tp == "cambiar" else
+                                    f"dio por buena también la <b>{L}</b>" if tp == "aceptar" else
+                                    "la dio por buena para todos" if tp == "buena" else "la anuló")
+                            return (f"<div class='imp-cb'><b>{j + 1}</b><span>{en[:80]}</span>"
+                                    f"<span>examen: <b>{(m['clave'][j] or '—')[0]}</b></span><span>corrector: {hace}</span></div>")
+                        st.markdown(f"<div class='imp-expl'>Las notas del corrector no salen con la clave del examen impreso. "
+                                    f"Salen exactas ({n2}/{tot}) si en {'esta pregunta' if len(prop) == 1 else f'estas {len(prop)} preguntas'} "
+                                    f"se corrigió así:</div>" + "".join(_desc(*x) for x in prop), unsafe_allow_html=True)
+                        st.markdown("**¿Con qué clave quieres analizarlo?**")
+                        b1, b2 = st.columns(2)
+                        if b1.button("La del examen impreso", key=f"imp_mant_{v}", use_container_width=True,
+                                     type="primary" if elegida == "examen" else "secondary",
+                                     help="Si el corrector se equivocó. En el Análisis verás qué alumnos cambian de nota."):
+                            if elegida == "corrector":      # deshacer lo aplicado
+                                for j, tp, L in prop:
+                                    m["clave"][j] = m.get("_clave_orig", m["clave"])[j]
+                                    (m.get("decisiones") or {}).pop(j, None)
+                            _ss[f"imp_elec_{v}"] = "examen"
+                            st.rerun()
+                        if b2.button("La que usó el corrector", key=f"imp_usa_{v}", use_container_width=True,
+                                     type="primary" if elegida == "corrector" else "secondary",
+                                     help="Reproduce exactamente sus notas (también sus errores, si los hubo)."):
+                            if elegida != "corrector":
+                                m["_clave_orig"] = list(m["clave"])
                                 for j, tp, L in prop:
                                     if tp == "cambiar":
                                         m["clave"][j] = L
                                     else:
                                         m.setdefault("decisiones", {})[j] = (tp, L)
-                                _ss.pop(f"imp_prop_{v}", None)
-                                st.rerun()
-                            if b2.button("Mantener la del examen", key=f"imp_mant_{v}", use_container_width=True):
-                                _ss[f"imp_prop_{v}"] = []
-                                st.rerun()
-                        elif prop == [] and _ss.get(f"imp_prop_{v}") == []:
-                            st.caption("Se mantiene la clave del examen.")
-                        else:
-                            st.markdown(f"<div class='imp-warn'>Ninguna clave razonable reproduce las notas del corrector en "
-                                        f"este modelo. <b>No conviene analizarlo</b>: sus {tot} alumnos quedarían mal.</div>",
-                                        unsafe_allow_html=True)
-                mant = _ss.get(f"imp_prop_{v}") == []
-                defecto = bool(bien) or mant or (not tot and not m.get("propuesto"))
-                if st.checkbox(f"Analizar el modelo {v}", value=defecto, key=f"imp_m_{v}_{bool(bien)}_{mant}"):
+                            _ss[f"imp_elec_{v}"] = "corrector"
+                            st.rerun()
+                    else:
+                        st.markdown(f"<div class='imp-warn'>Ninguna clave razonable reproduce las notas del corrector en este "
+                                    f"modelo: lo más probable es que el orden de preguntas u opciones no sea el que se "
+                                    f"imprimió. <b>No conviene analizarlo</b> así ({tot} alumnos).</div>", unsafe_allow_html=True)
+                elec = _ss.get(f"imp_elec_{v}")
+                defecto = bool(bien) or bool(elec) or (not tot and not m.get("propuesto"))
+                if st.checkbox(f"Analizar el modelo {v}", value=defecto, key=f"imp_m_{v}_{bool(bien)}_{elec}",
+                               disabled=bool(tot) and not bien and not elec and bool(_ss.get(f"imp_prop_{v}")),
+                               help="Elige antes con qué clave analizarlo." if tot and not bien and not elec else None):
                     elegidos.append(v)
         st.caption("Los alumnos de los modelos que no marques no se analizan.")
         nuevas = _nuevas(res)
@@ -372,7 +384,7 @@ def _imp_registrar(res, elegidos, nuevas):
         if reimp:      # volver a importar: se sustituye el registro y su análisis guardado
             A.borrar_examen(dd, reimp)
         fila, extra = IMP.registro(res, elegidos, d["nom"], d["cur"], d["con"], d["fec"])
-        _mant = [v for v in elegidos if _ss.get(f"imp_prop_{v}") == []]
+        _mant = [v for v in elegidos if _ss.get(f"imp_elec_{v}") == "examen"]
         if _mant:          # clave del examen mantenida a propósito aunque no cuadre con el corrector
             _c = json.loads(fila["Contenido"]); _c["clave_del_examen"] = _mant
             fila["Contenido"] = json.dumps(_c, ensure_ascii=False)

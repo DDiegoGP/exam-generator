@@ -529,6 +529,8 @@ hr { border-color: var(--border) !important; }
 .imp-cb { display: grid; grid-template-columns: 34px minmax(0, 1fr) 44px auto; gap: 8px; align-items: center; font-size: 13px;
           padding: 5px 0; border-top: 1px solid var(--border-light, #e4e8ef); }
 .imp-cb span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .imp-cb .ok { color: var(--ok); }
+.imp-cb { grid-template-columns: 34px minmax(0, 1fr) auto auto; }
+.imp-expl { font-size: 14px; color: var(--text); margin: 6px 0 4px; line-height: 1.5; }
 /* página Exámenes */
 [class*="st-key-exrow"] { border-radius: 9px; padding: 8px 10px; border-bottom: 1px solid var(--border-light, #e4e8ef); overflow: visible; }
 [class*="st-key-exrow"] .devq-s { white-space: normal; }
