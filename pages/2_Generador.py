@@ -1535,6 +1535,107 @@ def _historial_bd():
                "bloqueados y con sus modelos exactos; los borradores, para seguir trabajando.")
     st.page_link("pages/6_Examenes.py", label="Todos los exámenes, con su ficha, importar exámenes anteriores, editar y borrar ›")
 
+def _receta_por(recipe: dict) -> tuple:
+    """(total, {bloque: n}, {facil, media, dificil: n}) de la receta."""
+    tot, por_b, por_d = 0, {}, {"facil": 0, "media": 0, "dificil": 0}
+    for blq, temas_cfg in (recipe or {}).items():
+        for difs in (temas_cfg or {}).values():
+            for dk, v in (difs or {}).items():
+                try:
+                    v = int(v)
+                except (TypeError, ValueError):
+                    continue
+                tot += v
+                por_b[blq] = por_b.get(blq, 0) + v
+                d = _dif_norm(dk)
+                if d in por_d:
+                    por_d[d] += v
+    return tot, por_b, por_d
+
+
+def _resumen_seleccion(sel_ids, cache):
+    """Selección (Bitácora): «Tu examen» — cuántas, de dónde salen, dificultad prevista y acciones."""
+    ss = st.session_state
+    df = ss.df_preguntas
+    n_fx = len(sel_ids)
+    n_rec, _, d_rec = _receta_por(ss.get("auto_recipe", {}))
+    n_ex = len(cache) if cache else n_fx + n_rec
+    d_fx = {"facil": 0, "media": 0, "dificil": 0}
+    for d in df[df["ID_Pregunta"].isin(sel_ids)]["dificultad"].map(_dif_norm):
+        if d in d_fx:
+            d_fx[d] += 1
+    if cache:
+        d_tot = {"facil": 0, "media": 0, "dificil": 0}
+        for p in cache:
+            d = _dif_norm(p.get("dificultad", ""))
+            if d in d_tot:
+                d_tot[d] += 1
+    else:
+        d_tot = {k: d_fx[k] + d_rec[k] for k in d_fx}
+    tt = max(1, sum(d_tot.values()))
+    n_dev = len(ss.get("dev_questions") or [])
+    with st.container(border=True, key="card_sel_res"):
+        c1, c2, c3, c4 = st.columns([1.25, 1.35, 1.6, 1.25], vertical_alignment="center")
+        with c1:
+            st.markdown("<div class='dev-hd'>Tu examen</div>", unsafe_allow_html=True)
+            obj = st.number_input("Objetivo (nº de preguntas de test)", min_value=1, max_value=200,
+                                  value=ss.get("tgt_pregs", 20), key="tgt_pregs")
+            pct = min(100, int(n_ex / obj * 100)) if obj else 0
+            st.markdown(f"<div class='selr-n'><b>{n_ex}</b> / {obj} preguntas{f' · {n_dev} de desarrollo' if n_dev else ''}</div>"
+                        f"<div class='selr-bar'><div style='width:{pct}%;background:{'var(--ok)' if n_ex >= obj else 'var(--primary)'}'></div></div>",
+                        unsafe_allow_html=True)
+        c2.markdown("<div class='dev-hd'>De dónde salen</div>"
+                    f"<div class='selr-l'><b>{n_fx}</b> fijas (elegidas a mano)<br><b>{n_rec}</b> de la receta"
+                    + (f"<br><b>{E.n_cambios()}</b> cambios a mano en Preview" if E.n_cambios() else "")
+                    + ("<br>generado en Preview" if cache else "<br><span class='devq-s'>aún sin generar</span>")
+                    + (" · bloqueado" if E.bloqueado() else "") + "</div>", unsafe_allow_html=True)
+        c3.markdown("<div class='dev-hd'>Dificultad prevista</div>"
+                    f"<div class='selr-dif'><div style='width:{d_tot['facil'] / tt * 100:.0f}%;background:var(--ok)'></div>"
+                    f"<div style='width:{d_tot['media'] / tt * 100:.0f}%;background:var(--primary)'></div>"
+                    f"<div style='width:{d_tot['dificil'] / tt * 100:.0f}%;background:var(--err)'></div></div>"
+                    f"<div class='devq-s'>Fácil {d_tot['facil']} · Media {d_tot['media']} · Difícil {d_tot['dificil']}</div>",
+                    unsafe_allow_html=True)
+        with c4:
+            if st.button("Receta: editar" if ss.get("auto_recipe") else "Receta automática", type="primary",
+                         use_container_width=True, key="btn_auto_dlg",
+                         help="Elige cuántas preguntas al azar por bloque, tema y dificultad"):
+                ss["_rec_pend"] = (ss.get("auto_recipe", {}), ss.get("auto_opts", {}))
+                _dialog_receta(obj)
+            n_fijas_cache = sum(1 for p in (cache or []) if p.get("ID_Pregunta") in set(sel_ids))
+            if cache and st.button("Fijar todo el examen", key="btn_fijar_todo", use_container_width=True,
+                                   disabled=n_fijas_cache == len(cache),
+                                   help="Convierte todas las preguntas del examen en fijas y quita la receta: "
+                                        "así puedes seguir trabajando a partir de este examen sin que la receta lo cambie."):
+                E.registrar("Fijar todo el examen", None)
+                set_sel_ids([p.get("ID_Pregunta") for p in cache])
+                ss.auto_recipe = {}
+                notify("Las preguntas del examen son ahora fijas (la receta se ha quitado; puedes volver a ponerla).")
+                st.rerun()
+            if not cache:
+                st.caption("Pulsa «Generar» en Preview para ver el examen.")
+
+
+def _cobertura_seleccion(sel_ids, df):
+    """Selección (Bitácora): preguntas por bloque — fijas + receta — y bloques sin ninguna."""
+    _, por_b, _ = _receta_por(st.session_state.get("auto_recipe", {}))
+    fx = df[df["ID_Pregunta"].isin(sel_ids)]["bloque"].value_counts().to_dict()
+    blqs = sorted(set(st.session_state.bloques or []) | set(fx) | {b for b in por_b if b != "__GEN__"}, key=orden_bloque)
+    mx = max([fx.get(b, 0) + por_b.get(b, 0) for b in blqs] + [1])
+    filas = ""
+    for b in blqs:
+        f_, r_ = fx.get(b, 0), por_b.get(b, 0)
+        vacio = f_ + r_ == 0
+        filas += (f"<div class='selc-r{' v' if vacio else ''}'><span title='{nombre_bloque(b)}'>{nombre_bloque(b)}</span>"
+                  f"<div class='selc-bar'><div class='f' style='width:{f_ / mx * 100:.0f}%'></div>"
+                  f"<div class='r' style='width:{r_ / mx * 100:.0f}%'></div></div><b>{f_ + r_}</b></div>")
+    if por_b.get("__GEN__"):
+        filas += f"<div class='selc-r'><span>Objetivos generales</span><div></div><b>{por_b['__GEN__']}</b></div>"
+    st.markdown("<div class='sec-title' style='margin:0 0 6px'>Cobertura del examen<span class='sec-meta'>fijas + receta, "
+                "por bloque</span></div>" + filas
+                + "<div class='devq-s' style='margin-top:6px'>■ fijas · ▭ receta · en rojo, bloques sin ninguna pregunta</div>",
+                unsafe_allow_html=True)
+
+
 tab_sel, tab_dev, tab_prev, tab_exp, tab_hist = st.tabs(
     ["🔢 Selección", "✍️ Desarrollo", "👁️ Preview", "💾 Exportar", "📋 Historial"]
 )
@@ -1546,46 +1647,28 @@ with tab_sel:
     sel_ids_actual = get_sel_ids()
     n_sel = len(sel_ids_actual)
     _cache_sel = st.session_state.get("cache_examen") or []
-    if _cache_sel and get_estilo() == "bitacora":
-        _fx = set(sel_ids_actual)
-        _nf = sum(1 for p in _cache_sel if p.get("ID_Pregunta") in _fx)
-        _nd = len(st.session_state.get("dev_questions") or [])
-        with st.container(border=True, key="card_ex_actual"):
-            xa1, xa2 = st.columns([4, 1.3], vertical_alignment="center")
-            xa1.markdown(f"<div class='dev-hd'>Examen actual</div><div style='font-size:1.05rem;font-weight:700'>"
-                         f"{len(_cache_sel)} preguntas de test{f' · {_nd} de desarrollo' if _nd else ''}</div>"
-                         f"<div class='devq-s'>{_nf} fijas · {len(_cache_sel) - _nf} de la receta"
-                         f"{f' · {E.n_cambios()} cambios a mano en Preview' if E.n_cambios() else ''}"
-                         f"{' · bloqueado' if E.bloqueado() else ''} · se ve y se cambia en la pestaña Preview</div>",
-                         unsafe_allow_html=True)
-            if xa2.button("Fijar todo el examen", key="btn_fijar_todo", use_container_width=True,
-                          disabled=_nf == len(_cache_sel),
-                          help="Convierte todas las preguntas del examen en fijas y quita la receta: "
-                               "así puedes seguir trabajando a partir de este examen sin que la receta lo cambie."):
-                E.registrar("Fijar todo el examen", None)
-                set_sel_ids([p.get("ID_Pregunta") for p in _cache_sel])
-                st.session_state.auto_recipe = {}
-                notify("Las preguntas del examen son ahora fijas (la receta se ha quitado; puedes volver a ponerla).")
-                st.rerun()
-
-    # ── Objetivo + botón auto-relleno ─────────────────────────────────────────
-    oc1, oc2 = st.columns([3, 2])
-    with oc1:
-        n_obj = st.number_input(
-            "🎯 Objetivo (nº de preguntas)", min_value=1, max_value=200,
-            value=st.session_state.get("tgt_pregs", 20), key="tgt_pregs"
-        )
-    with oc2:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("🤖 Auto-relleno", use_container_width=True, key="btn_auto_dlg",
-                     help="Configurar selección automática por bloque / tema / dificultad",
-                     type="secondary"):
-            if get_estilo() == "bitacora":
-                st.session_state["_rec_pend"] = (st.session_state.get("auto_recipe", {}),
-                                                 st.session_state.get("auto_opts", {}))
-                _dialog_receta(n_obj)
-            else:
-                _dialog_autofill(n_obj)
+    if get_estilo() == "bitacora":
+        _resumen_seleccion(sel_ids_actual, _cache_sel)
+        n_obj = st.session_state.get("tgt_pregs", 20)
+    else:
+        # ── Objetivo + botón auto-relleno ─────────────────────────────────────────
+        oc1, oc2 = st.columns([3, 2])
+        with oc1:
+            n_obj = st.number_input(
+                "🎯 Objetivo (nº de preguntas)", min_value=1, max_value=200,
+                value=st.session_state.get("tgt_pregs", 20), key="tgt_pregs"
+            )
+        with oc2:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if st.button("🤖 Auto-relleno", use_container_width=True, key="btn_auto_dlg",
+                         help="Configurar selección automática por bloque / tema / dificultad",
+                         type="secondary"):
+                if get_estilo() == "bitacora":
+                    st.session_state["_rec_pend"] = (st.session_state.get("auto_recipe", {}),
+                                                     st.session_state.get("auto_opts", {}))
+                    _dialog_receta(n_obj)
+                else:
+                    _dialog_autofill(n_obj)
 
     # ── Resumen receta activa ─────────────────────────────────────────────────
     recipe = st.session_state.get("auto_recipe", {})
@@ -1609,10 +1692,14 @@ with tab_sel:
                                 f"máx. {_o['max_tema']} por tema" if _o.get("max_tema") else "",
                                 f"máx. {_o['max_obj']} por objetivo" if _o.get("max_obj") else "") if x]
             _chips = "".join(f"<span class='rec-chip'>{p}</span>" for p in parts)
-            rc1, rc2 = st.columns([9, 1.3], vertical_alignment="center")
+            rc1, rc0, rc2 = st.columns([9, 1.1, 1.3], vertical_alignment="center")
             rc1.markdown(f"<div class='rec-act'><b>Receta</b> <span class='rec-n'>{total_r} automáticas</span>"
                          f"{_chips}<small>{' · '.join(_ops)} · se eligen al pulsar «Generar» en Preview</small></div>",
                          unsafe_allow_html=True)
+            if rc0.button("Editar", key="btn_edit_recipe_sel", use_container_width=True):
+                st.session_state["_rec_pend"] = (st.session_state.get("auto_recipe", {}),
+                                                 st.session_state.get("auto_opts", {}))
+                _dialog_receta(st.session_state.get("tgt_pregs", 20))
             if rc2.button("Quitar receta", key="btn_clear_recipe_sel", use_container_width=True):
                 st.session_state["auto_recipe"] = {}
                 st.rerun()
@@ -1812,9 +1899,18 @@ with tab_sel:
     _bit_sel      = get_estilo() == "bitacora"   # Bitácora: tablas a medida
     _dlg_nonce    = st.session_state.get("_sel_dlg_nonce", 0)
     _open_preview = None   # pregunta a abrir en ventana en esta ejecución
-    if _prev_ventana:
+    col_side = None
+    if _prev_ventana and _bit_sel:
+        col_list, col_side = st.columns([1.65, 1], gap="medium")
+        col_prev = None
+        col_sel = col_side.container(border=True, key="card_sel_fijas")
+    elif _prev_ventana:
         col_list, col_sel = st.columns([3, 2])
         col_prev = None
+    elif _bit_sel:
+        col_list, col_side = st.columns([1.65, 1], gap="medium")
+        col_prev = col_side.container(border=True, key="card_sel_prev")
+        col_sel = col_side.container(border=True, key="card_sel_fijas")
     else:
         col_list, col_prev, col_sel = st.columns([2, 3, 2])
 
@@ -2035,6 +2131,10 @@ with tab_sel:
                 unsafe_allow_html=True,
             )
 
+    if col_side is not None:
+        with col_side.container(border=True, key="card_sel_cob"):
+            _cobertura_seleccion(sel_ids_actual, df_total)
+
     # ── Ventanas (solo una por ejecución) ─────────────────────────────────────
     if _prev_ventana:
         _edit_pid = st.session_state.pop("_sel_edit_pid", None)
@@ -2046,6 +2146,8 @@ with tab_sel:
             _dialog_sel_preview(_open_preview)
 
     # ── Panel de estadísticas de selección (tiempo real) ─────────────────────
+    _stats_box = (st.expander("Estadísticas de las fijas") if get_estilo() == "bitacora" else st.container())
+    _stats_box.__enter__()
     if sel_ids_actual:
         import plotly.graph_objects as go
         df_sel_stat = df_total[df_total["ID_Pregunta"].isin(sel_ids_actual)].copy()
@@ -2130,6 +2232,8 @@ with tab_sel:
             _m5.metric("Difícil",  n_dificil)
             for _alert in _alerts:
                 st.warning(_alert)
+    _stats_box.__exit__(None, None, None)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 · DESARROLLO

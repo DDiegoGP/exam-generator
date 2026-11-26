@@ -565,6 +565,20 @@ hr { border-color: var(--border) !important; }
 .st-key-exp_estado_vigente { background: var(--primary-soft); } .st-key-exp_estado_vigente strong { color: var(--primary); }
 .st-key-exp_estado_cambiado { background: var(--warn-bg); } .st-key-exp_estado_cambiado strong { color: var(--warn); }
 [class*="st-key-exp_estado_"] [data-testid="stButton"] button { padding: 0; min-height: 0; color: var(--err); }
+/* Selección: resumen «Tu examen» y cobertura por bloque */
+.st-key-card_sel_res { margin-bottom: 10px; }
+.st-key-card_sel_res [data-testid="stNumberInput"] label p { font-size: 12px; }
+.selr-n { font-size: 13.5px; color: var(--text2); margin-top: 2px; } .selr-n b { font-size: 1.35rem; color: var(--text); }
+.selr-bar { height: 7px; background: var(--track, #e4e8ef); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+.selr-bar div { height: 100%; border-radius: 99px; }
+.selr-l { font-size: 13.5px; line-height: 1.7; color: var(--text2); } .selr-l b { color: var(--text); }
+.selr-dif { display: flex; height: 10px; border-radius: 99px; overflow: hidden; margin: 6px 0 4px; background: var(--track, #e4e8ef); }
+.selc-r { display: grid; grid-template-columns: minmax(0, 1.2fr) 1fr 30px; gap: 8px; align-items: center; font-size: 13px; margin: 4px 0; }
+.selc-r span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .selc-r b { text-align: right; }
+.selc-r.v span, .selc-r.v b { color: var(--err); }
+.selc-bar { display: flex; height: 8px; border-radius: 99px; overflow: hidden; background: var(--track, #e4e8ef); }
+.selc-bar .f { background: var(--primary); } .selc-bar .r { background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary); }
+.st-key-card_sel_prev, .st-key-card_sel_fijas { margin-bottom: 10px; }
 
 /* ── Cabecera de bloque (preview) ── */
 .bloque-header { background: var(--card2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
