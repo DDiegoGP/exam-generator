@@ -634,7 +634,7 @@ def _dialog_receta(n_obj: int):
         ss["_rec_saving"] = not ss.get("_rec_saving", False)
     if f3.button("Usar esta receta", type="primary", key="rec_save", use_container_width=True):
         ss["auto_recipe"], ss["auto_opts"] = _receta_dict(), opts
-        notify(f"✅ Receta lista: {n_rec} preguntas automáticas. Se eligen al pulsar «Generar» en Preview.")
+        notify(f"✅ Receta lista: {n_rec} preguntas automáticas. Se eligen al pulsar «Generar» en Generar.")
         st.rerun()
     if ss.get("_rec_saving"):
         s1, s2 = st.columns([3, 1], vertical_alignment="bottom")
@@ -959,7 +959,7 @@ def _desarrollo_bitacora():
         ok = abs(pts_dev - pts_fund_cfg) < 0.01
         sub_tot = "cuadra con lo configurado en Exportar" if ok else f"en Exportar figuran {pts_fund_cfg:g} pts de desarrollo"
     else:
-        ok, sub_tot = True, "puntos de desarrollo y test (Exportar › Examen)"
+        ok, sub_tot = True, "puntos de desarrollo y test (Ver y exportar › Examen)"
     st.markdown(kpi_html([
         ("Desarrollo", len(dev_qs), f"pregunta{'s' if len(dev_qs) != 1 else ''} · {pts_dev:g} puntos", False),
         ("Test", n_test, f"preguntas · {pts_test:g} puntos" if pts_test else "preguntas", False),
@@ -1226,6 +1226,82 @@ def _avisos_preguntas(cache):
     return out
 
 
+def _sustituir(i: int, nueva: dict):
+    ss = st.session_state
+    _antes = E.snap()
+    cache = ss.cache_examen = list(ss.cache_examen)
+    _old = cache[i].get("ID_Pregunta")
+    cache[i] = nueva
+    E.registrar(f"Cambiada la {i + 1} ({_old} → {nueva.get('ID_Pregunta')})", "cambiadas", _antes)
+    notify(f"Pregunta {i + 1} cambiada por {nueva.get('ID_Pregunta')}.")
+
+
+@st.dialog("Cambiar pregunta", width="large")
+def _dlg_cambiar(i: int):
+    """Elige la pregunta que sustituye a la i: mismo tema o bloque, misma dificultad o cualquiera, fuera del examen."""
+    import analisis_lib as _A
+    ss = st.session_state
+    cache = ss.cache_examen
+    p = cache[i]
+    df = ss.df_preguntas
+    dentro = {x.get("ID_Pregunta") for x in cache}
+    st.markdown(f"<div class='cb-act'><span>Pregunta {i + 1} · {p.get('ID_Pregunta')} · {nombre_bloque(str(p.get('bloque', '')))} · "
+                f"T{str(p.get('Tema', '')).removesuffix('.0')} · {p.get('dificultad', '')}</span>"
+                f"<b>{str(p.get('enunciado', ''))[:220]}</b></div>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1.1, 1.1, 1.6], vertical_alignment="bottom")
+    amb = c1.radio("De dónde", ["Mismo tema", "Todo el bloque"], horizontal=True, key=f"cb_amb_{i}")
+    dif = c2.radio("Dificultad", [f"{p.get('dificultad', '')}", "Cualquiera"], horizontal=True, key=f"cb_dif_{i}")
+    q = c3.text_input("Buscar", key=f"cb_q_{i}", placeholder="Buscar en el enunciado o el ID", label_visibility="collapsed")
+    cand = df[(df["bloque"] == p.get("bloque")) & (~df["ID_Pregunta"].isin(dentro))]
+    if amb == "Mismo tema":
+        cand = cand[cand["Tema"].astype(str).str.removesuffix(".0") == str(p.get("Tema", "")).removesuffix(".0")]
+    if dif != "Cualquiera":
+        cand = cand[cand["dificultad"].map(_dif_norm) == _dif_norm(p.get("dificultad", ""))]
+    if q.strip():
+        ql = q.strip().lower()
+        cand = cand[cand["enunciado"].astype(str).str.lower().str.contains(ql, regex=False)
+                    | cand["ID_Pregunta"].astype(str).str.lower().str.contains(ql, regex=False)]
+    cand = cand.assign(_u=cand["usada"].astype(str).str.strip().replace({"nan": "", "None": ""}).replace("", "0000")).sort_values("_u")
+    res = _A.get_resultados(ss.get("excel_dfs", {}))
+    ult = {}
+    if not res.empty:
+        for _, r in res.sort_values("Fecha").groupby("ID_Pregunta").tail(1).iterrows():
+            ult[r["ID_Pregunta"]] = r
+    st.caption(f"{len(cand)} pregunta(s) que no están en el examen · primero las nunca usadas y las usadas hace más tiempo")
+    with st.container(height=430, key="cb_lista"):
+        if cand.empty:
+            st.info("No hay preguntas con estos criterios. Prueba con «Todo el bloque» o «Cualquiera».")
+        for r in cand.head(40).to_dict("records"):
+            u = str(r.get("usada", "") or "").strip()[:10]
+            u = "" if u in ("nan", "None") else u
+            an = ult.get(r["ID_Pregunta"])
+            an_txt = ""
+            if an is not None and str(an["Pct_Acierto"]).strip():
+                an_txt = f"<span class='pv-chip m'>{float(an['Pct_Acierto']):.0f}% aciertos en {an['ID_Examen']}</span>"
+            ops = r.get("opciones_list") or []
+            corr = {"A": 0, "B": 1, "C": 2, "D": 3}.get(str(r.get("letra_correcta", "")).upper(), -1)
+            with st.container(border=True, key=f"cb_c_{r['ID_Pregunta']}"):
+                h1, h2 = st.columns([5, 1], vertical_alignment="center")
+                dk = _dif_norm(r.get("dificultad", ""))
+                h1.markdown(f"<div class='pv-meta'><span class='id'>{r['ID_Pregunta']}</span>"
+                            f"<span>T{str(r.get('Tema', '')).removesuffix('.0')}</span>"
+                            f"<span class='pv-chip {'f' if dk == 'facil' else ('d' if dk == 'dificil' else 'm')}'>{r.get('dificultad', '')}</span>"
+                            f"<span class='pv-chip {'u' if u else 'n'}'>{'usada ' + u if u else 'nunca usada'}</span>{an_txt}</div>",
+                            unsafe_allow_html=True)
+                if h2.button("Elegir", type="primary", key=f"cb_ok_{r['ID_Pregunta']}", use_container_width=True):
+                    _sustituir(i, {k: v for k, v in r.items() if k != "_u"})
+                    st.rerun()
+                st.markdown(f"<div class='cb-en'>{r.get('enunciado', '')}</div>"
+                            + "".join(f"<div class='cb-op{' ok' if j == corr else ''}'>{'abcd'[j]}) {o}{' ✓' if j == corr else ''}</div>"
+                                      for j, o in enumerate(ops[:4])), unsafe_allow_html=True)
+    b1, b2 = st.columns(2)
+    if b1.button("Elegir al azar (la menos usada)", key=f"cb_azar_{i}", use_container_width=True, disabled=cand.empty):
+        _sustituir(i, cand.iloc[0].drop(labels=["_u"]).to_dict())
+        st.rerun()
+    if b2.button("Cancelar", key=f"cb_no_{i}", use_container_width=True):
+        st.rerun()
+
+
 def _cambiar_pregunta(i: int) -> bool:
     """Sustituye la pregunta i de la vista previa por otra del mismo tema y dificultad (la menos usada)."""
     ss = st.session_state
@@ -1360,14 +1436,7 @@ def _preview_bitacora(cache, show_sol, vista):
         if accion:
             t, i = accion
             if t == "cambiar":
-                _antes = E.snap()
-                _old = cache[i].get("ID_Pregunta")
-                ss.cache_examen = list(cache)
-                if _cambiar_pregunta(i):
-                    E.registrar(f"Cambiada la {i + 1} ({_old} → {ss.cache_examen[i].get('ID_Pregunta')})", "cambiadas", _antes)
-                    st.toast("Pregunta cambiada por otra del mismo tema y dificultad", icon="↻")
-                else:
-                    st.toast("No hay otra pregunta del mismo bloque y dificultad disponible", icon="⚠️")
+                _dlg_cambiar(i)          # ventana para elegir la sustituta (no recarga la página)
             elif t == "editar":
                 ss["_open_q"] = cache[i].get("ID_Pregunta")
             elif t == "fijar":
@@ -1382,7 +1451,8 @@ def _preview_bitacora(cache, show_sol, vista):
                 E.registrar(f"Quitada la {i + 1} ({cache[i].get('ID_Pregunta')})", "quitadas")
                 cache = ss.cache_examen = list(cache)
                 cache.pop(i)
-            st.rerun()
+            if t != "cambiar":
+                st.rerun()
 
     # ── Panel lateral ──
     with col_p.container(key="pv_panel"):
@@ -1553,7 +1623,7 @@ def _historial_bd():
             elif h[5].button("Análisis", key=f"hb_an_{r['ID_Examen']}", use_container_width=True):
                 ss["_an_exam_next"] = r["ID_Examen"]
                 st.switch_page("pages/5_Analisis.py")
-    st.caption("«Abrir» carga el examen en Selección, Desarrollo y Preview. Los exportados e importados se abren "
+    st.caption("«Abrir» carga el examen en Selección, Desarrollo y Generar. Los exportados e importados se abren "
                "bloqueados y con sus modelos exactos; los borradores, para seguir trabajando.")
     st.page_link("pages/6_Examenes.py", label="Todos los exámenes, con su ficha, importar exámenes anteriores, editar y borrar ›")
 
@@ -1608,8 +1678,8 @@ def _resumen_seleccion(sel_ids, cache):
                         unsafe_allow_html=True)
         c2.markdown("<div class='dev-hd'>De dónde salen</div>"
                     f"<div class='selr-l'><b>{n_fx}</b> fijas (elegidas a mano)<br><b>{n_rec}</b> de la receta"
-                    + (f"<br><b>{E.n_cambios()}</b> cambios a mano en Preview" if E.n_cambios() else "")
-                    + ("<br>generado en Preview" if cache else "<br><span class='devq-s'>aún sin generar</span>")
+                    + (f"<br><b>{E.n_cambios()}</b> cambios a mano en Generar" if E.n_cambios() else "")
+                    + ("<br>generado en Generar" if cache else "<br><span class='devq-s'>aún sin generar</span>")
                     + (" · bloqueado" if E.bloqueado() else "") + "</div>", unsafe_allow_html=True)
         c3.markdown("<div class='dev-hd'>Dificultad prevista</div>"
                     f"<div class='selr-dif'><div style='width:{d_tot['facil'] / tt * 100:.0f}%;background:var(--ok)'></div>"
@@ -1634,7 +1704,7 @@ def _resumen_seleccion(sel_ids, cache):
                 notify("Las preguntas del examen son ahora fijas (la receta se ha quitado; puedes volver a ponerla).")
                 st.rerun()
             if not cache:
-                st.caption("Pulsa «Generar» en Preview para ver el examen.")
+                st.caption("Pulsa «Generar» en Generar para ver el examen.")
 
 
 def _cobertura_seleccion(sel_ids, df):
@@ -1659,7 +1729,7 @@ def _cobertura_seleccion(sel_ids, df):
 
 
 tab_sel, tab_dev, tab_prev, tab_exp, tab_hist = st.tabs(
-    ["🔢 Selección", "✍️ Desarrollo", "👁️ Preview", "💾 Exportar", "📋 Historial"]
+    ["🔢 Selección", "✍️ Desarrollo", "👁️ Generar", "💾 Ver y exportar", "📋 Historial"]
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1716,7 +1786,7 @@ with tab_sel:
             _chips = "".join(f"<span class='rec-chip'>{p}</span>" for p in parts)
             rc1, rc0, rc2 = st.columns([9, 1.1, 1.3], vertical_alignment="center")
             rc1.markdown(f"<div class='rec-act'><b>Receta</b> <span class='rec-n'>{total_r} automáticas</span>"
-                         f"{_chips}<small>{' · '.join(_ops)} · se eligen al pulsar «Generar» en Preview</small></div>",
+                         f"{_chips}<small>{' · '.join(_ops)} · se eligen al pulsar «Generar» en Generar</small></div>",
                          unsafe_allow_html=True)
             if rc0.button("Editar", key="btn_edit_recipe_sel", use_container_width=True):
                 st.session_state["_rec_pend"] = (st.session_state.get("auto_recipe", {}),
@@ -3960,7 +4030,7 @@ def _paso_preparar(n_total, n_recipe):
             st.caption("Elige preguntas en Selección (o pon una receta) para poder prepararlo.")
             return
         if n_recipe > 0 and not ss.get("cache_examen"):
-            st.caption("Tienes una receta: pulsa «Generar» en Preview para fijar las preguntas antes de prepararlo.")
+            st.caption("Tienes una receta: pulsa «Generar» en Generar para fijar las preguntas antes de prepararlo.")
             return
         if E.bloqueado():
             st.caption("Examen abierto bloqueado: se preparan sus modelos y claves exactos.")
@@ -4290,7 +4360,7 @@ def _dialog_preview_examen():
         pool_p = []
 
     if not pool_p and not dev_qs:
-        st.warning("No hay preguntas seleccionadas. Ve a **👁️ Preview** y pulsa **🎲 Generar** primero.")
+        st.warning("No hay preguntas seleccionadas. Ve a **Generar** y pulsa **🎲 Generar** primero.")
         return
 
     cfg = st.session_state.get("exam_cfg", {})
@@ -5204,7 +5274,7 @@ with tab_exp:
             if n_total == 0:
                 st.caption("⚠️ Ve a la pestaña **Selección** para elegir preguntas o configura un relleno automático.")
             elif _need_preview:
-                st.caption("⚠️ Tienes una receta automática. Ve a **👁️ Preview** y pulsa **🎲 Generar** para fijar las preguntas antes de exportar.")
+                st.caption("⚠️ Tienes una receta automática. Ve a **Generar** y pulsa **🎲 Generar** para fijar las preguntas antes de exportar.")
 
 
         # Bitácora: descargas y compilación en dos pestañas; Clásico: una debajo de otra
@@ -5532,7 +5602,7 @@ with tab_hist:
                                                use_container_width=True,
                                                help="Recupera toda la configuración de exportación (institución, tipo, fecha, estilo…)"):
                     st.session_state.exam_cfg = dict(exam_cfg_e)
-                    notify("Configuración restaurada. Ve a la pestaña Exportar.")
+                    notify("Configuración restaurada. Ve a la pestaña Ver y exportar.")
                     st.rerun()
                 if _ha3.button("↩️+↺ Ambos", key=f"hist_both_{i}",
                                use_container_width=True,
@@ -5567,7 +5637,7 @@ with tab_hist:
                 st.session_state["recovery_mode"] = True  # activa modo recuperación
                 st.success(
                     f"✅ Recuperadas {len(valid)} de {len(ids_csv)} preguntas del CSV. "
-                    "Ve a **Preview** — el botón Generar está bloqueado "
+                    "Ve a **Generar** — el botón Generar está bloqueado "
                     "(pulsa 🔓 Desbloquear si quieres modificarlo)."
                 )
                 st.rerun()

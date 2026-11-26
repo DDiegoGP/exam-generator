@@ -582,6 +582,12 @@ hr { border-color: var(--border) !important; }
 .pvh-r span { color: var(--muted); min-width: 16px; font-family: var(--mono); font-size: 12px; }
 .pvh-r.u { background: var(--primary-soft); color: var(--text); font-weight: 600; }
 .pvh-r.d { color: var(--muted); font-style: italic; }
+/* Generar › Cambiar pregunta */
+.cb-act { background: var(--card2); border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; }
+.cb-act span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; } .cb-act b { font-size: 14px; }
+.cb-en { font-weight: 600; font-size: 14px; margin: 4px 0 6px; line-height: 1.45; }
+.cb-op { font-size: 13.5px; padding: 2px 8px; border-radius: 6px; color: var(--text2); }
+.cb-op.ok { background: var(--ok-bg); color: var(--ok); font-weight: 600; }
 [class*="st-key-exp_estado_"] { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
 .st-key-exp_estado_ninguno { background: var(--ok-bg); } .st-key-exp_estado_ninguno strong { color: var(--ok); }
 .st-key-exp_estado_vigente { background: var(--primary-soft); } .st-key-exp_estado_vigente strong { color: var(--primary); }
