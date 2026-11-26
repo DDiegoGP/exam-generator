@@ -968,7 +968,13 @@ def _desarrollo_bitacora():
     ], compact=True), unsafe_allow_html=True)
 
     # ── Lista: preguntas de este examen ──
-    h1, h2, h3, h4, h5 = st.columns([2.2, 1.1, 1.5, 1.2, 1.1], vertical_alignment="center")
+    h1, h2, h3, h4, h5, h6 = st.columns([1.9, 1, 1.45, 1.1, 1.15, 1.05], vertical_alignment="center")
+    with h6:
+        _nuevas_txt = DU.ui_importar_texto("dev_txt", "al examen")
+    if _nuevas_txt:
+        dev_qs.extend(_nuevas_txt)
+        notify(f"✅ {len(_nuevas_txt)} pregunta(s) añadidas al examen desde texto.")
+        st.rerun()
     h1.markdown("<div class='sec-title' style='margin:0'>Preguntas de este examen</div>", unsafe_allow_html=True)
     if h2.button("➕ Nueva", key="dev_nueva", type="primary", use_container_width=True):
         q = DU.nueva()
@@ -3518,6 +3524,7 @@ def _ejecutar_export(previa: bool = False):
             _partes_i.append(str(_p.get("ID_Pregunta", "")))
         _p["_info_sol"] = " · ".join(x for x in _partes_i if x)
     cfg_export = {
+        "preambulo_extra":   cfg.get("preambulo_extra", ""),
         "titulo_asignatura": cfg.get("asig", ""),
         "tipo_examen":       cfg.get("tipo", ""),
         "entidad":           cfg.get("inst", ""),
@@ -3549,6 +3556,8 @@ def _ejecutar_export(previa: bool = False):
                 "datos_ids":      q.get("datos_ids", ""),
                 "subapartados":   q.get("subapartados", []),
                 "numeracion_apt": q.get("numeracion_apt", "abc"),
+                "_tikz_png":      ([__import__("figuras").png(b_, cfg.get("preambulo_extra", ""))
+                                    for b_ in __import__("figuras").bloques(q["txt"])] if exp_word else []),
             }
             for di, q in enumerate(st.session_state.get("dev_questions", []))
         ],
@@ -4868,6 +4877,13 @@ with tab_exp:
 
         with _g_tpl:
             # ── 6. Plantillas ─────────────────────────────────────────────────────
+            with _sec_exp("Paquetes LaTeX extra", False):
+                preambulo_extra = st.text_area(
+                    "Se añaden al preámbulo del LaTeX (por ejemplo, librerías de TikZ que no estén ya)",
+                    value=cfg.get("preambulo_extra", ""), height=80, key="exp_preambulo",
+                    placeholder="\\usetikzlibrary{3d}\n\\usepackage{siunitx}",
+                    help="Ya se cargan solas las librerías habituales de TikZ (flechas, cálculo, posiciones, ángulos, "
+                         "tramas…); pgfplots y circuitikz se añaden si alguna figura los usa.")
             with _sec_exp("Plantillas (Word / LaTeX / Logo)", False):
                 st.caption("Se suben por sesión. Los presets guardan la configuración pero no la plantilla.")
                 tc1, tc2, tc3    = st.columns(3)
@@ -4934,6 +4950,7 @@ with tab_exp:
             "exp_word": exp_word, "exp_tex": exp_tex,
             "sol_bold": sol_bold, "sol_color": sol_color, "sol_ast": sol_ast,
             "anc_chk": anclaje_auto, "anc_txt": anclaje_extra,
+            "preambulo_extra": preambulo_extra,
             # Estilo visual
             "color_scheme": color_scheme, "tipografia": tipografia,
             "font_size": font_size_val,

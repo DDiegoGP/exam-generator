@@ -743,7 +743,14 @@ def _gestor_desarrollo():
         _gestor_desarrollo_editor(ss["_gdes_q"])
         return
     banco = DU.get_banco(ss.excel_dfs)
-    a1, a2, a3 = st.columns([3.2, 1.3, 1.3], vertical_alignment="center")
+    a1, a0, a2, a3 = st.columns([2.6, 1.2, 1.3, 1.3], vertical_alignment="center")
+    with a0:
+        _nuevas_txt = DU.ui_importar_texto("gdes_txt", "al banco")
+    if _nuevas_txt:
+        for _q in _nuevas_txt:
+            DU.guardar_en_banco(_q, nueva_copia=True)
+        notify(f"✅ {len(_nuevas_txt)} pregunta(s) añadidas al banco desde texto.")
+        st.rerun()
     a1.caption("Banco de preguntas de desarrollo (hoja «Desarrollo» de la base de datos). Se eligen en Generador › Desarrollo.")
     with a2.popover("⬆ Importar JSON", use_container_width=True):
         st.caption("Sube al banco las preguntas guardadas con el botón JSON de Desarrollo (las imágenes no se guardan en el banco).")

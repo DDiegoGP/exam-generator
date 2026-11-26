@@ -220,6 +220,15 @@ def banco_como_tabla(banco: pd.DataFrame) -> pd.DataFrame:
 
 # ── Vista HTML (para la vista en directo y la vista previa LaTeX) ────────────
 def md_html(text: str) -> str:
+    """Markdown + LaTeX → HTML para la vista previa; las figuras TikZ se muestran como imagen."""
+    import figuras
+    if figuras.tiene(text):
+        extra = (st.session_state.get("exam_cfg") or {}).get("preambulo_extra", "")
+        return figuras.html(text, _md_html_base, extra)
+    return _md_html_base(text)
+
+
+def _md_html_base(text: str) -> str:
     math = []
 
     def keep(m):
@@ -266,6 +275,160 @@ def vista_html(q: dict, con_sol: bool, n: int = 1, datos_txt: str = "") -> str:
     return h + "</div>"
 
 
+# ── Importar desde texto ─────────────────────────────────────────────────────
+FORMATO_TEXTO = r"""## Un haz de ultrasonidos de 5 MHz incide sobre la interfase músculo–hueso.
+\begin{tikzpicture}
+  \draw[->] (0,0) -- (2,0) node[right] {$x$};
+\end{tikzpicture}
+a) [1 pt] Calcula el coeficiente de reflexión $R$.
+Solución: $$R = \left(\frac{Z_h - Z_m}{Z_h + Z_m}\right)^2 \approx 0{,}41$$
+Criterio: Planteamiento de R | 0,5
+Criterio: Cálculo con unidades | 0,5
+b) [1 pt] ¿Qué fracción llega al hueso?
+Solución: $T = 1 - R$
+Bloque: III · Tema: 9 · Dificultad: Media
+
+## Siguiente pregunta…"""
+
+_CLAVES_TXT = ("solución", "solucion", "criterio", "bloque", "tema", "dificultad", "puntos", "espacio", "etiqueta", "objetivo")
+
+
+def parse_texto(texto: str, bloques: list | None = None) -> tuple:
+    """Texto plano con LaTeX (y figuras TikZ) → (preguntas, avisos). Formato: FORMATO_TEXTO."""
+    import figuras
+    qs, avisos = [], []
+    q = apt = None
+    campo = None            # dónde va la línea siguiente: ("txt",) | ("apt",) | ("sol_apt",) | ("sol",)
+    en_fig = False
+
+    def _num(x):
+        try:
+            return float(str(x).replace(",", ".").strip())
+        except ValueError:
+            return None
+
+    def _bloque(v):
+        v = v.strip()
+        for b in bloques or []:
+            if v.lower() == str(b).lower() or str(b).lower().endswith(" " + v.lower()):
+                return b
+        return ("BLOQUE " + v) if re.fullmatch(r"[IVXLC]+", v.upper()) else v
+
+    def _add(texto_):
+        nonlocal q, apt
+        if campo == "txt":
+            q["txt"] += texto_
+        elif campo == "apt":
+            apt["enunciado"] += texto_
+        elif campo == "sol_apt":
+            apt["solucion"] += texto_
+        elif campo == "sol":
+            q["solucion_modelo"] += texto_
+
+    for linea in (texto or "").splitlines():
+        l = linea.rstrip()
+        empieza = re.search(r"\\begin\{(tikzpicture|circuitikz)\}", l)
+        if en_fig or empieza:          # dentro de una figura: todo es código, nada de marcadores
+            if q is not None and campo:
+                _add("\n" + l)
+            if empieza:
+                en_fig = True
+            if re.search(r"\\end\{(tikzpicture|circuitikz)\}", l):
+                en_fig = False
+            continue
+        m = re.match(r"^#{2,3}\s*(.*)$", l)
+        if m:
+            q = nueva()
+            q["txt"] = m.group(1).strip()
+            qs.append(q)
+            apt, campo = None, "txt"
+            continue
+        if q is None:
+            continue
+        m = re.match(r"^\s*([a-z]|[ivx]{1,4}|\d{1,2})\)\s*(?:\[\s*([\d.,]+)\s*pts?\.?\s*\])?\s*(.*)$", l, re.I)
+        if m and not l.lower().startswith(_CLAVES_TXT):
+            apt = {"enunciado": m.group(3).strip(), "puntos": _num(m.group(2)) if m.group(2) else 1.0, "espacio": "5cm",
+                   "solucion": "", "imagen_bytes": None, "imagen_name": "", "imagen_pos": "debajo"}
+            q["subapartados"].append(apt)
+            if m.group(1).lower() in ("i", "ii", "iii", "iv", "v") and len(q["subapartados"]) == 1 and m.group(1).lower() == "i":
+                q["numeracion_apt"] = "roman"
+            elif m.group(1).isdigit():
+                q["numeracion_apt"] = "num"
+            campo = "apt"
+            continue
+        m = re.match(r"^\s*soluci[oó]n\s*:\s*(.*)$", l, re.I)
+        if m:
+            campo = "sol_apt" if apt is not None else "sol"
+            _add(m.group(1).strip())
+            continue
+        m = re.match(r"^\s*criterio\s*:\s*(.*?)\s*(?:\|\s*([\d.,]+))?\s*$", l, re.I)
+        if m:
+            q["criterios"].append({"desc": m.group(1).strip(), "pts": _num(m.group(2)) or 0.5, "incremento": 0.25,
+                                   "apartado": (len(q["subapartados"]) - 1) if apt is not None else None})
+            continue
+        if re.match(r"^\s*(bloque|tema|dificultad|puntos|espacio|etiqueta|objetivo)\s*:", l, re.I):
+            for k, v in re.findall(r"(bloque|tema|dificultad|puntos|espacio|etiqueta|objetivo)\s*:\s*([^·|;]+)", l, re.I):
+                k, v = k.lower(), v.strip()
+                if k == "bloque":
+                    q["bloque"] = _bloque(v)
+                elif k == "tema":
+                    q["tema"] = v.removesuffix(".0")
+                elif k == "dificultad":
+                    q["dificultad"] = {"facil": "Facil", "fácil": "Facil", "media": "Media", "dificil": "Dificil",
+                                       "difícil": "Dificil"}.get(v.lower(), v.title())
+                elif k == "puntos":
+                    q["pts"] = _num(v) or q["pts"]
+                elif k == "espacio":
+                    q["espacio"] = v
+                elif k in ("etiqueta", "objetivo"):
+                    q[k] = v
+            campo = None
+            continue
+        if campo:
+            _add("\n" + l)
+    for i, qq in enumerate(qs):
+        for k in ("txt", "solucion_modelo"):
+            qq[k] = qq[k].strip()
+        for a in qq["subapartados"]:
+            a["enunciado"], a["solucion"] = a["enunciado"].strip(), a["solucion"].strip()
+        if not qq["txt"]:
+            avisos.append(f"La pregunta {i + 1} no tiene enunciado.")
+    return [normalizar(x) for x in qs if x["txt"] or x["subapartados"]], avisos
+
+
+def ui_importar_texto(k: str, destino: str):
+    """Pegar preguntas de desarrollo en texto plano (con LaTeX y TikZ). Devuelve la lista para añadir o None."""
+    import figuras
+    with st.popover("Desde texto", use_container_width=True):
+        st.markdown("Pega una o varias preguntas. Cada pregunta empieza por `##`; los apartados por `a)` (con `[1 pt]` "
+                    "opcional); `Solución:` y `Criterio: texto | puntos` van detrás de lo que corresponda; al final, "
+                    "`Bloque: … · Tema: … · Dificultad: …`. Las fórmulas, tal cual (`$…$`, `$$…$$`) y las figuras como "
+                    "`\\begin{tikzpicture}…\\end{tikzpicture}`.")
+        with st.expander("Ver un ejemplo"):
+            st.code(FORMATO_TEXTO, language="latex")
+        txt = st.text_area("Texto", height=260, key=f"{k}_txt", label_visibility="collapsed",
+                           placeholder="## Enunciado de la pregunta…")
+        if not txt.strip():
+            return None
+        qs, avisos = parse_texto(txt, list(st.session_state.get("bloques") or []))
+        for a in avisos:
+            st.warning(a)
+        if not qs:
+            st.caption("No se ha reconocido ninguna pregunta (¿falta el `##` del principio?).")
+            return None
+        st.markdown(f"**{len(qs)} pregunta(s) reconocidas:**")
+        for i, q in enumerate(qs, 1):
+            nf = sum(len(figuras.bloques(x)) for x in [q["txt"], q["solucion_modelo"]]
+                     + [a["enunciado"] + a["solucion"] for a in q["subapartados"]])
+            st.markdown(f"<div class='devq-s'>{i}. {re.sub(chr(92) + 'begin.*', '…', q['txt'])[:90]} · "
+                        f"{len(q['subapartados'])} apartados · {len(q['criterios'])} criterios"
+                        f"{f' · {nf} figura(s)' if nf else ''} · {q['bloque'] or 'sin bloque'}</div>", unsafe_allow_html=True)
+        if st.button(f"Añadir {len(qs)} {destino}", type="primary", key=f"{k}_ok", use_container_width=True):
+            st.session_state.pop(f"{k}_txt", None)
+            return qs
+    return None
+
+
 # ── Editor ────────────────────────────────────────────────────────────────────
 def _toolbar(k: str, campo: str, q_get, q_set, grupos):
     """Barras de inserción en una fila compacta; cada botón añade el fragmento al final del texto."""
@@ -304,6 +467,10 @@ def editor(q: dict, k: str, bloques: list, en_examen: bool = True, pts_en_editor
     apts = q["subapartados"]
     md = q.get("modo", "markdown") == "markdown"
 
+    import figuras
+    figuras.boton([q.get("txt", ""), q.get("solucion_modelo", "")]
+                  + [x.get("enunciado", "") + "\n" + x.get("solucion", "") for x in apts], k,
+                  (ss.get("exam_cfg") or {}).get("preambulo_extra", ""))
     t_en, t_ap, t_so, t_ru, t_cl, t_pv = st.tabs(["Enunciado", "Apartados", "Solución", "Rúbrica", "Clasificación",
                                                   "Vista previa (LaTeX)"])
     grupos = [("TEXTO", SN_TEXT_MD if md else SN_TEXT_TEX), ("MATEMÁTICAS", SN_MATH), ("FÍSICA MÉDICA", SN_PHYS)]

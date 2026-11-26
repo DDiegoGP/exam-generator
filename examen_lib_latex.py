@@ -858,7 +858,20 @@ def _parse_markdown_runs(paragraph, text, font_name='Calibri', font_size=None):
 def _markdown_to_latex(text, modo='markdown'):
     """Convierte texto Markdown (con math $...$) a LaTeX.
     modo='latex': pasa directamente sin procesar (el usuario ya escribió LaTeX).
-    modo='markdown': convierte bold/italic y escapa el resto, protegiendo $...$ math."""
+    modo='markdown': convierte bold/italic y escapa el resto, protegiendo $...$ math.
+    Las figuras TikZ (tikzpicture, circuitikz) pasan siempre tal cual, centradas."""
+    if modo != 'latex':
+        import re as _rt
+        _pat = _rt.compile(r"\\begin\{(tikzpicture|circuitikz)\}.*?\\end\{\1\}", _rt.DOTALL)
+        _txt = str(text)
+        if _pat.search(_txt):
+            _out, _last = [], 0
+            for _m in _pat.finditer(_txt):
+                _out.append(_markdown_to_latex(_txt[_last:_m.start()], modo))
+                _out.append("\n\\begin{center}\n" + _m.group(0) + "\n\\end{center}\n")
+                _last = _m.end()
+            _out.append(_markdown_to_latex(_txt[_last:], modo))
+            return "".join(_out)
     if modo == 'latex':
         return _fix_text_superscripts(str(text))
     import re as _re
@@ -2259,6 +2272,8 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 apendice += '\\end{enumerate}\n'
                 tex = tex.replace('\\end{document}', apendice + '\\end{document}')
 
+        import figuras as _fig      # librerías TikZ/pgfplots/circuitikz y preámbulo extra, solo si hacen falta
+        tex = _fig.inyectar_preambulo(tex, cfg.get('preambulo_extra', ''))
         result[m['letra_version']] = tex
     return result
 
@@ -2411,12 +2426,19 @@ def rellenar_plantilla_word_bytes(master, nombre, cfg, tpl_bytes=None, modo_solu
                     p_fund = _insert_paragraph_after(ins_after)
                     r_num_f = p_fund.add_run(f"{ci+1}. ")
                     r_num_f.bold = True; r_num_f.font.name = font_name; r_num_f.font.size = Pt(font_size)
-                    _parse_markdown_runs(p_fund, c['txt'], font_name=font_name, font_size=font_size)
+                    import figuras as _fig
+                    _parse_markdown_runs(p_fund, _fig.sin_figuras(c['txt']), font_name=font_name, font_size=font_size)
                     if pts_q:
                         r_pts = p_fund.add_run(f"  ({pts_q} pts)")
                         r_pts.italic = True; r_pts.font.name = font_name; r_pts.font.size = Pt(font_size - 1)
                     _keep_together(p_fund)
                     ins_after = p_fund
+                    for _png in (c.get('_tikz_png') or []):      # figuras TikZ → imagen en Word
+                        if _png:
+                            p_tk = _insert_paragraph_after(ins_after)
+                            from docx.shared import Cm as _CmT
+                            p_tk.add_run().add_picture(_io2.BytesIO(_png), width=_CmT(10))
+                            ins_after = p_tk
 
                     # Imagen debajo del enunciado / al lado (Word no soporta flotante real, se pone debajo)
                     if img_bytes and img_pos in ('debajo', 'lado'):

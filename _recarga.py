@@ -11,7 +11,7 @@ import importlib
 import os
 import sys
 
-_ORDEN = ["examen_lib_latex", "analisis_lib", "clasificador", "app_theme", "app_utils", "desarrollo_ui", "examen_estado", "importar_examen"]   # dependencias primero
+_ORDEN = ["examen_lib_latex", "analisis_lib", "clasificador", "app_theme", "app_utils", "figuras", "desarrollo_ui", "examen_estado", "importar_examen"]   # dependencias primero
 
 
 def comprobar():
