@@ -4079,7 +4079,16 @@ def _paso_definitivo(ef):
                "como usadas. Antes de eso nada se guarda en la base de datos.")
 
 
-_SEC_ABIERTAS = {"Datos del examen", "Formatos y versión con soluciones", "Hoja de respuestas", "Presets de configuración"}
+_SEC_ABIERTAS = {"Datos del examen", "Aspecto general", "Hoja de respuestas", "Presets de configuración"}
+
+
+def _seg(donde, etiqueta: str, opciones: dict, key: str, actual):
+    """Selector segmentado (pocas opciones); si se deselecciona, mantiene el valor actual."""
+    if key in st.session_state and st.session_state[key] not in opciones:
+        st.session_state.pop(key)
+    v = donde.segmented_control(etiqueta, list(opciones), format_func=lambda x: opciones[x], key=key,
+                                default=actual if actual in opciones else next(iter(opciones)))
+    return actual if v is None else v
 
 
 def _sec_exp(titulo: str, abierto: bool = True):
@@ -4694,47 +4703,6 @@ with tab_exp:
                     st.caption("Dos documentos independientes: **_DEV** (desarrollo, A4) y **_TEST** (test, con opción 2-por-hoja).")
             campos_alumno = _campos_sel
 
-        with _g_fmt:
-            # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
-            with _sec_exp("Formatos y versión con soluciones", True):
-                st.markdown("<div class='exp-sub'>Formatos de exportación</div>", unsafe_allow_html=True)
-                fc1, fc2, fc3 = st.columns(3)
-                fc1.markdown("📊 **CSV** (siempre)", help="Clave de respuestas y metadatos — siempre se generan")
-                exp_word = fc2.checkbox("Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
-                exp_tex  = fc3.checkbox("LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
-                if exp_tex:
-                    st.caption("LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
-                st.markdown("<div class='exp-sub'>Marcado de la versión soluciones</div>", unsafe_allow_html=True)
-                sc1, sc2, sc3 = st.columns(3)
-                sol_bold = sc1.checkbox("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
-                _color_opts = {"": "Sin color", "red": "Rojo", "green": "Verde",
-                               "blue": "Azul", "orange": "Naranja", "purple": "Morado"}
-                _color_cur  = cfg.get("sol_color", "red")
-                _color_idx  = list(_color_opts.keys()).index(_color_cur) if _color_cur in _color_opts else 1
-                sol_color = sc2.selectbox("Color respuesta correcta", list(_color_opts.keys()),
-                                          index=_color_idx, format_func=lambda x: _color_opts[x],
-                                          key="exp_sol_color")
-                sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
-                st.markdown("<div class='exp-sub'>Estilo bloque solución (desarrollo)</div>", unsafe_allow_html=True)
-                _esol_opts = {"caja": "📦 Caja tcolorbox", "linea": "📌 Línea lateral", "texto": "🔤 Texto"}
-                _esol_cur  = cfg.get("estilo_sol", "caja")
-                estilo_sol = st.radio("Estilo bloque solución", list(_esol_opts.keys()),
-                                      index=list(_esol_opts.keys()).index(_esol_cur) if _esol_cur in _esol_opts else 0,
-                                      format_func=lambda x: _esol_opts[x], horizontal=True,
-                                      key="exp_estilo_sol")
-                st.markdown("<div class='exp-sub'>Marca de agua en versión soluciones</div>", unsafe_allow_html=True)
-                wc1, wc2 = st.columns([1, 2])
-                watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
-                watermark_text = wc2.text_input("Texto de la marca", value=cfg.get("watermark_text", "SOLUCIONES"),
-                                                key="exp_wm_text", disabled=not watermark_sol)
-                st.markdown("<div class='exp-sub'>Info extra por pregunta en versión soluciones (LaTeX)</div>", unsafe_allow_html=True)
-                ic1, ic2, ic3 = st.columns(3)
-                sol_info_bloque = ic1.checkbox("Bloque",      value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
-                sol_info_tema   = ic2.checkbox("Tema",        value=cfg.get("sol_info_tema",   False), key="exp_sol_tema")
-                sol_info_dif    = ic3.checkbox("Dificultad",  value=cfg.get("sol_info_dif",    False), key="exp_sol_dif")
-                sol_info_id     = ic3.checkbox("ID de la pregunta", value=cfg.get("sol_info_id", False), key="exp_sol_id",
-                                               help="En la versión con soluciones, debajo de cada pregunta: bloque y tema con su nombre, dificultad e ID.")
-
         with _g_exam:
             # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
             with _sec_exp("Instrucciones y cabeceras de sección", True):
@@ -4751,103 +4719,6 @@ with tab_exp:
                 hc1, hc2  = st.columns(2)
                 info_fund = hc1.text_area("Cabecera sección desarrollo", value=cfg.get("h1", ""), height=70, key="exp_h1")
                 info_test = hc2.text_area("Cabecera sección test",       value=cfg.get("h2", ""), height=70, key="exp_h2")
-
-        with _g_fmt:
-            # ── 4b. Estilo visual ─────────────────────────────────────────────────
-            with _sec_exp("Estilo visual", False):
-                _scheme_opts  = {"azul": "Azul profesional", "ucm": "Colores UCM (granate)", "byn": "Blanco y Negro"}
-                _scheme_cur   = cfg.get("color_scheme", "azul")
-                _scheme_idx   = list(_scheme_opts.keys()).index(_scheme_cur) if _scheme_cur in _scheme_opts else 0
-                sv1, sv2      = st.columns(2)
-                color_scheme  = sv1.selectbox("Esquema de color", list(_scheme_opts.keys()),
-                                              index=_scheme_idx, format_func=lambda x: _scheme_opts[x],
-                                              key="exp_color_scheme")
-                _font_opts    = {"cm": "Computer Modern (LaTeX)", "palatino": "Palatino / Georgia",
-                                 "times": "Times New Roman", "libertine": "Linux Libertine",
-                                 "helvet": "Helvetica / Arial", "fira": "Fira Sans (sin remates, moderna)",
-                                 "sourcesans": "Source Sans (sin remates, clara)"}
-                _font_cur     = cfg.get("tipografia", "cm")
-                if _font_cur not in _font_opts:
-                    _font_cur = "cm"
-                _font_idx     = list(_font_opts.keys()).index(_font_cur)
-                tipografia    = sv2.selectbox("Tipografía", list(_font_opts.keys()),
-                                              index=_font_idx, format_func=lambda x: _font_opts[x],
-                                              key="exp_tipografia")
-                sv3, sv4      = st.columns(2)
-                _size_opts    = [10, 11, 12]
-                _size_cur     = int(cfg.get("font_size", 12))
-                _size_idx     = _size_opts.index(_size_cur) if _size_cur in _size_opts else 2
-                font_size_val = sv3.selectbox("Tamaño de letra", _size_opts,
-                                              index=_size_idx, format_func=lambda x: f"{x} pt",
-                                              key="exp_font_size")
-                # Espaciado entre preguntas (sustituye al antiguo modo_compacto bool)
-                _esp_opts  = {"normal": "Normal", "compacto": "Compacto", "muy_compacto": "Muy compacto"}
-                _esp_raw   = cfg.get("espaciado", "compacto" if cfg.get("modo_compacto", False) else "normal")
-                if _esp_raw not in _esp_opts:
-                    _esp_raw = "normal"
-                espaciado  = sv4.selectbox("Espaciado preguntas", list(_esp_opts.keys()),
-                                           index=list(_esp_opts.keys()).index(_esp_raw),
-                                           format_func=lambda x: _esp_opts[x],
-                                           key="exp_espaciado",
-                                           help="Normal: 1.5em · Compacto: 0.8em · Muy compacto: 0.4em entre preguntas")
-                sv5, sv6  = st.columns(2)
-                _marg_opts = {"normal": "Normal (20 mm)", "reducido": "Reducido (15 mm)", "minimo": "Mínimo (12 mm)"}
-                _marg_cur  = cfg.get("margenes", "normal")
-                if _marg_cur not in _marg_opts:
-                    _marg_cur = "normal"
-                margenes   = sv5.selectbox("Márgenes", list(_marg_opts.keys()),
-                                           index=list(_marg_opts.keys()).index(_marg_cur),
-                                           format_func=lambda x: _marg_opts[x],
-                                           key="exp_margenes")
-                _cab_opts  = {"normal": "Normal (completa)", "compacta": "Compacta (una línea)"}
-                _cab_cur   = "compacta" if cfg.get("cabecera_compacta", False) else "normal"
-                _cab_sel   = sv6.selectbox("Cabecera", list(_cab_opts.keys()),
-                                           index=list(_cab_opts.keys()).index(_cab_cur),
-                                           format_func=lambda x: _cab_opts[x],
-                                           key="exp_cabecera")
-                cabecera_compacta = (_cab_sel == "compacta")
-                sv7, sv8  = st.columns(2)
-                sin_recuadro = sv7.checkbox("Ocultar recuadro del alumno",
-                                            value=cfg.get("sin_recuadro", False), key="exp_sin_recuadro",
-                                            help="No genera la caja Nombre/DNI/Firma")
-                _cols_idx   = 0 if cfg.get("opciones_cols", 1) == 1 else 1
-                _cols_opt   = sv8.radio("Disposición opciones test", ["1 columna", "2 columnas"],
-                                        index=_cols_idx, horizontal=True, key="exp_opcols")
-                opciones_cols = 1 if _cols_opt == "1 columna" else 2
-                _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "vacio": "Círculo ○", "numero": "Número 1.", "nada": "Sin estilo"}
-                _enum_cur   = cfg.get("estilo_num", "cuadrado")
-                _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
-                _paut_opts = {"libre": "En blanco", "lineas": "Con líneas", "cuadricula": "Con cuadrícula"}
-                pautado = st.selectbox("Espacio de respuesta en desarrollo (LaTeX)", list(_paut_opts),
-                                       index=list(_paut_opts).index(cfg.get("pautado", "libre")) if cfg.get("pautado", "libre") in _paut_opts else 0,
-                                       format_func=_paut_opts.get, key="exp_pautado")
-                estilo_num  = st.selectbox("Numeración de preguntas (LaTeX)", list(_enum_opts.keys()),
-                                           index=_enum_idx, format_func=lambda x: _enum_opts[x],
-                                           key="exp_estilo_num",
-                                           help="Estilo del número de cada pregunta en el PDF LaTeX")
-                fh1, fh2  = st.columns([1, 2])
-                fancyhdr_on  = fh1.checkbox("Encabezado/pie de página", value=cfg.get("fancyhdr_on", True),
-                                            key="exp_fancyhdr",
-                                            help="Muestra asignatura + versión en cabecera y nº de página en pie")
-                footer_text  = fh2.text_input("Texto extra en pie de página",
-                                              value=cfg.get("footer_text", ""), key="exp_footer",
-                                              placeholder="ej: Prohibido el uso de móvil",
-                                              disabled=not fancyhdr_on)
-                _dph_label = (
-                    "2 páginas por hoja en el **Test** (A5 → A4 apaisado)"
-                    if partes_modo == "separados" else
-                    "2 páginas por hoja (A5 → A4 apaisado)"
-                )
-                _dph_help = (
-                    "Solo para el documento _TEST. El documento de desarrollo (_DEV) se genera siempre en A4 normal."
-                    if partes_modo == "separados" else
-                    "LaTeX: imprime 2 páginas A5 en una hoja A4 apaisada (pgfpages). Word: genera en tamaño A5."
-                )
-                dos_por_hoja = st.checkbox(
-                    _dph_label,
-                    value=cfg.get("dos_por_hoja", False), key="exp_dos_por_hoja",
-                    help=_dph_help,
-                )
 
         with _g_extra:
             # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
@@ -5028,18 +4899,98 @@ with tab_exp:
                     adapt_id_val = cfg.get("adapt_id", "VERSIÓN ADAPTADA")
 
         with _g_fmt:
-            # ── 5. Anclaje ────────────────────────────────────────────────────────
-            with _sec_exp("Anclaje de opciones", True):
-                ac1, ac2      = st.columns([1, 2])
-                anclaje_auto  = ac1.checkbox("Activar anclaje", value=cfg.get("anc_chk", True), key="exp_anc")
-                anclaje_extra = ac2.text_input("Frases extra (coma separadas)",
-                                               value=cfg.get("anc_txt", ""), key="exp_anc_txt",
-                                               disabled=not anclaje_auto)
+            # ── Formato: aspecto general · cabecera y pie · preguntas · versión con soluciones · archivos ──
+            with _sec_exp("Aspecto general", True):
+                fa1, fa2 = st.columns([1.4, 1])
+                color_scheme = _seg(fa1, "Esquema de color", {"azul": "Azul", "ucm": "Granate UCM", "byn": "Blanco y negro"},
+                                    "exp_color_scheme", cfg.get("color_scheme", "azul"))
+                _font_opts = {"cm": "Computer Modern (clásica de LaTeX)", "libertine": "Linux Libertine",
+                              "palatino": "Palatino", "times": "Times", "helvet": "Helvetica",
+                              "fira": "Fira Sans (sin remates, moderna)", "sourcesans": "Source Sans (sin remates, clara)"}
+                _font_cur = cfg.get("tipografia", "cm") if cfg.get("tipografia", "cm") in _font_opts else "cm"
+                tipografia = fa2.selectbox("Tipografía", list(_font_opts), index=list(_font_opts).index(_font_cur),
+                                           format_func=_font_opts.get, key="exp_tipografia")
+                fb1, fb3 = st.columns(2)
+                fb2 = st
+                font_size_val = _seg(fb1, "Tamaño de letra", {10: "10", 11: "11", 12: "12"}, "exp_font_size",
+                                     int(cfg.get("font_size", 12)) if int(cfg.get("font_size", 12)) in (10, 11, 12) else 12)
+                _esp_raw = cfg.get("espaciado", "compacto" if cfg.get("modo_compacto", False) else "normal")
+                espaciado = _seg(fb2, "Espacio entre preguntas", {"normal": "Normal", "compacto": "Compacto",
+                                                                   "muy_compacto": "Muy compacto"},
+                                 "exp_espaciado", _esp_raw if _esp_raw in ("normal", "compacto", "muy_compacto") else "normal")
+                margenes = _seg(fb3, "Márgenes", {"normal": "20 mm", "reducido": "15 mm", "minimo": "12 mm"},
+                                "exp_margenes", cfg.get("margenes", "normal") if cfg.get("margenes") in ("normal", "reducido", "minimo") else "normal")
+
+            with _sec_exp("Cabecera y pie de página", False):
+                fc1, fc2 = st.columns([1.2, 1])
+                cabecera_compacta = _seg(fc1, "Cabecera", {False: "Completa", True: "Compacta (una línea)"},
+                                         "exp_cab_compacta", bool(cfg.get("cabecera_compacta", False)))
+                sin_recuadro = not fc2.toggle("Recuadro para nombre, DNI y firma", value=not cfg.get("sin_recuadro", False),
+                                              key="exp_recuadro")
+                fd1, fd2 = st.columns([1, 1.6], vertical_alignment="bottom")
+                fancyhdr_on = fd1.toggle("Encabezado y pie", value=cfg.get("fancyhdr_on", True), key="exp_fancyhdr",
+                                         help="Asignatura y modelo arriba; número de página abajo.")
+                footer_text = fd2.text_input("Texto en el pie", value=cfg.get("footer_text", ""), key="exp_footer",
+                                             placeholder="ej.: Prohibido el uso del móvil", disabled=not fancyhdr_on)
+
+            with _sec_exp("Preguntas", False):
+                fe1, fe2 = st.columns([1.3, 1])
+                _enum_opts = {"cuadrado": "Cuadrado", "circulo": "Círculo relleno", "vacio": "Círculo vacío",
+                              "numero": "Número con punto", "nada": "Sin adorno"}
+                estilo_num = fe1.selectbox("Numeración de las preguntas", list(_enum_opts),
+                                           index=list(_enum_opts).index(cfg.get("estilo_num", "cuadrado"))
+                                           if cfg.get("estilo_num", "cuadrado") in _enum_opts else 0,
+                                           format_func=_enum_opts.get, key="exp_estilo_num")
+                opciones_cols = _seg(fe2, "Opciones del test", {1: "En 1 columna", 2: "En 2 columnas"}, "exp_opcols_v2",
+                                     2 if cfg.get("opciones_cols", 1) == 2 else 1)
+                pautado = _seg(st, "Espacio de respuesta en desarrollo", {"libre": "En blanco", "lineas": "Con líneas",
+                                                                           "cuadricula": "Con cuadrícula"},
+                               "exp_pautado", cfg.get("pautado", "libre") if cfg.get("pautado") in ("libre", "lineas", "cuadricula") else "libre")
+                st.markdown("<div class='exp-sub'>Anclaje de opciones</div>", unsafe_allow_html=True)
+                ff1, ff2 = st.columns([1, 2], vertical_alignment="bottom")
+                anclaje_auto = ff1.toggle("No barajar «todas/ninguna…»", value=cfg.get("anc_chk", True), key="exp_anc",
+                                          help="Las opciones como «Todas las anteriores» se quedan en su sitio al barajar.")
+                anclaje_extra = ff2.text_input("Otras frases que no se barajan (separadas por comas)",
+                                               value=cfg.get("anc_txt", ""), key="exp_anc_txt", disabled=not anclaje_auto)
                 if anclaje_auto:
-                    _base = ["todas las anteriores","ninguna de las anteriores","ambas son correctas","son correctas","son falsas"]
-                    _extra = [f.strip() for f in anclaje_extra.split(",") if f.strip()] if anclaje_extra else []
-                    _todas = _base + _extra
-                    st.caption("Anclan (no se barajan): " + " · ".join(f'"{f}"' for f in _todas[:5]) + ("…" if len(_todas)>5 else ""))
+                    _todas = (["todas las anteriores", "ninguna de las anteriores", "ambas son correctas", "son correctas", "son falsas"]
+                              + [f.strip() for f in (anclaje_extra or "").split(",") if f.strip()])
+                    st.caption("Se quedan en su sitio: " + " · ".join(f"«{f}»" for f in _todas[:5]) + ("…" if len(_todas) > 5 else ""))
+
+            with _sec_exp("Versión con soluciones", False):
+                st.markdown("<div class='exp-sub'>Cómo se marca la correcta</div>", unsafe_allow_html=True)
+                fg1, fg2, fg3 = st.columns([1.3, 1, 1], vertical_alignment="bottom")
+                _color_opts = {"": "Sin color", "red": "Rojo", "green": "Verde", "blue": "Azul", "orange": "Naranja", "purple": "Morado"}
+                sol_color = fg1.selectbox("Color", list(_color_opts), index=list(_color_opts).index(cfg.get("sol_color", "red"))
+                                          if cfg.get("sol_color", "red") in _color_opts else 1,
+                                          format_func=_color_opts.get, key="exp_sol_color")
+                sol_bold = fg2.toggle("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
+                sol_ast = fg3.toggle("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
+                estilo_sol = _seg(st, "Solución de las preguntas de desarrollo", {"caja": "En un recuadro", "linea": "Con línea lateral",
+                                                                                  "texto": "Texto sin adorno"},
+                                  "exp_estilo_sol", cfg.get("estilo_sol", "caja") if cfg.get("estilo_sol") in ("caja", "linea", "texto") else "caja")
+                fh1, fh2 = st.columns([1, 1.6], vertical_alignment="bottom")
+                watermark_sol = fh1.toggle("Marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
+                watermark_text = fh2.text_input("Texto de la marca", value=cfg.get("watermark_text", "SOLUCIONES"),
+                                                key="exp_wm_text", disabled=not watermark_sol)
+                st.markdown("<div class='exp-sub'>Debajo de cada pregunta (LaTeX)</div>", unsafe_allow_html=True)
+                fi1, fi2, fi3, fi4 = st.columns(4)
+                sol_info_bloque = fi1.checkbox("Bloque", value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
+                sol_info_tema = fi2.checkbox("Tema", value=cfg.get("sol_info_tema", False), key="exp_sol_tema")
+                sol_info_dif = fi3.checkbox("Dificultad", value=cfg.get("sol_info_dif", False), key="exp_sol_dif")
+                sol_info_id = fi4.checkbox("ID", value=cfg.get("sol_info_id", False), key="exp_sol_id")
+
+            with _sec_exp("Archivos", False):
+                fj1, fj2 = st.columns(2)
+                exp_word = fj1.toggle("Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
+                exp_tex = fj2.toggle("LaTeX (.tex) y PDF", value=cfg.get("exp_tex", True), key="exp_tex",
+                                     help="Necesario para ver y compilar el PDF.")
+                st.caption("La clave y los metadatos (CSV) se generan siempre.")
+                dos_por_hoja = st.toggle(
+                    "Dos páginas por hoja en el test (A5 en A4 apaisado)" if partes_modo == "separados"
+                    else "Dos páginas por hoja (A5 en A4 apaisado)",
+                    value=cfg.get("dos_por_hoja", False), key="exp_dos_por_hoja",
+                    help="LaTeX: dos páginas A5 en una hoja A4 apaisada. Word: tamaño A5.")
 
         with _g_tpl:
             # ── 6. Plantillas ─────────────────────────────────────────────────────

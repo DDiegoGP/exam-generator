@@ -90,12 +90,42 @@ st.markdown("""<style>
 .st-key-an_nocuadra p { color:var(--text,#2c3e50); }
 .an-frase { background:var(--card2,#f5f7fa); border-radius:10px; padding:11px 14px; margin:4px 0 12px; font-size:.95rem; line-height:1.55; }
 .st-key-an_mapa { flex-wrap:wrap; }
-[class*="st-key-anc_"] button { min-height:0 !important; height:34px; padding:0 8px; border:2px solid transparent;
-  background:var(--ok-bg,#e3f1e8); color:var(--ok,#1e6b3c); font-weight:700; }
-[class*="st-key-anc_w"] button { background:var(--warn-bg,#fdf0d5); color:var(--warn,#7a4f00); }
-[class*="st-key-anc_e"] button { background:var(--err-bg,#fbe7e4); color:var(--err,#a3261a); }
-[class*="st-key-anc_"][class*="d_"] button, [class*="st-key-anc_"][class*="ds_"] button { border-color:var(--primary,#1d4a94); }
-[class*="st-key-anc_"][class*="s_"] button { outline:2px solid var(--text,#1a2233); }
+[class*="st-key-anc_"] button { min-height:0 !important; height:34px; padding:0 9px; border:2px solid transparent; position:relative;
+  font-weight:700; transition:opacity .15s; }
+[class*="st-key-anc_f_"] button { background:var(--ok-bg,#e3f1e8); color:var(--ok,#1e6b3c); }
+[class*="st-key-anc_m_"] button { background:var(--primary-soft,#e6edf8); color:var(--primary,#1d4a94); }
+[class*="st-key-anc_h_"] button { background:var(--err-bg,#fbe7e4); color:var(--err,#a3261a); }
+[class*="st-key-anc_"][class*="_e_"] button::after, [class*="st-key-anc_"][class*="_w_"] button::after {
+  content:""; position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:50%; border:2px solid var(--card,#fff); }
+[class*="st-key-anc_"][class*="_e_"] button::after { background:var(--err,#a3261a); }
+[class*="st-key-anc_"][class*="_w_"] button::after { background:var(--warn,#b9770e); }
+[class*="st-key-anc_"][class*="_k_"] button { border-color:var(--primary,#1d4a94); }
+[class*="st-key-anc_"][class*="_s_"] button { outline:2px solid var(--text,#1a2233); }
+[class*="st-key-anc_"][class*="_x_"] button { opacity:.25; }
+.an-ley { display:flex; gap:14px; flex-wrap:wrap; font-size:.78rem; color:var(--muted,#6c757d); margin:2px 0 8px; }
+.an-ley span { display:inline-flex; align-items:center; gap:5px; }
+.an-ley i { width:12px; height:12px; border-radius:3px; display:inline-block; }
+.an-ley i.f { background:var(--ok-bg); border:1px solid var(--ok); } .an-ley i.m { background:var(--primary-soft); border:1px solid var(--primary); }
+.an-ley i.h { background:var(--err-bg); border:1px solid var(--err); }
+.an-ley i.pe, .an-ley i.pw { border-radius:50%; width:9px; height:9px; } .an-ley i.pe { background:var(--err); } .an-ley i.pw { background:var(--warn); }
+.an-ley i.dk { border:2px solid var(--primary); }
+.an-pila { margin:6px 0 14px; } .an-pila .t { font-size:.82rem; font-weight:600; margin-bottom:5px; color:var(--text2); }
+.an-pila .b { display:flex; height:14px; border-radius:99px; overflow:hidden; background:var(--track,#e9ecef); }
+.an-pila .l { display:flex; flex-wrap:wrap; gap:10px; font-size:.76rem; color:var(--muted); margin-top:5px; }
+.an-pila .l span { display:inline-flex; align-items:center; gap:4px; } .an-pila .l i { width:9px; height:9px; border-radius:2px; display:inline-block; }
+.an-top { display:flex; justify-content:space-between; align-items:baseline; } .an-top b { font-size:1.3rem; }
+.an-top span { font-size:.78rem; color:var(--muted); }
+.an-top-e { font-size:.84rem; line-height:1.35; margin:4px 0 6px; min-height:3.4em; color:var(--text); }
+[class*="st-key-an_topc_e_"] { border-top:3px solid var(--err) !important; } [class*="st-key-an_topc_w_"] { border-top:3px solid var(--warn) !important; }
+table.an-mod { width:100%; border-collapse:collapse; font-size:.86rem; }
+table.an-mod th { text-align:left; font-size:.72rem; color:var(--muted); font-weight:600; padding:4px 6px; border-bottom:1px solid var(--border); }
+table.an-mod td { padding:6px; border-bottom:1px solid var(--border-light,#eee); }
+[class*="st-key-an_fila_"] { border-bottom:1px solid var(--border-light,#e4e8ef); padding:2px 0; }
+.an-t1 { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.an-sm { color:var(--muted,#6c757d); font-size:.74rem; }
+.an-disc { font-size:.8rem; font-weight:600; padding:2px 9px; border-radius:999px; }
+.an-disc.o { background:var(--ok-bg); color:var(--ok); } .an-disc.w { background:var(--warn-bg); color:var(--warn); }
+.an-disc.p { background:var(--card2); color:var(--muted); } .an-disc.e { background:var(--err-bg); color:var(--err); }
 [class*="st-key-anc_"] button p { font-size:.8rem; }
 </style>""", unsafe_allow_html=True)
 
@@ -141,6 +171,19 @@ def _chips(et):
     return out
 
 
+def _disc_txt(d):
+    """Discriminación en palabras: (texto, clase de color)."""
+    if d != d:
+        return "—", ""
+    if d < 0:
+        return "Al revés", "e"
+    if d < 0.15:
+        return "Poco", "p"
+    if d < 0.3:
+        return "Regular", "w"
+    return "Bien", "o"
+
+
 def _sev(it):
     et = it["etiquetas"]
     if any(("revés" in e or "atrae" in e) for e in et):
@@ -182,6 +225,7 @@ with st.container(border=True, key="card_an_src"):
         up = st.file_uploader("Excel del corrector (.xls / .xlsx)", type=["xls", "xlsx"], key="an_upload",
                               help="Solo se lee en memoria: no se guarda en la app ni en la base de datos.")
     _estado_box = c3.empty()
+    _guardar_box = c3.empty()
     st.caption("🔒 Los datos de los alumnos solo se usan en esta sesión. En la base de datos compartida "
                "solo se guardan porcentajes por pregunta y las decisiones que tomes. "
                "Para importar, editar o borrar exámenes: página Exámenes.")
@@ -349,7 +393,7 @@ def _boton_guardar(key):
     if not guardable:
         st.caption("Para guardar el análisis usa la vista «Todos los modelos» o el primer modelo.")
         return
-    if st.button("Guardar análisis", type="primary", key=key,
+    if st.button("Guardar análisis", type="primary", key=key, use_container_width=True,
                  help="Guarda en la base de datos los porcentajes por pregunta y tus decisiones. "
                       "No guarda nada de los alumnos."):
         _guardar_analisis()
@@ -617,6 +661,8 @@ def _ficha_pregunta():
 # ══════════════════════════════════════════════════════════════════════════════
 # Pestañas
 # ══════════════════════════════════════════════════════════════════════════════
+with _guardar_box.container():
+    _boton_guardar("an_top_save")
 if "_an_tab_next" in _ss:
     _ss["an_tab"] = _ss.pop("_an_tab_next")
 with st.container(key="seg_an_tab"):
@@ -660,7 +706,7 @@ if t_res is not None:
                     f"la <b>{j + 1}</b> ({(items[j]['etiquetas'] or [''])[0].lower()})" for j in _top[:3]) + "."
                    if _top else ". Ninguna pregunta da problemas.") + "</div>", unsafe_allow_html=True)
 
-    g1, g2 = st.columns([1.4, 1], gap="large")
+    g1, g2 = st.columns([1.35, 1], gap="large")
     with g1:
         st.markdown("<div class='sec-title' style='margin-top:12px'>Distribución de notas</div>", unsafe_allow_html=True)
         import plotly.graph_objects as go
@@ -670,85 +716,91 @@ if t_res is not None:
                                marker_color=["#c0392b" if b < 5 else "#1d4a94" for b in range(10)]))
         fig.add_vline(x=4.5, line_dash="dash", line_color="#5b6475",
                       annotation_text="aprobado", annotation_position="top")
-        fig.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10), yaxis_title="alumnos",
+        fig.update_layout(height=250, margin=dict(l=10, r=10, t=14, b=10), yaxis_title="alumnos",
                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     with g2:
-        st.markdown("<div class='sec-title' style='margin-top:12px'>Qué revisar primero</div>", unsafe_allow_html=True)
-        if not _top:
-            st.caption("Ninguna pregunta tiene avisos.")
-        for j in _top:
-            q1, q2 = st.columns([5, 1.3], vertical_alignment="center")
-            _en = str(_bank.get(ids[j], {}).get("enunciado", "")) if ids[j] else ""
-            q1.markdown(f"<div class='an-row'><b style='font-size:1.05rem'>{j + 1}</b> · {(_en[:70] + '…') if len(_en) > 70 else _en}"
-                        f"<br>{_chips(items[j]['etiquetas'][:2])}</div>", unsafe_allow_html=True)
-            if q2.button("Ver ficha", key=f"an_top_{j}", use_container_width=True):
-                _abrir_ficha(j)
-        st.markdown("<div class='sec-title' style='margin-top:12px'>Perfil de las preguntas</div>", unsafe_allow_html=True)
+        st.markdown("<div class='sec-title' style='margin-top:12px'>Cómo han salido las preguntas</div>", unsafe_allow_html=True)
         reales = [A.dificultad_real(it["acierto"]) for it in items]
         dd = [it["disc"] for it in items if it["disc"] == it["disc"]]
-        prof = [("Fáciles (≥ 70 % aciertos)", reales.count("Facil")), ("Medias", reales.count("Media")),
-                ("Difíciles (< 40 %)", reales.count("Dificil")),
-                ("Discriminan bien (≥ 0,30)", sum(1 for d in dd if d >= 0.3)),
-                ("Discriminan poco (< 0,15)", sum(1 for d in dd if d < 0.15))]
-        h = ""
-        for lbl, n in prof:
-            h += (f"<div class='an-row' style='display:flex;gap:10px;align-items:center;margin:5px 0'>"
-                  f"<span style='flex:1.4'>{lbl}</span><span style='flex:1'>{_bar(100 * n / len(items))}</span>"
-                  f"<b style='width:28px;text-align:right'>{n}</b></div>")
-        st.markdown(h, unsafe_allow_html=True)
+        _n = max(1, len(items))
+
+        def _pila(titulo, partes):
+            tot = max(1, sum(n for _, n, _ in partes))
+            barra = "".join(f"<div style='width:{n / tot * 100:.1f}%;background:var(--{c})' title='{l}: {n}'></div>"
+                            for l, n, c in partes if n)
+            ley = "".join(f"<span><i style='background:var(--{c})'></i>{l} <b>{n}</b></span>" for l, n, c in partes)
+            return f"<div class='an-pila'><div class='t'>{titulo}</div><div class='b'>{barra}</div><div class='l'>{ley}</div></div>"
+        st.markdown(_pila("Dificultad real (aciertos)", [("Fáciles ≥70 %", reales.count("Facil"), "ok"),
+                                                         ("Medias", reales.count("Media"), "primary"),
+                                                         ("Difíciles <40 %", reales.count("Dificil"), "err")])
+                    + _pila("Discriminación (separa a los que saben)", [
+                        ("Bien", sum(1 for d in dd if d >= 0.3), "ok"), ("Regular", sum(1 for d in dd if 0.15 <= d < 0.3), "warn"),
+                        ("Poco", sum(1 for d in dd if 0 <= d < 0.15), "muted"), ("Al revés", sum(1 for d in dd if d < 0), "err")]),
+                    unsafe_allow_html=True)
         if ids and any(ids) and not df_preg.empty:
             comp = sum(1 for j, it in enumerate(items) if ids[j] in _bank and
                        str(_bank[ids[j]].get("dificultad", "")).lower() == reales[j].lower())
             n_l = sum(1 for p in ids if p in _bank)
-            st.caption(f"La dificultad del banco acierta en {comp} de {n_l} preguntas vinculadas.")
+            st.caption(f"La dificultad que tenían en el banco acierta en {comp} de {n_l} preguntas.")
 
-    if ids and any(p in _bank for p in ids):
-        _bq = {}
-        for j, it in enumerate(items):
-            b = _bank.get(ids[j])
-            if b:
-                _bq.setdefault(str(b.get("bloque", "")), []).append(it["acierto"])
-        st.markdown("<div class='sec-title' style='margin-top:6px'>Por bloques<span class='sec-meta'>acierto medio, "
-                    "de peor a mejor</span></div>", unsafe_allow_html=True)
-        st.markdown("".join(f"<div class='an-row' style='display:flex;gap:10px;align-items:center;margin:5px 0'>"
-                            f"<span style='flex:2'>{nombre_bloque(b)} <small>({len(v)} preg.)</small></span>"
-                            f"<span style='flex:1.4'>{_bar(np.mean(v))}</span><b style='width:52px;text-align:right'>{_f(np.mean(v))} %</b></div>"
-                            for b, v in sorted(_bq.items(), key=lambda kv: np.mean(kv[1]))), unsafe_allow_html=True)
-        _exp_t = st.expander("Por temas")
-        _exp_t.__enter__()
-        tm = {}
-        for j, it in enumerate(items):
-            b = _bank.get(ids[j])
-            if not b:
-                continue
-            k = (str(b.get("bloque", "")), str(b.get("Tema", "")))
-            tm.setdefault(k, []).append(it["acierto"])
-        h = ""
-        for (b, t), v in sorted(tm.items(), key=lambda kv: np.mean(kv[1])):
-            h += (f"<div class='an-row' style='display:flex;gap:10px;align-items:center;margin:5px 0'>"
-                  f"<span style='flex:2'>{nombre_bloque(b)} · {nombre_tema(t)} <small>({len(v)} preg.)</small></span>"
-                  f"<span style='flex:1.4'>{_bar(np.mean(v))}</span><b style='width:52px;text-align:right'>"
-                  f"{_f(np.mean(v))} %</b></div>")
-        st.markdown(h, unsafe_allow_html=True)
-        _exp_t.__exit__(None, None, None)
+    st.markdown("<div class='sec-title' style='margin-top:8px'>Qué revisar primero</div>", unsafe_allow_html=True)
+    if not _top:
+        st.caption("Ninguna pregunta tiene avisos.")
+    else:
+        _cq = st.columns(4, gap="small")
+        for c_, j in zip(_cq, _top):
+            with c_.container(border=True, key=f"an_topc_{_sev(items[j]) or 'b'}_{j}"):
+                _en = str(_bank.get(ids[j], {}).get("enunciado", "")) if ids[j] else ""
+                st.markdown(f"<div class='an-top'><b>{j + 1}</b><span>{_f(items[j]['acierto'])} % aciertos</span></div>"
+                            f"<div class='an-top-e'>{(_en[:85] + '…') if len(_en) > 85 else (_en or 'sin vincular')}</div>"
+                            f"{_chips(items[j]['etiquetas'][:2])}", unsafe_allow_html=True)
+                if st.button("Ver ficha", key=f"an_top_{j}", use_container_width=True):
+                    _abrir_ficha(j)
 
-    if len(modelos) > 1:
-        st.markdown("<div class='sec-title' style='margin-top:10px'>Por modelos</div>", unsafe_allow_html=True)
-        h = ""
-        for v in modelos:
-            s = alumnos[alumnos["Modelo"] == v]
-            ck = claves.get(v, "")
-            if s.empty or not ck:
-                continue
-            Mv = A.respuestas_matriz(s["Resp"].tolist(), len(ck))
-            pv = A.puntuar(Mv, A.aceptadas(ck))
-            kv = A.kr20((Mv == np.array(list(ck))).astype(float))
-            h += (f"<span class='an-chip'>Modelo {v}: {len(s)} alumnos · media {_f(pv['Nota'].mean(), 2)} · "
-                  f"KR-20 {_f(kv, 2)}</span> ")
-        st.markdown(h, unsafe_allow_html=True)
-    st.write("")
-    _boton_guardar("an_res_save")
+    b1, b2 = st.columns([1.35, 1], gap="large")
+    with b1:
+        if ids and any(p in _bank for p in ids):
+            _bq = {}
+            for j, it in enumerate(items):
+                bb = _bank.get(ids[j])
+                if bb:
+                    _bq.setdefault(str(bb.get("bloque", "")), []).append(it["acierto"])
+            st.markdown("<div class='sec-title' style='margin-top:8px'>Por bloques<span class='sec-meta'>acierto medio, "
+                        "de peor a mejor</span></div>", unsafe_allow_html=True)
+            st.markdown("".join(f"<div class='an-row' style='display:flex;gap:10px;align-items:center;margin:5px 0'>"
+                                f"<span style='flex:2'>{nombre_bloque(b)} <small>({len(v)} preg.)</small></span>"
+                                f"<span style='flex:1.4'>{_bar(np.mean(v))}</span><b style='width:52px;text-align:right'>{_f(np.mean(v))} %</b></div>"
+                                for b, v in sorted(_bq.items(), key=lambda kv: np.mean(kv[1]))), unsafe_allow_html=True)
+            with st.expander("Por temas"):
+                tm = {}
+                for j, it in enumerate(items):
+                    bb = _bank.get(ids[j])
+                    if bb:
+                        tm.setdefault((str(bb.get("bloque", "")), str(bb.get("Tema", ""))), []).append(it["acierto"])
+                st.markdown("".join(f"<div class='an-row' style='display:flex;gap:10px;align-items:center;margin:5px 0'>"
+                                    f"<span style='flex:2'>{nombre_bloque(b)} · {nombre_tema(t)} <small>({len(v)} preg.)</small></span>"
+                                    f"<span style='flex:1.4'>{_bar(np.mean(v))}</span><b style='width:52px;text-align:right'>"
+                                    f"{_f(np.mean(v))} %</b></div>" for (b, t), v in sorted(tm.items(), key=lambda kv: np.mean(kv[1]))),
+                            unsafe_allow_html=True)
+    with b2:
+        st.markdown("<div class='sec-title' style='margin-top:8px'>Por modelos</div>", unsafe_allow_html=True)
+        if len(modelos) > 1:
+            filas = ""
+            for v in modelos:
+                s_ = alumnos[alumnos["Modelo"] == v]
+                ck = claves.get(v, "")
+                if s_.empty or not ck:
+                    continue
+                Mv = A.respuestas_matriz(s_["Resp"].tolist(), len(ck))
+                pv = A.puntuar(Mv, A.aceptadas(ck))
+                kv = A.kr20((Mv == np.array(list(ck))).astype(float))
+                filas += (f"<tr><td><b>{v}</b></td><td>{len(s_)}</td><td>{_f(pv['Nota'].mean(), 2)}</td>"
+                          f"<td>{_f(100 * (pv['Nota'] >= 5).mean())} %</td><td>{_f(kv, 2)}</td></tr>")
+            st.markdown("<table class='an-mod'><tr><th>Modelo</th><th>Alumnos</th><th>Media</th><th>Aprueban</th>"
+                        f"<th>KR-20</th></tr>{filas}</table>", unsafe_allow_html=True)
+        else:
+            st.caption("Un solo modelo analizado.")
 
 if t_pre is not None:
   with t_pre:
@@ -760,40 +812,62 @@ if t_pre is not None:
                                  "Blancos (mayor primero)"], key="an_orden")
     lista = _orden_filtrado()
 
-    st.markdown("<div class='sec-title' style='margin-top:6px'>Mapa del examen"
-                "<span class='sec-meta'> verde: bien · ámbar: a revisar · rojo: problema serio · "
-                "borde azul: con decisión</span></div>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-title' style='margin-top:6px'>Mapa del examen</div>"
+                "<div class='an-ley'><span><i class='f'></i>Fácil (≥70 % aciertos)</span><span><i class='m'></i>Media</span>"
+                "<span><i class='h'></i>Difícil (&lt;40 %)</span><span><i class='pe'></i>problema serio</span>"
+                "<span><i class='pw'></i>a revisar</span><span><i class='dk'></i>con decisión</span></div>",
+                unsafe_allow_html=True)
+    _vis = set(lista)
+    _filtrado = _ss.get("an_filtro", "Todas") != "Todas"
     with st.container(horizontal=True, gap="small", key="an_mapa"):
         for j, it in enumerate(items):
             sv = _sev(it) or "b"
+            dk = {"Facil": "f", "Media": "m", "Dificil": "h"}.get(A.dificultad_real(it["acierto"]), "m")
             on = _ss.get("an_rev_mode") and _ss.get("an_rev_j") == j
-            if st.button(f"{j + 1} · {_f(it['acierto'])}%", key=f"anc_{sv}{'d' if j in dec else ''}{'s' if on else ''}_{j}",
-                         help="; ".join(it["etiquetas"]) or "Bien"):
+            dim = _filtrado and j not in _vis
+            ayuda = (f"Pregunta {j + 1}: {_f(it['acierto'])} % aciertos · discrimina {_disc_txt(it['disc'])[0].lower()}"
+                     + (f" · {'; '.join(it['etiquetas'])}" if it["etiquetas"] else ""))
+            if st.button(f"{j + 1} · {_f(it['acierto'])}%",
+                         key=f"anc_{dk}_{sv}_{'k' if j in dec else 'n'}_{'s' if on else 'n'}_{'x' if dim else 'n'}_{j}",
+                         help=ayuda):
                 _abrir_ficha(j)
-    st.caption(f"Pulsa una pregunta para ver su ficha · {len(lista)} pregunta(s) en la lista.")
+    st.caption(f"Pulsa una pregunta para ver su ficha · {len(lista)} pregunta(s) en la lista"
+               + (" (las demás, atenuadas)" if _filtrado else "") + ".")
     if _ss.get("an_rev_mode"):
         with st.container(border=True, key="card_an_ficha"):
             _ficha_pregunta()
         st.stop()
 
-    hdr = st.columns([0.45, 3.2, 1.4, 0.8, 0.8, 2.6, 0.8])
-    for c, t in zip(hdr, ["Nº", "Pregunta", "Aciertos", "Blancos", "Discr.", "Motivos", ""]):
-        c.markdown(f"<small style='color:var(--muted,#888);font-weight:600'>{t}</small>", unsafe_allow_html=True)
+    _W = [0.4, 3.5, 1.1, 1.35, 1.1, 2.1, 0.9]
+    hdr = st.columns(_W)
+    for c, t in zip(hdr, ["Nº", "Pregunta", "Dificultad", "Aciertos", "Discrimina", "Aviso principal", ""]):
+        c.markdown(f"<span class='dev-hd'>{t}</span>", unsafe_allow_html=True)
     for j in lista:
         it = items[j]
-        c = st.columns([0.45, 3.2, 1.4, 0.8, 0.8, 2.6, 0.8], vertical_alignment="center")
-        c[0].markdown(f"**{j + 1}**")
-        enun = str(_bank.get(ids[j], {}).get("enunciado", "")) if ids[j] else ""
-        c[1].markdown(f"<div class='an-row'>{(enun[:90] + '…') if len(enun) > 90 else enun or '<small>sin vincular</small>'}"
-                      f"<br><small>clave {clave[j]}{' · ' + ids[j] if ids[j] else ''}"
-                      f"{' · ' + A.DECISIONES[dec[j]['tipo']] if j in dec else ''}</small></div>",
-                      unsafe_allow_html=True)
-        c[2].markdown(f"{_bar(it['acierto'], True)}<small>{_f(it['acierto'])} %</small>", unsafe_allow_html=True)
-        c[3].markdown(f"<small>{_f(it['blanco'])} %</small>", unsafe_allow_html=True)
-        c[4].markdown(f"<small>{_f(it['disc'], 2)}</small>", unsafe_allow_html=True)
-        c[5].markdown(_chips(it["etiquetas"]), unsafe_allow_html=True)
-        if c[6].button("Ver ficha", key=f"an_open_{j}"):
-            _abrir_ficha(j)
+        with st.container(key=f"an_fila_{j}"):
+            c = st.columns(_W, vertical_alignment="center")
+            c[0].markdown(f"**{j + 1}**")
+            enun = str(_bank.get(ids[j], {}).get("enunciado", "")) if ids[j] else ""
+            c[1].markdown(f"<div class='an-row'><span class='an-t1'>{enun or '<i>sin vincular</i>'}</span>"
+                          f"<small>{ids[j] or ''}{' · clave ' + clave[j]}"
+                          f"{' · ' + A.DECISIONES[dec[j]['tipo']] if j in dec else ''}</small></div>",
+                          unsafe_allow_html=True)
+            real = A.dificultad_real(it["acierto"]) or ""
+            banco = str(_bank.get(ids[j], {}).get("dificultad", "")) if ids[j] else ""
+            dk = {"Facil": "f", "Media": "m", "Dificil": "d"}.get(real, "m")
+            c[2].markdown(f"<span class='tag tag-{dk}' style='margin:0'>{ {'Facil': 'Fácil', 'Dificil': 'Difícil'}.get(real, real)}</span>"
+                          + (f"<br><small class='an-sm'>banco: {banco}</small>" if banco and banco.lower() != real.lower() else ""),
+                          unsafe_allow_html=True)
+            c[3].markdown(f"{_bar(it['acierto'], True)}<small>{_f(it['acierto'])} %"
+                          + (f" · {_f(it['blanco'])} % en blanco" if it["blanco"] >= 15 else "") + "</small>",
+                          unsafe_allow_html=True)
+            dt, dc = _disc_txt(it["disc"])
+            c[4].markdown(f"<span class='an-disc {dc}'>{dt}</span>", unsafe_allow_html=True)
+            et = it["etiquetas"]
+            c[5].markdown((_chips(et[:1]) + (f"<small class='an-sm'> +{len(et) - 1} más</small>" if len(et) > 1 else ""))
+                          if et else "<small class='an-sm'>—</small>", unsafe_allow_html=True)
+            if c[6].button("Ver ficha", key=f"an_open_{j}", use_container_width=True):
+                _abrir_ficha(j)
 
 if t_alu is not None:
   with t_alu:
