@@ -365,16 +365,16 @@ n_ok, n_tot = A.cuadran(M, A.aceptadas(clave, _dec_corr), _tot)
 if n_tot:
     _bien = n_ok == n_tot
     _estado_box.markdown(f"<div class='an-est {'b' if _bien else 'm'}'><b>{'✓ Notas comprobadas' if _bien else '✗ Notas que no cuadran'}</b>"
-                         f"<br>cuadran con el corrector en {n_ok}/{n_tot}"
+                         f"<br>notas iguales a las del corrector en {n_ok} de {n_tot} alumnos"
                          + (f" · {len(_fuera)} del modelo {', '.join(sorted(_fuera['Ver'].astype(str).unique()))} fuera" if not _fuera.empty else "")
                          + "</div>", unsafe_allow_html=True)
 _mantenida = base_m in (_cont.get("clave_del_examen") or [])
 if n_tot and n_ok < n_tot and _mantenida:
-    _estado_box.markdown(f"<div class='an-est w'><b>Clave del examen</b><br>cuadra con el corrector en {n_ok}/{n_tot}: "
+    _estado_box.markdown(f"<div class='an-est w'><b>Clave del examen</b><br>notas iguales a las del corrector en {n_ok} de {n_tot} alumnos: "
                          "se mantuvo a propósito (mira Alumnos)</div>", unsafe_allow_html=True)
 if n_tot and n_ok < 0.9 * n_tot and not _mantenida and not _ss.get(f"an_igual_{ex_id}_{vista}"):
     with st.container(key="an_nocuadra"):
-        st.markdown(f"**Las notas no cuadran con el corrector ({n_ok} de {n_tot} alumnos).** Con la clave registrada los "
+        st.markdown(f"**Las notas solo coinciden con las del corrector en {n_ok} de {n_tot} alumnos.** Con la clave registrada los "
                     "alumnos sacan notas distintas de las del corrector: casi seguro la clave o el orden de las opciones no "
                     "son los del examen que se hizo (por ejemplo, se importó sin el Word final). El análisis **no es fiable**.")
         _prop = _ss.get(f"an_prop_{ex_id}_{vista}")

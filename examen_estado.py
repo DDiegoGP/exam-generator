@@ -412,4 +412,66 @@ def descartar_fijado(nombre: str = ""):
     guardar_hojas([A.SHEET_EXAMENES])
 
 
+# ── cambios desde la última preparación ─────────────────────────────────────
+_CLAVES_MODELO = {"vers": "Número de modelos", "ord": "Orden de las preguntas", "bar": "Barajar respuestas",
+                  "anc_chk": "Anclaje de opciones", "anc_txt": "Frases de anclaje", "partes_modo": "Partes del examen"}
+_ETIQ = {"inst": "Institución", "asig": "Asignatura", "tipo": "Tipo de examen", "fecha": "Fecha", "tiem": "Tiempo",
+         "file": "Nombre del examen", "ins": "Instrucciones", "h1": "Cabecera de desarrollo", "h2": "Cabecera de test",
+         "tit_fund": "Título de desarrollo", "tit_test": "Título de test", "campos_alumno": "Campos del alumno",
+         "tipografia": "Tipografía", "color_scheme": "Esquema de color", "font_size": "Tamaño de letra",
+         "espaciado": "Espaciado", "margenes": "Márgenes", "cabecera_compacta": "Cabecera compacta",
+         "sin_recuadro": "Recuadro del alumno", "estilo_num": "Numeración", "opciones_cols": "Columnas de opciones",
+         "fancyhdr_on": "Encabezado y pie", "footer_text": "Texto del pie", "dos_por_hoja": "Dos páginas por hoja",
+         "pts_fund": "Puntos de desarrollo", "pts_test": "Puntos de test", "penalizacion": "Penalización",
+         "sol_bold": "Solución en negrita", "sol_color": "Color de la solución", "sol_ast": "Asterisco en la solución",
+         "estilo_sol": "Estilo del bloque de solución", "exp_word": "Formato Word", "exp_tex": "Formato LaTeX",
+         "pautado": "Espacio de respuesta", "preambulo_extra": "Paquetes LaTeX extra", "sol_info_bloque": "Bloque en soluciones",
+         "sol_info_tema": "Tema en soluciones", "sol_info_dif": "Dificultad en soluciones", "sol_info_id": "ID en soluciones",
+         "adapt_enabled": "Versión adaptada"}
+
+
+def _val(v) -> str:
+    if isinstance(v, bool):
+        return "sí" if v else "no"
+    if isinstance(v, (list, tuple)):
+        return ", ".join(map(str, v)) or "—"
+    t = str(v if v not in (None, "") else "—").replace("\n", " ")
+    return t if len(t) <= 28 else t[:26] + "…"
+
+
+def firma_dev() -> str:
+    return hashlib.md5(_json(_dev_sin_imagenes(_ss().get("dev_questions") or [])).encode("utf-8")).hexdigest()
+
+
+def instantanea(ids: list, cfg: dict) -> dict:
+    return {"ids": list(ids), "cfg": {k: v for k, v in (cfg or {}).items() if not isinstance(v, (bytes, bytearray))},
+            "dev": firma_dev()}
+
+
+def diferencias(snap: dict | None, ids: list, cfg: dict) -> tuple:
+    """(cambios de aspecto, cambios que afectan a las claves) desde la última preparación, en lenguaje claro."""
+    if not snap:
+        return [], []
+    asp, cla = [], []
+    a_ids, n_ids = list(snap.get("ids") or []), list(ids)
+    quit_, pon = [x for x in a_ids if x not in n_ids], [x for x in n_ids if x not in a_ids]
+    if quit_ or pon:
+        cla.append("Preguntas: " + " · ".join(([f"quitadas {len(quit_)} ({', '.join(quit_[:3])}{'…' if len(quit_) > 3 else ''})"] if quit_ else [])
+                                             + ([f"añadidas {len(pon)} ({', '.join(pon[:3])}{'…' if len(pon) > 3 else ''})"] if pon else [])))
+    elif a_ids != n_ids:
+        cla.append("Orden de las preguntas cambiado")
+    old = snap.get("cfg") or {}
+    for k in sorted(set(old) | set(cfg or {})):
+        va, vn = old.get(k), (cfg or {}).get(k)
+        if str(va) == str(vn):
+            continue
+        if k in _CLAVES_MODELO:
+            cla.append(f"{_CLAVES_MODELO[k]}: {_val(va)} → {_val(vn)}")
+        else:
+            asp.append(f"{_ETIQ.get(k, k.replace('_', ' ').capitalize())}: {_val(va)} → {_val(vn)}")
+    if snap.get("dev") and snap.get("dev") != firma_dev():
+        asp.append("Preguntas de desarrollo modificadas")
+    return asp, cla
+
+
 _MTIME = _os_mt.path.getmtime(__file__)

@@ -290,7 +290,7 @@ def _imp_paso3(res):
                     m["comprobado"] = f"{ok_n}/{tot}"
                 bien = tot and ok_n == tot
                 st.markdown(f"<div class='imp-mh'><b>Modelo {v}</b>"
-                            + (f"<span class='tag tag-{'f' if bien else 'd'}'>{ok_n}/{tot} cuadran</span>" if tot
+                            + (f"<span class='tag tag-{'f' if bien else 'd'}'>notas iguales en {ok_n} de {tot} alumnos</span>" if tot
                                else "<span class='tag tag-n'>sin comprobar</span>") + "</div>", unsafe_allow_html=True)
                 st.caption((f"Orden y opciones del {m['fuente']}" if not m.get("propuesto") else
                             f"Sin documento: orden deducido ({m['fuente']}); opciones {m['opciones']}"))
@@ -453,7 +453,7 @@ def _ficha(row):
         st.markdown(f"<div class='dev-hd' style='margin-top:8px'>Clave del modelo {v}</div>"
                     f"<div class='exf-key'>{' '.join(k[i:i + 10] for i in range(0, len(k), 10))}</div>"
                     + (f"<div class='exf-ok {'b' if cmp_.split('/')[0] == cmp_.split('/')[1] else 'm'}'>"
-                       f"{'✓' if cmp_.split('/')[0] == cmp_.split('/')[1] else '✗'} Notas comprobadas con el corrector: {cmp_} alumnos</div>"
+                       f"{'✓' if cmp_.split('/')[0] == cmp_.split('/')[1] else '✗'} Notas iguales a las del corrector en {cmp_.split('/')[0]} de {cmp_.split('/')[1]} alumnos</div>"
                        if cmp_ else ""), unsafe_allow_html=True)
     ids = (info["posiciones"].get(mods[0]) if mods else None) or c.get("test") or []
     blq = {}

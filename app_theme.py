@@ -562,6 +562,14 @@ hr { border-color: var(--border) !important; }
 .exp-sec { font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
 .exp-st { font-size: 12.5px; color: var(--text2); }
 .exp-prev { background: var(--primary-soft); color: var(--text); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; margin-bottom: 10px; }
+.exp-paso { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+.st-key-exp_paso1, .st-key-exp_paso2, .st-key-exp_paso3 { margin-bottom: 10px; }
+[class*="st-key-exp_cambios_"] { border-radius: 10px; padding: 10px 12px; margin: 6px 0; font-size: 13.5px; }
+.st-key-exp_cambios_asp { background: var(--warn-bg); } .st-key-exp_cambios_cla { background: var(--err-bg); }
+.exp-ch { font-size: 13px; color: var(--text2); margin: 2px 0 0 4px; }
+.exp-cla { color: var(--err); margin-top: 6px; font-size: 13px; } .exp-asp { color: var(--ok); margin-top: 6px; font-size: 13px; }
+.st-key-btn_modelos_nuevos button, .st-key-btn_preview_exam button { padding: 0; min-height: 0; }
+.st-key-btn_modelos_nuevos button p { color: var(--err); font-size: 13px; }
 [class*="st-key-exp_estado_"] { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
 .st-key-exp_estado_ninguno { background: var(--ok-bg); } .st-key-exp_estado_ninguno strong { color: var(--ok); }
 .st-key-exp_estado_vigente { background: var(--primary-soft); } .st-key-exp_estado_vigente strong { color: var(--primary); }
