@@ -58,8 +58,8 @@ APP_CSS = """
 .q-num  { font-weight:700; color:#2c3e50; font-size:0.95em; }
 .q-enun { font-weight:600; margin-bottom:8px; color:#1a1a2e; }
 .q-opts { padding-left:10px; }
-.q-opt  { margin:3px 0; color:#444; }
-.q-opt.correct { color:#1e8449; font-weight:700; }
+.q-opt  { margin:2px 0; padding:3px 8px; border-radius:7px; color:#444; }
+.q-opt.correct { color:#1e6b3c; background:#e3f1e8; font-weight:600; }
 
 /* ── Tags de dificultad y uso ── */
 .tag { display:inline-block; border-radius:4px; padding:2px 7px; font-size:0.74em; font-weight:700; margin-left:4px; letter-spacing:.02em; }
@@ -1231,8 +1231,8 @@ body{{font-family:'Figtree',system-ui,sans-serif;font-size:14px;color:var(--text
 .q-num small{{color:var(--muted)!important}}
 .q-enun{{font-weight:600;margin-bottom:8px}}
 .q-opts{{padding-left:4px}}
-.q-opt{{margin:4px 0;color:var(--text2)}}
-.q-opt.correct{{color:var(--ok);font-weight:600}}
+.q-opt{{margin:2px 0;padding:3px 8px;border-radius:7px;color:var(--text2)}}
+.q-opt.correct{{color:var(--ok);background:var(--ok-bg);font-weight:600}}
 .tag{{display:inline-block;border-radius:999px;padding:2px 9px;font-size:0.76em;font-weight:600;margin-left:4px}}
 .tag-f{{background:var(--ok-bg);color:var(--ok)}}.tag-m{{background:var(--primary-soft);color:var(--primary)}}
 .tag-d{{background:var(--err-bg);color:var(--err)}}.tag-u{{background:var(--used-bg);color:var(--used)}}
@@ -1261,8 +1261,8 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-si
 .q-num{{font-weight:700;color:var(--text, #2c3e50);font-size:1em}}
 .q-enun{{font-weight:600;margin-bottom:7px}}
 .q-opts{{padding-left:8px}}
-.q-opt{{margin:2px 0;color:var(--text2, #444)}}
-.q-opt.correct{{color:var(--ui-ok, #1e8449);font-weight:700}}
+.q-opt{{margin:2px 0;padding:3px 8px;border-radius:7px;color:var(--text2, #444)}}
+.q-opt.correct{{color:var(--ui-ok, #1e8449);background:var(--ok-bg, #e3f1e8);font-weight:600}}
 .tag{{display:inline-block;border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:600;margin-left:4px}}
 .tag-f{{background:var(--ok-bg, #d5f5e3);color:var(--ui-ok, #1e8449)}}.tag-m{{background:var(--note-bg, #fef9e7);color:var(--ui-warn, #b7950b)}}
 .tag-d{{background:var(--err-bg, #fadbd8);color:var(--ui-err, #922b21)}}.tag-u{{background:var(--used-bg, #e8daef);color:var(--ui-used, #6c3483)}}.tag-n{{background:var(--card2, #eaecee);color:var(--muted, #626567)}}

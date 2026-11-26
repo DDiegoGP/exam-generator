@@ -84,7 +84,9 @@ def registrar(desc: str, tipo: str | None, antes: dict | None = None):
     """Apunta un cambio hecho a mano. `antes` = estado previo (si no, el actual)."""
     ss = _ss()
     pila = ss.setdefault("pv_undo", [])
-    pila.append(antes or _snap())
+    s_ = antes or _snap()
+    s_["cambio"] = desc
+    pila.append(s_)
     del pila[:-MAX_UNDO]
     ss["pv_redo"] = []
     if tipo:
@@ -100,15 +102,21 @@ def snap() -> dict:
 def deshacer():
     ss = _ss()
     if ss.get("pv_undo"):
-        ss.setdefault("pv_redo", []).append(_snap())
-        _restaurar(ss["pv_undo"].pop())
+        previo = ss["pv_undo"].pop()
+        ahora = _snap()
+        ahora["cambio"] = previo.get("cambio", "")
+        ss.setdefault("pv_redo", []).append(ahora)
+        _restaurar(previo)
 
 
 def rehacer():
     ss = _ss()
     if ss.get("pv_redo"):
-        ss.setdefault("pv_undo", []).append(_snap())
-        _restaurar(ss["pv_redo"].pop())
+        sig = ss["pv_redo"].pop()
+        ahora = _snap()
+        ahora["cambio"] = sig.get("cambio", "")
+        ss.setdefault("pv_undo", []).append(ahora)
+        _restaurar(sig)
 
 
 def volver_generado():

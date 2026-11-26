@@ -1148,6 +1148,41 @@ def _dlg_banco_desarrollo():
 # ─────────────────────────────────────────────────────────────────────────────
 # PREVIEW (Bitácora): el examen como lista + panel lateral + avisos + acciones
 # ─────────────────────────────────────────────────────────────────────────────
+def _historial_cambios():
+    """Preview (Bitácora): historial de cambios a mano con deshacer, rehacer y volver al examen generado."""
+    ss = st.session_state
+    hechos = [x.get("cambio", "") for x in ss.get("pv_undo") or [] if x.get("cambio")]
+    por_rehacer = [x.get("cambio", "") for x in ss.get("pv_redo") or [] if x.get("cambio")]
+    n = E.n_cambios()
+    with st.container(key="pvc_hist").expander(f"Historial de cambios{f' · {len(hechos)}' if hechos else ''}", expanded=True):
+        if not hechos and not por_rehacer:
+            st.markdown("<div class='pv-n'>Aún no has cambiado nada a mano. Lo que hagas aquí (cambiar, quitar, mover o "
+                        "fijar preguntas) aparecerá en esta lista y se podrá deshacer.</div>", unsafe_allow_html=True)
+        else:
+            filas = "".join(f"<div class='pvh-r{' u' if i == 0 else ''}'><span>{len(hechos) - i}</span>{c}</div>"
+                            for i, c in enumerate(reversed(hechos[-8:])))
+            if len(hechos) > 8:
+                filas += f"<div class='pv-n'>… y {len(hechos) - 8} cambios anteriores</div>"
+            if por_rehacer:
+                filas += "".join(f"<div class='pvh-r d'><span>↷</span>{c}</div>" for c in reversed(por_rehacer[-3:]))
+            st.markdown(filas, unsafe_allow_html=True)
+        if st.button("↶ Deshacer", key="pv_undo_b", disabled=not hechos, use_container_width=True,
+                     help=f"Vuelve a como estaba antes de «{hechos[-1]}»" if hechos else None):
+            E.deshacer(); st.rerun()
+        if hechos:
+            st.caption(f"Deshace «{hechos[-1]}».")
+        if st.button("↷ Rehacer", key="pv_redo_b", disabled=not por_rehacer, use_container_width=True):
+            E.rehacer(); st.rerun()
+        if por_rehacer:
+            st.caption(f"Vuelve a aplicar «{por_rehacer[-1]}».")
+        if st.button("Volver al examen generado", key="pv_base_b", use_container_width=True,
+                     disabled=not (n and ss.get("pv_base"))):
+            E.volver_generado(); st.rerun()
+        if n and ss.get("pv_base"):
+            st.caption(f"Descarta {'el cambio' if n == 1 else f'los {n} cambios'} a mano y deja el examen como salió al pulsar Generar "
+                       "(también se puede deshacer).")
+
+
 def _avisos_preguntas(cache):
     """{ID: [(texto, clase)]} con: usada hace poco, sin solución y lo que digan los análisis guardados."""
     import analisis_lib as _A
@@ -1234,18 +1269,6 @@ def _preview_bitacora(cache, show_sol, vista):
                     f"{' (' + format(pts_test, 'g') + ' pts)' if pts_test else ''}"
                     f"{' · ' + vista if not editable else ''}</div></div>", unsafe_allow_html=True)
         _render_checks_prev(cache, vista)
-        if editable:
-            with st.container(key="pv_undo"):
-                u1, u2, u3, u4 = st.columns([1, 1, 2.3, 3.6], vertical_alignment="center")
-                if u1.button("↶ Deshacer", key="pv_undo_b", disabled=not ss.get("pv_undo"), use_container_width=True):
-                    E.deshacer(); st.rerun()
-                if u2.button("↷ Rehacer", key="pv_redo_b", disabled=not ss.get("pv_redo"), use_container_width=True):
-                    E.rehacer(); st.rerun()
-                if u3.button("Volver al examen generado", key="pv_base_b", use_container_width=True,
-                             disabled=not (E.n_cambios() and ss.get("pv_base"))):
-                    E.volver_generado(); st.rerun()
-                if ss.get("pv_ultimo"):
-                    u4.markdown(f"<span class='pv-ult'>Último cambio: «{ss['pv_ultimo']}»</span>", unsafe_allow_html=True)
         if filtro:
             fx1, fx2 = st.columns([4, 1], vertical_alignment="center")
             fx1.markdown(f"Mostrando solo las preguntas con aviso: **{filtro}**")
@@ -1364,17 +1387,10 @@ def _preview_bitacora(cache, show_sol, vista):
     # ── Panel lateral ──
     with col_p.container(key="pv_panel"):
         n_test = len(cache)
-        _cb = ss.get("pv_cambios") or {}
-        if sum(_cb.values()):
-            with st.container(border=True, key="card_pv_camb"):
-                st.markdown("<div class='pv-ph'>Cambios a mano</div>"
-                            + "".join(f"<div class='pv-kv'><span>{lbl}</span><b>{_cb[k]}</b></div>"
-                                      for k, lbl in (("cambiadas", "Preguntas cambiadas"), ("quitadas", "Quitadas"),
-                                                     ("movidas", "Movidas"), ("fijadas", "Fijadas")) if _cb.get(k))
-                            + "<div class='pv-n'>Al pulsar Generar se te pedirá confirmación para no perderlos.</div>",
-                            unsafe_allow_html=True)
+        if editable:
+            _historial_cambios()
         minutos = round(1.5 * n_test + 15 * pts_dev)
-        with st.container(border=True, key="card_pv_res"):
+        with st.container(key="pvc_res").expander("Resumen", expanded=True):
             st.markdown("<div class='pv-ph'>Resumen</div>"
                         f"<div class='pv-kv'><span>Preguntas</span><b>{len(dev_qs)} + {n_test}</b></div>"
                         f"<div class='pv-kv'><span>Puntos</span><b>{pts_dev:g} + {pts_test:g} = {pts_dev + pts_test:g}</b></div>"
@@ -1383,7 +1399,7 @@ def _preview_bitacora(cache, show_sol, vista):
                         unsafe_allow_html=True)
         difs = [_dif_norm(p.get("dificultad", "")) for p in cache]
         cnt = [difs.count("facil"), difs.count("media"), difs.count("dificil")]
-        with st.container(border=True, key="card_pv_dif"):
+        with st.container(key="pvc_dif").expander("Dificultad del test", expanded=True):
             pc = [round(100 * c / n_test) if n_test else 0 for c in cnt]
             st.markdown("<div class='pv-ph'>Dificultad del test</div><div class='pv-mix'>"
                         + "".join(f"<span style='flex:{c or 0.0001};background:{col}'></span>" for c, col in
@@ -1394,12 +1410,12 @@ def _preview_bitacora(cache, show_sol, vista):
         for p in cache:
             blqs[p.get("bloque", "")] = blqs.get(p.get("bloque", ""), 0) + 1
         mx = max(blqs.values() or [1])
-        with st.container(border=True, key="card_pv_blq"):
+        with st.container(key="pvc_blq").expander("Por bloque", expanded=False):
             st.markdown("<div class='pv-ph'>Por bloque</div>" + "".join(
                 f"<div class='pv-b'><span>{b}</span><span class='bar'><span style='width:{100 * n / mx:.0f}%'></span></span><b>{n}</b></div>"
                 for b, n in sorted(blqs.items(), key=lambda kv: orden_bloque_g(kv[0]))), unsafe_allow_html=True)
         letras = [str(p.get("letra_correcta", "")).upper() for p in cache]
-        with st.container(border=True, key="card_pv_letras"):
+        with st.container(key="pvc_letras").expander("Respuestas correctas", expanded=False):
             st.markdown("<div class='pv-ph'>Respuestas correctas</div><div class='pv-l'>"
                         + "".join(f"<div><small>{l}</small><b>{letras.count(l)}</b></div>" for l in "ABCD")
                         + "</div><div class='pv-n'>" + ("Se barajan al exportar." if vista == "Vista previa" else vista) + "</div>",
@@ -1409,7 +1425,7 @@ def _preview_bitacora(cache, show_sol, vista):
         usos = [str(p.get("usada", "") or "").strip()[:10] for p in cache]
         nunca = sum(1 for u in usos if not u or u in ("nan", "None"))
         viejas = sum(1 for u in usos if u and u not in ("nan", "None") and es_uso_antiguo(u, 12))
-        with st.container(border=True, key="card_pv_uso"):
+        with st.container(key="pvc_uso").expander("Uso de las preguntas", expanded=False):
             st.markdown("<div class='pv-ph'>Uso de las preguntas</div><div class='pv-l3'>"
                         f"<div><b>{nunca}</b><small>nunca usadas</small></div>"
                         f"<div><b>{viejas}</b><small>hace más de un año</small></div>"
@@ -1422,7 +1438,7 @@ def _preview_bitacora(cache, show_sol, vista):
         con_obj = sum(1 for p in cache if str(p.get("objetivo", "") or "").strip() not in ("", "nan", "None"))
         con_sol = sum(1 for p in cache if str(p.get("solucion", "") or "").strip() not in ("", "nan", "None"))
         top_t = max(temas.items(), key=lambda kv: kv[1]) if temas else None
-        with st.container(border=True, key="card_pv_cob"):
+        with st.container(key="pvc_cob").expander("Cobertura", expanded=False):
             st.markdown("<div class='pv-ph'>Cobertura</div>"
                         f"<div class='pv-kv'><span>Temas distintos</span><b>{len(temas)}</b></div>"
                         + (f"<div class='pv-kv'><span>Tema con más preguntas</span><b>T{top_t[0][1]} · {top_t[1]}</b></div>" if top_t else "")
@@ -1438,7 +1454,7 @@ def _preview_bitacora(cache, show_sol, vista):
                      and str(_ult[p.get("ID_Pregunta")]).strip()]
         except Exception:
             _vals = []
-        with st.container(border=True, key="card_pv_an"):
+        with st.container(key="pvc_an").expander("Según exámenes anteriores", expanded=False):
             if _vals:
                 media = sum(_vals) / len(_vals)
                 reales = [_A.dificultad_real(v) for v in _vals]
@@ -1454,7 +1470,7 @@ def _preview_bitacora(cache, show_sol, vista):
                 st.markdown("<div class='pv-ph'>Según exámenes anteriores</div><div class='pv-n'>Ninguna de estas preguntas "
                             "tiene todavía un análisis guardado (página Análisis).</div>", unsafe_allow_html=True)
         n_fij = sum(1 for p in cache if p.get("ID_Pregunta") in fijas)
-        with st.container(border=True, key="card_pv_ori"):
+        with st.container(key="pvc_ori").expander("Origen", expanded=False):
             st.markdown("<div class='pv-ph'>Origen</div>"
                         f"<div class='pv-kv'><span>Fijas (elegidas a mano)</span><b>{n_fij}</b></div>"
                         f"<div class='pv-kv'><span>De la receta / al azar</span><b>{n_test - n_fij}</b></div>",
@@ -1467,7 +1483,7 @@ def _preview_bitacora(cache, show_sol, vista):
                 tipos[k] = tipos.get(k, 0) + 1
         n_dev_sin = sum(1 for q in dev_qs if not (str(q.get("solucion_modelo", "")).strip()
                                                   or any(str(a.get("solucion", "")).strip() for a in q.get("subapartados") or [])))
-        with st.container(border=True, key="card_pv_av"):
+        with st.container(key="pvc_av").expander("Avisos", expanded=True):
             st.markdown(f"<div class='pv-ph'>Avisos <small>{sum(tipos.values()) + n_dev_sin}</small></div>", unsafe_allow_html=True)
             if not tipos and not n_dev_sin:
                 st.caption("Ninguno.")
@@ -3993,12 +4009,14 @@ def _paso_definitivo(ef):
                "como usadas. Antes de eso nada se guarda en la base de datos.")
 
 
+_SEC_ABIERTAS = {"Datos del examen", "Formatos y versión con soluciones", "Hoja de respuestas", "Presets de configuración"}
+
+
 def _sec_exp(titulo: str, abierto: bool = True):
-    """Bitácora: tarjeta con título; Clásico: desplegable como antes."""
+    """Bitácora: desplegable con aspecto de tarjeta (abierto solo el primero de cada sección); Clásico: como antes."""
     if get_estilo() == "bitacora":
-        c = st.container(border=True)
-        c.markdown(f"<div class='exp-sec'>{titulo}</div>", unsafe_allow_html=True)
-        return c
+        k = re.sub(r"\W+", "_", titulo.lower()).strip("_")[:30]
+        return st.container(key=f"expsec_{k}").expander(titulo, expanded=titulo in _SEC_ABIERTAS)
     return st.expander(titulo, expanded=abierto)
 
 
@@ -4531,7 +4549,7 @@ with tab_exp:
 
         with _g_exam:
             # ── 1. Configuración del examen ────────────────────────────────────────
-            with _sec_exp("Configuración del examen", True):
+            with _sec_exp("Datos del examen", True):
                 _cg = st.session_state.get("cfg_general", {})
 
                 # Sincronizar desde cfg_general (flag pattern)
@@ -4546,7 +4564,7 @@ with tab_exp:
                     st.session_state["exp_asig"] = cfg.get("asig") or _cg.get("asignatura") or ""
 
                 _sync_col, _ = st.columns([3, 3])
-                if _sync_col.button("↺ Rellenar desde Configuración", key="btn_sync_cfg",
+                if _sync_col.button("Rellenar desde Configuración", key="btn_sync_cfg",
                                     help="Sobreescribe Institución y Asignatura con los datos de ⚙️ Configuración"):
                     st.session_state["_sync_from_cfg_general"] = True
                     st.rerun()
@@ -4575,7 +4593,7 @@ with tab_exp:
 
         with _g_exam:
             # ── 2. Generación ─────────────────────────────────────────────────────
-            with _sec_exp("Opciones de generación", True):
+            with _sec_exp("Modelos y barajado", True):
                 oc1, oc2, oc3 = st.columns(3)
                 num_modelos = oc1.selectbox("Nº Modelos", [1, 2, 3, 4],
                                             index=max(0, cfg.get("vers", 1) - 1), key="exp_vers")
@@ -4588,12 +4606,12 @@ with tab_exp:
                 orden       = orden_val[1]
                 barajar     = oc3.checkbox("Barajar respuestas", value=cfg.get("bar", True), key="exp_bar")
 
-                st.markdown("**Modo de partes:**")
+                st.markdown("<div class='exp-sub'>Modo de partes</div>", unsafe_allow_html=True)
                 _partes_opts = [
-                    ("completo",    "📄 Completo (desarrollo + test juntos)"),
+                    ("completo",    "Completo: desarrollo y test en un documento"),
                     ("solo_test",   "📋 Solo Test (MCQ)"),
-                    ("solo_dev",    "✍️ Solo Desarrollo (problemas)"),
-                    ("separados",   "📑 Separados (dos documentos independientes)"),
+                    ("solo_dev",    "Solo desarrollo"),
+                    ("separados",   "Separados: desarrollo y test en dos documentos"),
                 ]
                 _partes_idx = next((i for i, (v, _) in enumerate(_partes_opts)
                                     if v == cfg.get("partes_modo", "separados")), 3)
@@ -4603,20 +4621,20 @@ with tab_exp:
                     label_visibility="collapsed",
                 )[0]
                 if partes_modo == "separados":
-                    st.caption("ℹ️ Dos documentos independientes: **_DEV** (desarrollo, A4) y **_TEST** (test, con opción 2-por-hoja).")
+                    st.caption("Dos documentos independientes: **_DEV** (desarrollo, A4) y **_TEST** (test, con opción 2-por-hoja).")
             campos_alumno = _campos_sel
 
         with _g_fmt:
             # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
-            with _sec_exp("Formatos y marcado de soluciones", True):
-                st.markdown("**Formatos de exportación:**")
+            with _sec_exp("Formatos y versión con soluciones", True):
+                st.markdown("<div class='exp-sub'>Formatos de exportación</div>", unsafe_allow_html=True)
                 fc1, fc2, fc3 = st.columns(3)
                 fc1.markdown("📊 **CSV** (siempre)", help="Clave de respuestas y metadatos — siempre se generan")
-                exp_word = fc2.checkbox("📄 Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
-                exp_tex  = fc3.checkbox("📑 LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
+                exp_word = fc2.checkbox("Word (.docx)", value=cfg.get("exp_word", True), key="exp_word")
+                exp_tex  = fc3.checkbox("LaTeX (.tex)", value=cfg.get("exp_tex",  True), key="exp_tex")
                 if exp_tex:
-                    st.caption("ℹ️ LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
-                st.markdown("**Marcado de la versión soluciones:**")
+                    st.caption("LaTeX usa `article` + `estilo_examen_moderno_v2.sty` (incluido en el ZIP).")
+                st.markdown("<div class='exp-sub'>Marcado de la versión soluciones</div>", unsafe_allow_html=True)
                 sc1, sc2, sc3 = st.columns(3)
                 sol_bold = sc1.checkbox("Negrita", value=cfg.get("sol_bold", False), key="exp_sol_bold")
                 _color_opts = {"": "Sin color", "red": "Rojo", "green": "Verde",
@@ -4627,19 +4645,19 @@ with tab_exp:
                                           index=_color_idx, format_func=lambda x: _color_opts[x],
                                           key="exp_sol_color")
                 sol_ast  = sc3.checkbox("Asterisco (*)", value=cfg.get("sol_ast", True), key="exp_sol_ast")
-                st.markdown("**Estilo bloque solución (desarrollo):**")
+                st.markdown("<div class='exp-sub'>Estilo bloque solución (desarrollo)</div>", unsafe_allow_html=True)
                 _esol_opts = {"caja": "📦 Caja tcolorbox", "linea": "📌 Línea lateral", "texto": "🔤 Texto"}
                 _esol_cur  = cfg.get("estilo_sol", "caja")
                 estilo_sol = st.radio("Estilo bloque solución", list(_esol_opts.keys()),
                                       index=list(_esol_opts.keys()).index(_esol_cur) if _esol_cur in _esol_opts else 0,
                                       format_func=lambda x: _esol_opts[x], horizontal=True,
                                       key="exp_estilo_sol")
-                st.markdown("**Marca de agua en versión soluciones:**")
+                st.markdown("<div class='exp-sub'>Marca de agua en versión soluciones</div>", unsafe_allow_html=True)
                 wc1, wc2 = st.columns([1, 2])
                 watermark_sol  = wc1.checkbox("Añadir marca de agua", value=cfg.get("watermark_sol", False), key="exp_wm_on")
                 watermark_text = wc2.text_input("Texto de la marca", value=cfg.get("watermark_text", "SOLUCIONES"),
                                                 key="exp_wm_text", disabled=not watermark_sol)
-                st.markdown("**Info extra por pregunta en versión soluciones (LaTeX):**")
+                st.markdown("<div class='exp-sub'>Info extra por pregunta en versión soluciones (LaTeX)</div>", unsafe_allow_html=True)
                 ic1, ic2, ic3 = st.columns(3)
                 sol_info_bloque = ic1.checkbox("Bloque",      value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
                 sol_info_tema   = ic2.checkbox("Tema",        value=cfg.get("sol_info_tema",   False), key="exp_sol_tema")
@@ -4649,7 +4667,7 @@ with tab_exp:
 
         with _g_exam:
             # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
-            with _sec_exp("Instrucciones y cabeceras", True):
+            with _sec_exp("Instrucciones y cabeceras de sección", True):
                 instr     = st.text_area("Instrucciones generales",
                                          value=cfg.get("ins", "Conteste en la hoja de respuestas."),
                                          height=70, key="exp_ins")
@@ -4804,7 +4822,7 @@ with tab_exp:
                                             key="exp_incl_rubrica",
                                             disabled=not _has_rubrica)
                 if not _has_rubrica:
-                    rb1.caption("⚠️ Define rúbrica/solución en Tab ✍️ Desarrollo")
+                    rb1.caption("Define la rúbrica o la solución en la pestaña Desarrollo.")
                 fmt_rubrica_word = rb2.checkbox("Formato Word (.docx)", value=cfg.get("fmt_rubrica_word", True),
                                                  key="exp_rubrica_word", disabled=not incl_rubrica)
                 fmt_rubrica_tex  = rb3.checkbox("Formato LaTeX (.tex)",  value=cfg.get("fmt_rubrica_tex",  True),
@@ -4823,7 +4841,7 @@ with tab_exp:
         with _g_extra:
             # ── 4b-quinto. Formulario / Hoja de fórmulas ─────────────────────────
             _form_stored = bool(st.session_state.get("_formulario_bytes"))
-            with _sec_exp("Formulario / Hoja de fórmulas", _form_stored):
+            with _sec_exp("Formulario (hoja de fórmulas)", _form_stored):
                 st.caption(
                     "Adjunta un PDF con el formulario de la asignatura. "
                     "Se incluirá como última página en los archivos LaTeX (requiere compilación local con pdfpages)."
@@ -4846,8 +4864,8 @@ with tab_exp:
                         st.session_state["_formulario_upload_name"] = _form_up.name
                         st.rerun()
                 if _form_stored:
-                    _f2.success(f"📎 {st.session_state.get('_formulario_name','formulario.pdf')}")
-                    if _f2.button("🗑️ Quitar formulario", key="btn_del_formulario", use_container_width=True):
+                    _f2.success(f"{st.session_state.get('_formulario_name','formulario.pdf')}")
+                    if _f2.button("Quitar formulario", key="btn_del_formulario", use_container_width=True):
                         for _k in ("_formulario_bytes", "_formulario_name", "_formulario_upload_name"):
                             st.session_state.pop(_k, None)
                         st.rerun()
@@ -4962,7 +4980,7 @@ with tab_exp:
                     placeholder="\\usetikzlibrary{3d}\n\\usepackage{siunitx}",
                     help="Ya se cargan solas las librerías habituales de TikZ (flechas, cálculo, posiciones, ángulos, "
                          "tramas…); pgfplots y circuitikz se añaden si alguna figura los usa.")
-            with _sec_exp("Plantillas (Word / LaTeX / Logo)", False):
+            with _sec_exp("Plantillas y logo", False):
                 st.caption("Se suben por sesión. Los presets guardan la configuración pero no la plantilla.")
                 tc1, tc2, tc3    = st.columns(3)
                 tpl_word_file    = tc1.file_uploader("Plantilla Word (.docx)", type=["docx"], key="exp_tpl_word")
@@ -4974,7 +4992,7 @@ with tab_exp:
                     tc1.success(f"✅ {tpl_word_file.name}")
                 elif st.session_state.get("_tpl_word_bytes"):
                     tc1.info(f"En memoria: {st.session_state.get('_tpl_word_name','plantilla.docx')}")
-                    if tc1.button("🗑️ Quitar plantilla Word", key="btn_clear_tpl_word", use_container_width=True):
+                    if tc1.button("Quitar plantilla Word", key="btn_clear_tpl_word", use_container_width=True):
                         st.session_state.pop("_tpl_word_bytes", None)
                         st.session_state.pop("_tpl_word_name", None)
                         st.rerun()
@@ -4984,7 +5002,7 @@ with tab_exp:
                     tc2.success(f"✅ {tpl_tex_file.name}")
                 elif st.session_state.get("_tpl_tex_bytes"):
                     tc2.info(f"En memoria: {st.session_state.get('_tpl_tex_name','plantilla.tex')}")
-                    if tc2.button("🗑️ Quitar plantilla LaTeX", key="btn_clear_tpl_tex", use_container_width=True):
+                    if tc2.button("Quitar plantilla LaTeX", key="btn_clear_tpl_tex", use_container_width=True):
                         st.session_state.pop("_tpl_tex_bytes", None)
                         st.session_state.pop("_tpl_tex_name", None)
                         st.rerun()
@@ -5003,20 +5021,20 @@ with tab_exp:
                 _presets = _cargar_presets()
                 pr1, pr2  = st.columns([3, 1])
                 _sel_pr   = pr1.selectbox("Preset", ["— Seleccionar —"] + list(_presets.keys()), key="preset_sel")
-                if pr2.button("📂 Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
+                if pr2.button("Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
                     st.session_state.exam_cfg = _presets.get(_sel_pr, {})
                     notify(f"Preset '{_sel_pr}' cargado.")
                     st.rerun()
                 pr3, pr4  = st.columns([3, 1])
                 _pr_name  = pr3.text_input("Nombre del preset", placeholder="Ej: FM I Ordinario 2026",
                                            key="preset_name_input", label_visibility="collapsed")
-                if pr4.button("💾 Guardar", key="btn_save_preset", use_container_width=True):
+                if pr4.button("Guardar", key="btn_save_preset", use_container_width=True):
                     if _pr_name.strip():
                         save_preset(_pr_name.strip(), st.session_state.get("exam_cfg", {}))
                         notify(f"Preset '{_pr_name}' guardado.")
                         st.rerun()
                 if _sel_pr != "— Seleccionar —":
-                    if st.button(f"🗑️ Eliminar '{_sel_pr}'", key="btn_del_preset"):
+                    if st.button(f"Eliminar «{_sel_pr}»", key="btn_del_preset"):
                         delete_preset(_sel_pr); st.rerun()
 
         # ── Persistir cfg en session_state ────────────────────────────────────
@@ -5330,7 +5348,11 @@ with tab_exp:
             _rub_tex_bytes  = _rub_tex_raw.decode("utf-8", errors="replace") if isinstance(_rub_tex_raw, (bytes, bytearray)) else str(_rub_tex_raw)
 
             if not _tex_avail_sfxs and not _rub_tex_bytes:
-                st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
+                if not _bit_exp:
+                    st.info("Activa **📑 LaTeX** y exporta primero para poder compilar el PDF.")
+                elif _ef_now:
+                    st.caption("Para ver el PDF, activa el formato LaTeX en Formato › Formatos y versión con soluciones "
+                               "y actualiza los archivos.")
             else:
                 _sty_b     = _ef_now["_zip_all"].get("estilo_examen_moderno_v2.sty", b"") if _ef_now else b""
                 _img_files = {k: v for k, v in _ef_now["_zip_all"].items() if k.startswith("dev_img_")} if _ef_now else {}

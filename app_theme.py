@@ -570,6 +570,18 @@ hr { border-color: var(--border) !important; }
 .exp-cla { color: var(--err); margin-top: 6px; font-size: 13px; } .exp-asp { color: var(--ok); margin-top: 6px; font-size: 13px; }
 .st-key-btn_modelos_nuevos button, .st-key-btn_preview_exam button { padding: 0; min-height: 0; }
 .st-key-btn_modelos_nuevos button p { color: var(--err); font-size: 13px; }
+/* Exportar: cada apartado de configuración es un desplegable con aspecto de tarjeta */
+[class*="st-key-expsec_"] [data-testid="stExpander"] details { background: var(--card); border-radius: 12px; }
+[class*="st-key-expsec_"] [data-testid="stExpander"] summary p { font-weight: 700; font-size: 1rem; }
+.exp-sub { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 10px 0 4px; }
+/* Preview: tarjetas del panel desplegables; historial de cambios */
+[class*="st-key-pvc_"] [data-testid="stExpander"] details { background: var(--card); border-radius: 12px; }
+[class*="st-key-pvc_"] [data-testid="stExpander"] summary p { font-weight: 700; }
+[class*="st-key-pvc_"] .pv-ph { display: none; }
+.pvh-r { display: flex; gap: 8px; font-size: 13px; padding: 4px 6px; border-radius: 7px; color: var(--text2); }
+.pvh-r span { color: var(--muted); min-width: 16px; font-family: var(--mono); font-size: 12px; }
+.pvh-r.u { background: var(--primary-soft); color: var(--text); font-weight: 600; }
+.pvh-r.d { color: var(--muted); font-style: italic; }
 [class*="st-key-exp_estado_"] { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
 .st-key-exp_estado_ninguno { background: var(--ok-bg); } .st-key-exp_estado_ninguno strong { color: var(--ok); }
 .st-key-exp_estado_vigente { background: var(--primary-soft); } .st-key-exp_estado_vigente strong { color: var(--primary); }
@@ -632,8 +644,8 @@ hr { border-color: var(--border) !important; }
 .qd-id { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; margin-right: 10px; }
 .qd-meta { color: var(--muted); }
 .qd-enun { font-weight: 600; font-size: 1rem; line-height: 1.5; margin-bottom: 10px; }
-.qd-opt { color: var(--text2); margin: 5px 0; }
-.qd-opt.ok { color: var(--ok); font-weight: 600; }
+.qd-opt { color: var(--text2); margin: 2px 0; padding: 4px 9px; border-radius: 7px; }
+.qd-opt.ok { color: var(--ok); background: var(--ok-bg); font-weight: 600; }
 .tag.qd-pend { background: var(--warn-bg); color: var(--warn); }
 .qd-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 14px 0 6px; }
 .qd-tile { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; background: var(--card); }
