@@ -198,13 +198,47 @@ def _save_json(path: str, data):
         return False
 
 # ── Presets ──────────────────────────────────────────────────────────────────
+PRESETS_SHEET = "Cfg_Presets"
+
+
+def cargar_presets() -> dict:
+    """Presets de exportación: los de la base de datos (compartidos y a salvo en Cloud) + los locales antiguos."""
+    import json as _js
+    out = dict(st.session_state.get("presets") or {})
+    df = (st.session_state.get("excel_dfs") or {}).get(PRESETS_SHEET)
+    if df is not None and not df.empty and "Nombre" in df.columns:
+        for _, r in df.fillna("").iterrows():
+            try:
+                out[str(r["Nombre"])] = _js.loads(str(r.get("Config", "") or "{}"))
+            except ValueError:
+                pass
+    st.session_state.presets = out
+    return out
+
+
+def _presets_a_bd():
+    import json as _js
+    if not st.session_state.get("excel_dfs"):
+        return
+    pr = st.session_state.presets or {}
+    st.session_state.excel_dfs[PRESETS_SHEET] = pd.DataFrame(
+        [{"Nombre": k, "Config": _js.dumps({kk: vv for kk, vv in v.items() if not isinstance(vv, (bytes, bytearray))},
+                                           ensure_ascii=False, default=str)} for k, v in pr.items()],
+        columns=["Nombre", "Config"])
+    guardar_hojas([PRESETS_SHEET])
+
+
 def save_preset(name: str, cfg: dict):
+    cargar_presets()
     st.session_state.presets[name] = cfg
     _save_json(PRESETS_FILE, st.session_state.presets)
+    _presets_a_bd()
 
 def delete_preset(name: str):
+    cargar_presets()
     st.session_state.presets.pop(name, None)
     _save_json(PRESETS_FILE, st.session_state.presets)
+    _presets_a_bd()
 
 # ── Historial ────────────────────────────────────────────────────────────────
 def append_historial(entry: dict):

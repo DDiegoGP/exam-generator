@@ -3368,8 +3368,10 @@ def _inject_formulario_tex(tex_str: str, formulario_name: str) -> str:
 
 
 # ── Helper: ejecutar exportación completa en memoria ─────────────────────────
-def _ejecutar_export():
-    """Genera todos los archivos en memoria y los guarda en session_state['export_files']."""
+def _ejecutar_export(previa: bool = False):
+    """Genera todos los archivos en memoria y los guarda en session_state['export_files'].
+    previa=True: vista previa del PDF (mismos modelos que la exportación, pero sin marcar preguntas usadas,
+    sin registrar el examen y sin historial)."""
     cfg          = st.session_state.get("exam_cfg", {})
     sel_actual   = get_sel_ids()
     nombre_arch  = cfg.get("file", f"Examen_{datetime.date.today()}")
@@ -3400,6 +3402,17 @@ def _ejecutar_export():
                 item = dict(df_dict[pid]); item["ID_Pregunta"] = pid
                 pool.append(item)
 
+    for _p in pool:      # línea de información de la versión con soluciones (nombres legibles)
+        _partes_i = []
+        if cfg.get("sol_info_bloque"):
+            _partes_i.append(nombre_bloque(str(_p.get("bloque", ""))))
+        if cfg.get("sol_info_tema"):
+            _partes_i.append(nombre_tema(str(_p.get("Tema", "")).removesuffix(".0")))
+        if cfg.get("sol_info_dif"):
+            _partes_i.append(str(_p.get("dificultad", "")))
+        if cfg.get("sol_info_id"):
+            _partes_i.append(str(_p.get("ID_Pregunta", "")))
+        _p["_info_sol"] = " · ".join(x for x in _partes_i if x)
     cfg_export = {
         "titulo_asignatura": cfg.get("asig", ""),
         "tipo_examen":       cfg.get("tipo", ""),
@@ -3473,6 +3486,8 @@ def _ejecutar_export():
         "sol_info_bloque": cfg.get("sol_info_bloque", False),
         "sol_info_tema":   cfg.get("sol_info_tema",   False),
         "sol_info_dif":    cfg.get("sol_info_dif",    False),
+        "sol_info_id":     cfg.get("sol_info_id",     False),
+        "pautado":         cfg.get("pautado", "libre"),
         # Solucionario
         "incluir_solucionario": cfg.get("incluir_solucionario", False),
         "titulo_solucionario":  cfg.get("titulo_solucionario", "Solucionario"),
@@ -3504,11 +3519,13 @@ def _ejecutar_export():
     else:
         _runs = [("", pool, cfg_export)]
 
-    ef = {"nombre": nombre_arch, "_zip_all": {}}
+    ef = {"nombre": nombre_arch, "_zip_all": {}, "_fecha": datetime.datetime.now().strftime("%d-%m-%Y %H:%M")}
+    _firma_mod = E.firma_modelos([p.get("ID_Pregunta") for p in pool], cfg)
 
     for _sfx, _pool, _cfg in _runs:
         _arch = nombre_arch + _sfx
-        _master = E.master_bloqueado(_pool) or lib.generar_master_examen(_pool, n_mod, _cfg)
+        _master = (E.master_bloqueado(_pool) or E.master_fijado(_pool, _firma_mod)
+                   or lib.generar_master_examen(_pool, n_mod, _cfg))
 
         if not _sfx or (partes_modo == "separados" and _sfx == "_TEST"):
             ef["_master"] = _master   # el mismo que da las claves del CSV
@@ -3623,6 +3640,12 @@ def _ejecutar_export():
                 ef["_zip_all"][f"{nombre_arch}_MOD{letra}_ADAPT.tex"] = data
 
     ef["zip_bytes"] = lib.generar_zip_bytes(ef["_zip_all"])
+    if not E.bloqueado():
+        E.fijar(ef.get("_master") or [], _firma_mod, previa=previa)
+    if previa:
+        ef["_previa"] = True
+        st.session_state["export_files"] = ef
+        return
 
     # Marcar preguntas como usadas en la DB (con la fecha del examen; todas las del examen, no solo las fijas)
     hoy = E.fecha_iso(cfg.get("fecha", ""))
@@ -3688,8 +3711,8 @@ def _ejecutar_export():
                 f"⚠️ No se pudo registrar el examen para el análisis: {_e}")
 
 
-@st.dialog("✅ Confirmar exportación", width="small")
-def _dialog_confirmar_export():
+@st.dialog("Exportar examen", width="small")
+def _dialog_confirmar_export(previa: bool = False):
     cfg      = st.session_state.get("exam_cfg", {})
     sel      = get_sel_ids()
     auto_rec = st.session_state.get("auto_recipe", {})
@@ -3719,14 +3742,33 @@ def _dialog_confirmar_export():
         st.warning(f"Ya existe un examen llamado «{_nom}». Si exportas, se reemplaza su registro "
                    "(el análisis guardado se conserva). Para no reemplazarlo, cambia el nombre en Exportar.")
         _ok_dup = st.checkbox("Reemplazarlo", key="dlg_dup_ok")
+    _est_m, _fx = E.estado_modelos(cfg)
+    _ok_mod = True
     if E.bloqueado():
         st.caption("Examen bloqueado: se exportan exactamente los mismos modelos y claves.")
+    elif _est_m == "vigente":
+        st.success(f"Se usan los mismos modelos y claves fijados el {_fx.get('fecha', '')}: "
+                   "lo que ya hayas impreso sigue valiendo.")
+    elif _est_m == "cambiado":
+        st.warning(f"Has cambiado las preguntas o el barajado desde el {_fx.get('fecha', '')}. Se generarán "
+                   "**modelos nuevos**: las claves y los archivos anteriores dejarán de valer"
+                   + (" (la exportación anterior queda en Exámenes como «sustituida»)." if _fx.get("exportado") else "."))
+        _ok_mod = st.checkbox("Entiendo: tendré que descargar de nuevo todos los archivos", key="dlg_mod_ok")
+    else:
+        st.caption("Al " + ("ver la vista previa" if previa else "exportar") + " se fijan los modelos y las claves: "
+                   "si vuelves a exportar saldrán exactamente iguales.")
+    if previa:
+        st.caption("Vista previa: no se marcan las preguntas como usadas ni se registra el examen hasta que exportes.")
     st.markdown("---")
     c1, c2 = st.columns(2)
-    if c1.button("✅ Exportar", type="primary", use_container_width=True, key="dlg_ok", disabled=not _ok_dup):
+    if c1.button("Ver la vista previa" if previa else "Exportar", type="primary", use_container_width=True, key="dlg_ok",
+                 disabled=not (_ok_dup and _ok_mod)):
         with st.spinner("Generando archivos…"):
             try:
-                _ejecutar_export()
+                if _est_m == "cambiado" and not E.bloqueado():
+                    E.descartar_fijado(cfg.get("file", "") if _fx.get("exportado") else "")
+                _ejecutar_export(previa=previa)
+                st.session_state["_exp_ir_dl"] = True
             except Exception as e:
                 st.error(f"Error: {e}")
                 import traceback; st.code(traceback.format_exc())
@@ -3734,6 +3776,33 @@ def _dialog_confirmar_export():
         st.rerun()
     if c2.button("Cancelar", use_container_width=True, key="dlg_cancel"):
         st.rerun()
+
+
+@st.dialog("Generar modelos nuevos", width="small")
+def _dialog_modelos_nuevos():
+    _est_m, _fx = E.estado_modelos()
+    st.markdown("Se volverá a barajar el orden de las preguntas y de las opciones. "
+                f"**Las claves y los archivos de la exportación del {_fx.get('fecha', '')} dejarán de valer**: si ya "
+                "imprimiste o repartiste ese examen, corrígelo con aquella clave, no con la nueva.")
+    if _fx.get("exportado"):
+        st.info("La exportación anterior se conserva en Exámenes como «sustituida», con sus claves, por si la necesitas.")
+    ok = st.checkbox("Entiendo que tendré que descargar de nuevo todos los archivos", key="dlg_nuevos_ok")
+    c1, c2 = st.columns(2)
+    if c1.button("Generar modelos nuevos", type="primary", key="dlg_nuevos_go", disabled=not ok, use_container_width=True):
+        E.descartar_fijado(st.session_state.get("exam_cfg", {}).get("file", "") if _fx.get("exportado") else "")
+        notify("Modelos anteriores descartados: pulsa «Exportar examen» para generar los nuevos.")
+        st.rerun()
+    if c2.button("Cancelar", key="dlg_nuevos_no", use_container_width=True):
+        st.rerun()
+
+
+def _sec_exp(titulo: str, abierto: bool = True):
+    """Bitácora: tarjeta con título; Clásico: desplegable como antes."""
+    if get_estilo() == "bitacora":
+        c = st.container(border=True)
+        c.markdown(f"<div class='exp-sec'>{titulo}</div>", unsafe_allow_html=True)
+        return c
+    return st.expander(titulo, expanded=abierto)
 
 
 _SOL_COLOR_CSS = {
@@ -4099,6 +4168,66 @@ def _render_pdf_viewer(pdf_bytes: bytes, height: int = 700):
 
 
 @st.dialog("🔨 Compilando PDF…", width="large")
+def _clave_modelo(ef, letra) -> str:
+    m = next((x for x in (ef or {}).get("_master") or [] if x["letra_version"] == letra), None)
+    return "".join(p.get("letra_final", "?") for p in m["preguntas"]) if m else ""
+
+
+def _comprobar_pdf(pdf_bytes: bytes, clave: str) -> tuple:
+    """Lee la correcta marcada en el PDF de soluciones y la compara con la clave. (ok, mensaje)."""
+    try:
+        import importar_examen as _IMP
+        _v, qs = _IMP._pdf(pdf_bytes)
+    except Exception as e:
+        return False, f"No se ha podido comprobar el PDF automáticamente: {e}"
+    marc = "".join(q.get("ok") or "?" for q in qs if not q.get("bis"))
+    if len(marc) != len(clave) or marc.count("?") > len(clave) // 2:
+        return True, "Comprobación automática no disponible para este PDF (no se reconocen bien las preguntas)."
+    mal = [f"{j + 1} (PDF {a} · clave {b})" for j, (a, b) in enumerate(zip(marc, clave)) if a != b]
+    if not mal:
+        return True, f"✓ La correcta marcada en el PDF coincide con la clave en las {len(clave)} preguntas."
+    return False, f"✗ La correcta marcada en el PDF NO coincide con la clave en: {', '.join(mal)}. No lo uses sin revisarlo."
+
+
+def _compilar_todos(ef):
+    """Compila todos los modelos (alumno y soluciones) de test/examen completo, comprueba y los añade al ZIP."""
+    sty = ef["_zip_all"].get("estilo_examen_moderno_v2.sty", b"")
+    imgs = {k: v for k, v in ef["_zip_all"].items() if k.startswith("dev_img_")}
+    if ef.get("formulario_name") and ef.get("formulario_bytes"):
+        imgs[ef["formulario_name"]] = ef["formulario_bytes"]
+    trabajos = []
+    for sfx in ("", "_TEST", "_DEV"):
+        for letra in (ef.get(f"latex_exam{sfx}") or {}):
+            trabajos.append((sfx, letra, False))
+            if ef.get(f"latex_sol{sfx}"):
+                trabajos.append((sfx, letra, True))
+    prog = st.progress(0, text="Compilando…")
+    errores, avisos = [], []
+    for k, (sfx, letra, sol) in enumerate(trabajos):
+        nombre = f"{ef.get('nombre', 'examen')}{sfx}"
+        pdf_name = f"{nombre}_MOD{letra}{'_SOL' if sol else ''}.pdf"
+        prog.progress(k / max(1, len(trabajos)), text=f"Compilando {pdf_name}…")
+        try:
+            tex = (ef[f"latex_sol{sfx}"] if sol else ef[f"latex_exam{sfx}"])[letra]
+            pdf = lib.compilar_latex_online(tex_str=tex, sty_bytes=sty, extra_files=imgs, nombre=nombre)
+            ef["_zip_all"][pdf_name] = pdf
+            if sol and sfx in ("", "_TEST"):
+                ok, msg = _comprobar_pdf(pdf, _clave_modelo(ef, letra))
+                if not ok:
+                    avisos.append(f"{pdf_name}: {msg}")
+        except Exception as e:
+            errores.append(f"{pdf_name}: {e}")
+    prog.progress(1.0, text="Hecho")
+    ef["zip_bytes"] = lib.generar_zip_bytes(ef["_zip_all"])
+    for a in avisos:
+        st.error(a)
+    for e in errores:
+        st.warning(f"No se ha podido compilar {e}")
+    if not errores and not avisos:
+        notify(f"✅ {len(trabajos)} PDF compilados, comprobados y añadidos al ZIP.")
+        st.rerun()
+
+
 def _dialog_compilar_pdf():
     """Diálogo que compila el PDF y muestra progreso + resultado."""
     req = st.session_state.get("_compile_request", {})
@@ -4130,6 +4259,9 @@ def _dialog_compilar_pdf():
         )
         _prog.progress(100, text="✅ Compilación correcta")
         _status.success(f"PDF generado correctamente — {len(_pdf_bytes)//1024} KB")
+        if req.get("clave"):
+            _chk = _comprobar_pdf(_pdf_bytes, req["clave"])
+            (st.success if _chk[0] else st.error)(_chk[1])
         st.session_state["_compiled_pdf"] = {
             "bytes": _pdf_bytes,
             "pdf_name": req["pdf_name"],
@@ -4187,20 +4319,28 @@ with tab_exp:
     cfg        = st.session_state.get("exam_cfg", {})
 
     _bit_exp = get_estilo() == "bitacora"
-    col_cfg, col_res = st.columns([3, 2], gap="large")
+    col_cfg, col_res = (st.columns([2.5, 1], gap="medium") if _bit_exp else st.columns([3, 2], gap="large"))
+    _ef_top = st.session_state.get("export_files")
+    _g_dl = None
 
-    with col_cfg:
-        # Bitácora: los bloques se agrupan en 4 subpestañas; Clásico: uno debajo de otro
+    with (col_cfg.container(key="exp_secs") if _bit_exp else col_cfg):
+        # Bitácora: secciones en pestañas verticales (tras exportar, «Descargas y PDF» primero); Clásico: una debajo de otra
         if _bit_exp:
-            _g_exam, _g_fmt, _g_extra, _g_tpl = st.tabs(
-                ["Examen", "Formato", "Documentos extra", "Plantillas y presets"])
+            if st.session_state.pop("_exp_ir_dl", False) and _ef_top:
+                st.session_state["_exp_n"] = st.session_state.get("_exp_n", 0) + 1
+            _zw = "​" * (st.session_state.get("_exp_n", 0) % 2)   # etiquetas nuevas → se abre «Descargas y PDF»
+            _secs = (["Descargas y PDF"] if _ef_top else []) + [x + _zw for x in ("Examen", "Formato", "Documentos extra", "Plantillas y presets")]
+            _tabs_e = st.tabs(_secs)
+            if _ef_top:
+                _g_dl = _tabs_e[0]
+            _g_exam, _g_fmt, _g_extra, _g_tpl = _tabs_e[-4:]
         else:
             _g_exam = _g_fmt = _g_extra = _g_tpl = st.container()
 
 
         with _g_exam:
             # ── 1. Configuración del examen ────────────────────────────────────────
-            with st.expander("📋 Configuración del examen", expanded=(_bit_exp or True)):
+            with _sec_exp("Configuración del examen", True):
                 _cg = st.session_state.get("cfg_general", {})
 
                 # Sincronizar desde cfg_general (flag pattern)
@@ -4214,7 +4354,7 @@ with tab_exp:
                 if "exp_asig" not in st.session_state:
                     st.session_state["exp_asig"] = cfg.get("asig") or _cg.get("asignatura") or ""
 
-                _sync_col, _ = st.columns([2, 4])
+                _sync_col, _ = st.columns([3, 3])
                 if _sync_col.button("↺ Rellenar desde Configuración", key="btn_sync_cfg",
                                     help="Sobreescribe Institución y Asignatura con los datos de ⚙️ Configuración"):
                     st.session_state["_sync_from_cfg_general"] = True
@@ -4244,7 +4384,7 @@ with tab_exp:
 
         with _g_exam:
             # ── 2. Generación ─────────────────────────────────────────────────────
-            with st.expander("⚙️ Opciones de generación", expanded=(_bit_exp or True)):
+            with _sec_exp("Opciones de generación", True):
                 oc1, oc2, oc3 = st.columns(3)
                 num_modelos = oc1.selectbox("Nº Modelos", [1, 2, 3, 4],
                                             index=max(0, cfg.get("vers", 1) - 1), key="exp_vers")
@@ -4277,7 +4417,7 @@ with tab_exp:
 
         with _g_fmt:
             # ── 3. Formatos + Marcado de soluciones ───────────────────────────────
-            with st.expander("📄 Formatos y marcado de soluciones", expanded=(_bit_exp or True)):
+            with _sec_exp("Formatos y marcado de soluciones", True):
                 st.markdown("**Formatos de exportación:**")
                 fc1, fc2, fc3 = st.columns(3)
                 fc1.markdown("📊 **CSV** (siempre)", help="Clave de respuestas y metadatos — siempre se generan")
@@ -4313,10 +4453,12 @@ with tab_exp:
                 sol_info_bloque = ic1.checkbox("Bloque",      value=cfg.get("sol_info_bloque", False), key="exp_sol_bloque")
                 sol_info_tema   = ic2.checkbox("Tema",        value=cfg.get("sol_info_tema",   False), key="exp_sol_tema")
                 sol_info_dif    = ic3.checkbox("Dificultad",  value=cfg.get("sol_info_dif",    False), key="exp_sol_dif")
+                sol_info_id     = ic3.checkbox("ID de la pregunta", value=cfg.get("sol_info_id", False), key="exp_sol_id",
+                                               help="En la versión con soluciones, debajo de cada pregunta: bloque y tema con su nombre, dificultad e ID.")
 
         with _g_exam:
             # ── 4. Instrucciones y Cabeceras ──────────────────────────────────────
-            with st.expander("📝 Instrucciones y cabeceras", expanded=(_bit_exp or True)):
+            with _sec_exp("Instrucciones y cabeceras", True):
                 instr     = st.text_area("Instrucciones generales",
                                          value=cfg.get("ins", "Conteste en la hoja de respuestas."),
                                          height=70, key="exp_ins")
@@ -4333,7 +4475,7 @@ with tab_exp:
 
         with _g_fmt:
             # ── 4b. Estilo visual ─────────────────────────────────────────────────
-            with st.expander("🎨 Estilo visual", expanded=(_bit_exp or False)):
+            with _sec_exp("Estilo visual", False):
                 _scheme_opts  = {"azul": "Azul profesional", "ucm": "Colores UCM (granate)", "byn": "Blanco y Negro"}
                 _scheme_cur   = cfg.get("color_scheme", "azul")
                 _scheme_idx   = list(_scheme_opts.keys()).index(_scheme_cur) if _scheme_cur in _scheme_opts else 0
@@ -4343,7 +4485,8 @@ with tab_exp:
                                               key="exp_color_scheme")
                 _font_opts    = {"cm": "Computer Modern (LaTeX)", "palatino": "Palatino / Georgia",
                                  "times": "Times New Roman", "libertine": "Linux Libertine",
-                                 "helvet": "Helvetica / Arial"}
+                                 "helvet": "Helvetica / Arial", "fira": "Fira Sans (sin remates, moderna)",
+                                 "sourcesans": "Source Sans (sin remates, clara)"}
                 _font_cur     = cfg.get("tipografia", "cm")
                 if _font_cur not in _font_opts:
                     _font_cur = "cm"
@@ -4395,6 +4538,10 @@ with tab_exp:
                 _enum_opts  = {"cuadrado": "Cuadrado ▪", "circulo": "Círculo ●", "vacio": "Círculo ○", "numero": "Número 1.", "nada": "Sin estilo"}
                 _enum_cur   = cfg.get("estilo_num", "cuadrado")
                 _enum_idx   = list(_enum_opts.keys()).index(_enum_cur) if _enum_cur in _enum_opts else 0
+                _paut_opts = {"libre": "En blanco", "lineas": "Con líneas", "cuadricula": "Con cuadrícula"}
+                pautado = st.selectbox("Espacio de respuesta en desarrollo (LaTeX)", list(_paut_opts),
+                                       index=list(_paut_opts).index(cfg.get("pautado", "libre")) if cfg.get("pautado", "libre") in _paut_opts else 0,
+                                       format_func=_paut_opts.get, key="exp_pautado")
                 estilo_num  = st.selectbox("Numeración de preguntas (LaTeX)", list(_enum_opts.keys()),
                                            index=_enum_idx, format_func=lambda x: _enum_opts[x],
                                            key="exp_estilo_num",
@@ -4425,7 +4572,7 @@ with tab_exp:
 
         with _g_extra:
             # ── 4b-bis. Hoja de respuestas ────────────────────────────────────────
-            with st.expander("📋 Hoja de respuestas", expanded=(_bit_exp or False)):
+            with _sec_exp("Hoja de respuestas", False):
                 st.caption("Se añade como página final del examen (solo en versión alumno, no en soluciones).")
                 hr1, hr2 = st.columns([1, 2])
                 hoja_respuestas = hr1.checkbox("Generar hoja de respuestas",
@@ -4433,7 +4580,7 @@ with tab_exp:
 
         with _g_extra:
             # ── 4b-ter. Solucionario ──────────────────────────────────────────────
-            with st.expander("📖 Solucionario (apéndice)", expanded=(_bit_exp or False)):
+            with _sec_exp("Solucionario (apéndice)", False):
                 st.caption("Añade un apéndice al LaTeX de soluciones con las soluciones desarrolladas de cada pregunta.")
                 sl1, sl2 = st.columns([1, 2])
                 incluir_solucionario = sl1.checkbox("Incluir solucionario",
@@ -4455,7 +4602,7 @@ with tab_exp:
             _dev_qs_now  = st.session_state.get("dev_questions", [])
             _has_rubrica = any(q.get("criterios") or q.get("solucion_modelo","").strip()
                                for q in _dev_qs_now)
-            with st.expander("📐 Guía de corrección (rúbrica)", expanded=(_bit_exp or _has_rubrica)):
+            with _sec_exp("Guía de corrección (rúbrica)", _has_rubrica):
                 st.caption(
                     "Genera un documento separado con la rúbrica y soluciones modelo "
                     "de las preguntas de desarrollo. Se incluye en el ZIP."
@@ -4485,7 +4632,7 @@ with tab_exp:
         with _g_extra:
             # ── 4b-quinto. Formulario / Hoja de fórmulas ─────────────────────────
             _form_stored = bool(st.session_state.get("_formulario_bytes"))
-            with st.expander("📄 Formulario / Hoja de fórmulas", expanded=(_bit_exp or _form_stored)):
+            with _sec_exp("Formulario / Hoja de fórmulas", _form_stored):
                 st.caption(
                     "Adjunta un PDF con el formulario de la asignatura. "
                     "Se incluirá como última página en los archivos LaTeX (requiere compilación local con pdfpages)."
@@ -4520,7 +4667,7 @@ with tab_exp:
             # ── 4c-bis. Caja de calificación ──────────────────────────────────────
             _has_test_q = bool(sel_actual) or bool(st.session_state.get("auto_recipe"))
             _has_dev_q  = bool(st.session_state.get("dev_questions", []))
-            with st.expander("🎓 Caja de calificación", expanded=(_bit_exp or False)):
+            with _sec_exp("Caja de calificación", False):
                 st.caption(
                     "Añade una caja para anotar la nota al final de cada sección. "
                     "Solo aparece en la versión alumno, no en la de soluciones."
@@ -4550,7 +4697,7 @@ with tab_exp:
                     nc2.caption("⚠️ Sin preguntas test")
         with _g_exam:
             # ── 4c. Puntos y penalización ─────────────────────────────────────────
-            with st.expander("📊 Puntos y penalización", expanded=(_bit_exp or False)):
+            with _sec_exp("Puntos y penalización", False):
                 st.caption("Si dejas un campo vacío, ese dato no aparece en el examen.")
                 pp1, pp2, pp3 = st.columns(3)
                 pts_fund_val  = pp1.text_input("Puntos desarrollo", value=cfg.get("pts_fund", ""),
@@ -4569,7 +4716,7 @@ with tab_exp:
 
         with _g_extra:
             # ── 4d. Versión adaptada ──────────────────────────────────────────────
-            with st.expander("♿ Versión adaptada", expanded=(_bit_exp or False)):
+            with _sec_exp("Versión adaptada", False):
                 adapt_enabled = st.checkbox("Generar versión adaptada adicional",
                                             value=cfg.get("adapt_enabled", False), key="exp_adapt_on")
                 if adapt_enabled:
@@ -4603,7 +4750,7 @@ with tab_exp:
 
         with _g_fmt:
             # ── 5. Anclaje ────────────────────────────────────────────────────────
-            with st.expander("⚓ Anclaje de opciones", expanded=(_bit_exp or True)):
+            with _sec_exp("Anclaje de opciones", True):
                 ac1, ac2      = st.columns([1, 2])
                 anclaje_auto  = ac1.checkbox("Activar anclaje", value=cfg.get("anc_chk", True), key="exp_anc")
                 anclaje_extra = ac2.text_input("Frases extra (coma separadas)",
@@ -4617,7 +4764,7 @@ with tab_exp:
 
         with _g_tpl:
             # ── 6. Plantillas ─────────────────────────────────────────────────────
-            with st.expander("📎 Plantillas (Word / LaTeX / Logo)", expanded=(_bit_exp or False)):
+            with _sec_exp("Plantillas (Word / LaTeX / Logo)", False):
                 st.caption("Se suben por sesión. Los presets guardan la configuración pero no la plantilla.")
                 tc1, tc2, tc3    = st.columns(3)
                 tpl_word_file    = tc1.file_uploader("Plantilla Word (.docx)", type=["docx"], key="exp_tpl_word")
@@ -4652,9 +4799,10 @@ with tab_exp:
 
         with _g_tpl:
             # ── 7. Presets ────────────────────────────────────────────────────────
-            with st.expander("💾 Presets de configuración", expanded=(_bit_exp or False)):
+            with _sec_exp("Presets de configuración", False):
                 st.caption("Guarda y reutiliza configuraciones completas (instrucciones, datos, opciones).")
-                _presets = st.session_state.presets
+                from app_utils import cargar_presets as _cargar_presets
+                _presets = _cargar_presets()
                 pr1, pr2  = st.columns([3, 1])
                 _sel_pr   = pr1.selectbox("Preset", ["— Seleccionar —"] + list(_presets.keys()), key="preset_sel")
                 if pr2.button("📂 Cargar", key="btn_load_preset", use_container_width=True) and _sel_pr != "— Seleccionar —":
@@ -4710,6 +4858,8 @@ with tab_exp:
             "sol_info_bloque": sol_info_bloque,
             "sol_info_tema":   sol_info_tema,
             "sol_info_dif":    sol_info_dif,
+            "sol_info_id":     sol_info_id,
+            "pautado":         pautado,
             # Solucionario
             "incluir_solucionario": incluir_solucionario,
             "titulo_solucionario":  titulo_solucionario,
@@ -4732,7 +4882,29 @@ with tab_exp:
         }
 
     # ── Panel derecho: Resumen + Botones + Descargas ───────────────────────────
-    with col_res:
+    with (col_res.container(key="exp_res") if _bit_exp else col_res):
+        if _bit_exp and not E.bloqueado():
+            _est_m, _fx = E.estado_modelos()
+            _efx = st.session_state.get("export_files") or {}
+            with st.container(key=f"exp_estado_{_est_m}"):
+                if _est_m == "ninguno":
+                    st.markdown("**Sin exportar todavía**<br><span class='exp-st'>Al exportar (o al ver la vista previa del PDF) "
+                                "se fijan los modelos y las claves: si vuelves a exportar saldrán exactamente iguales.</span>",
+                                unsafe_allow_html=True)
+                elif _est_m == "vigente":
+                    st.markdown((f"**Exportado el {_fx.get('fecha', '')}**" if _fx.get("exportado") and not _efx.get("_previa")
+                                 else f"**Modelos fijados el {_fx.get('fecha', '')}** · aún sin exportar")
+                                + "<br><span class='exp-st'>Modelos y claves fijados: volver a exportar mantiene el orden "
+                                  "y las claves.</span>", unsafe_allow_html=True)
+                    if st.button("Generar modelos nuevos", key="btn_modelos_nuevos", type="tertiary"):
+                        _dialog_modelos_nuevos()
+                else:
+                    st.markdown(f"**Cambios desde el {_fx.get('fecha', '')}**<br><span class='exp-st'>Has cambiado las preguntas "
+                                "o el barajado: al exportar se generarán modelos nuevos (te pedirá confirmación).</span>",
+                                unsafe_allow_html=True)
+        elif _bit_exp:
+            st.markdown("<div class='exp-st'>Examen abierto bloqueado: se exportan sus modelos y claves exactos.</div>",
+                        unsafe_allow_html=True)
 
         # Construir textos del resumen
         _sol_marks = []
@@ -4811,14 +4983,19 @@ with tab_exp:
 
         _bx1, _bx2 = st.columns(2) if _bit_exp else (st, st)
         if _bx1.button("👁 Vista previa" if _bit_exp else "👁 Vista previa del examen", use_container_width=True,
-                       key="btn_preview_exam"):
+                       key="btn_preview_exam", help="Vista rápida del examen (sin compilar)"):
             _dialog_preview_examen()
+        if _bit_exp and _bx2.button("Vista previa del PDF", use_container_width=True, key="btn_preview_pdf",
+                                    disabled=(n_total == 0 or (n_recipe > 0 and not st.session_state.get("cache_examen"))),
+                                    help="Compila el PDF que quieras (parte, modelo, alumno o soluciones) con los modelos "
+                                         "definitivos, sin exportar todavía."):
+            _dialog_confirmar_export(previa=True)
 
         if not _bit_exp:
             st.markdown("<div style='margin:6px 0'></div>", unsafe_allow_html=True)
 
         _need_preview = n_recipe > 0 and not st.session_state.get("cache_examen")
-        if _bx2.button("💾 Exportar examen" if _bit_exp else "💾 EXPORTAR EXAMEN", type="primary",
+        if (st if _bit_exp else _bx2).button("💾 Exportar examen" if _bit_exp else "💾 EXPORTAR EXAMEN", type="primary",
                        use_container_width=True,
                        key="btn_export_main", disabled=(n_total == 0 or _need_preview)):
             _dialog_confirmar_export()
@@ -4829,7 +5006,7 @@ with tab_exp:
 
         # Bitácora: descargas y compilación en dos pestañas; Clásico: una debajo de otra
         if _bit_exp:
-            _t_dl, _t_pdf = st.tabs(["Descargas", "Compilar PDF"])
+            _t_dl = _t_pdf = (_g_dl if _g_dl is not None else st.container())
         else:
             _t_dl = _t_pdf = st.container()
         with _t_dl:
@@ -4837,7 +5014,11 @@ with tab_exp:
                 st.caption("Pulsa **Exportar examen** para generar los archivos.")
             # ── Botones de descarga (tras exportar) ───────────────────────────────
             ef = st.session_state.get("export_files")
-            if ef:
+            if ef and ef.get("_previa"):
+                st.markdown(f"<div class='exp-prev'><b>Vista previa del {ef.get('_fecha', '')}</b> · los modelos ya son los "
+                            "definitivos. Compila abajo la parte que quieras. Para descargar los archivos y registrar el "
+                            "examen, pulsa «Exportar examen».</div>", unsafe_allow_html=True)
+            if ef and not ef.get("_previa"):
                 _nef = ef.get("nombre", "examen")
                 _fw, _fl, _fc = ("Word · ", "LaTeX · ", "CSV · ") if _bit_exp else ("", "", "")
                 if not _bit_exp:
@@ -4853,6 +5034,13 @@ with tab_exp:
                     key="dl_zip_all",
                     type="primary",
                 )
+                if _bit_exp and any(ef.get(f"latex_exam{_s}") for _s in ("", "_TEST")):
+                    _np = sum(1 for k in ef["_zip_all"] if k.endswith(".pdf"))
+                    if st.button(f"Compilar todos los PDF y añadirlos al ZIP{f' · {_np} ya incluidos' if _np else ''}",
+                                 key="btn_compile_all", use_container_width=True,
+                                 help="Compila todos los modelos (alumno y soluciones) y comprueba que la correcta marcada "
+                                      "coincide con la clave. Tarda unos segundos por PDF."):
+                        _compilar_todos(ef)
 
                 _word_sfxs = [s for s in ("", "_TEST", "_DEV") if ef.get(f"word_exam{s}")]
                 if _word_sfxs:
@@ -5014,6 +5202,8 @@ with tab_exp:
                             st.session_state["_compile_request"] = {
                                 "tex": _tex_src, "sty": _sty_b, "imgs": _img_files,
                                 "nombre": nombre_compile, "pdf_name": _pdf_name,
+                                "clave": (_clave_modelo(_ef_now, _modelo_sel)
+                                          if _sol_sel == "Soluciones" and _compile_sfx in ("", "_TEST") else ""),
                             }
                         st.session_state.pop("_compiled_pdf", None)
                         _dialog_compilar_pdf()

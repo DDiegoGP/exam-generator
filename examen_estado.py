@@ -346,4 +346,70 @@ def master_bloqueado(pool: list) -> list | None:
     return master_desde_registro(info, {p["ID_Pregunta"]: p for p in pool})
 
 
+# ── modelos fijados al exportar ──────────────────────────────────────────────
+# Al exportar (o al ver la vista previa del PDF) se guardan el orden y el barajado de cada modelo. Volver a
+# exportar con las mismas preguntas y el mismo barajado reutiliza exactamente esos modelos (mismas claves);
+# solo «Generar modelos nuevos» o un cambio de preguntas/barajado los rehace, y siempre con confirmación.
+def firma_modelos(ids: list, cfg: dict) -> str:
+    """Lo que determina los modelos: preguntas y su orden, nº de modelos, orden, barajado y anclaje."""
+    base = {"ids": list(ids), "vers": cfg.get("vers", 1), "ord": cfg.get("ord", "bloques"), "bar": cfg.get("bar", True),
+            "anc": [cfg.get("anc_chk", True), cfg.get("anc_txt", "")], "partes": cfg.get("partes_modo", "completo")}
+    return hashlib.md5(json.dumps(base, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def ids_examen() -> list:
+    ss = _ss()
+    cache = ss.get("cache_examen") or []
+    return [p.get("ID_Pregunta") for p in cache] if cache else _fijas()
+
+
+def fijar(master: list, firma: str, previa: bool = False):
+    if not master or not master[0].get("preguntas"):
+        return
+    f = A.registro_desde_master(master, "x")
+    ant = _ss().get("exp_fix") or {}
+    _ss()["exp_fix"] = {"info": {"claves": json.loads(f["Claves"]), "posiciones": json.loads(f["Posiciones"]),
+                                 "perms": json.loads(f["Permutaciones"])},
+                        "firma": firma,
+                        "fecha": ant.get("fecha") if ant.get("firma") == firma else datetime.datetime.now().strftime("%d-%m-%Y %H:%M"),
+                        "exportado": (previa is False) or (ant.get("exportado") and ant.get("firma") == firma)}
+
+
+def estado_modelos(cfg: dict | None = None) -> tuple:
+    """('ninguno' | 'vigente' | 'cambiado', datos de la fijación)."""
+    ss = _ss()
+    fx = ss.get("exp_fix")
+    if not fx:
+        return "ninguno", {}
+    f = firma_modelos(ids_examen(), cfg if cfg is not None else (ss.get("exam_cfg") or {}))
+    return ("vigente" if f == fx["firma"] else "cambiado"), fx
+
+
+def master_fijado(pool: list, firma: str) -> list | None:
+    fx = _ss().get("exp_fix")
+    if not fx or fx.get("firma") != firma or not pool:
+        return None
+    return master_desde_registro(fx["info"], {p["ID_Pregunta"]: p for p in pool})
+
+
+def descartar_fijado(nombre: str = ""):
+    """«Generar modelos nuevos»: la exportación anterior queda en el registro como «sustituida»."""
+    from app_utils import guardar_hojas
+    ss = _ss()
+    fx = ss.pop("exp_fix", None)
+    ss.pop("export_files", None)
+    if not (fx and fx.get("exportado") and nombre and ss.get("excel_dfs")):
+        return
+    exs = A.get_examenes(ss.excel_dfs)
+    r = exs[exs["ID_Examen"] == nombre]
+    if r.empty:
+        return
+    f = dict(r.iloc[0])
+    f["ID_Examen"] = f"{nombre} · sustituido {fx.get('fecha', '')}"
+    f["Nombre"] = f["ID_Examen"]
+    f["Estado"] = "Sustituido"
+    A.upsert_examen(ss.excel_dfs, f)
+    guardar_hojas([A.SHEET_EXAMENES])
+
+
 _MTIME = _os_mt.path.getmtime(__file__)

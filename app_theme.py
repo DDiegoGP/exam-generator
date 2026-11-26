@@ -546,6 +546,25 @@ hr { border-color: var(--border) !important; }
 .exf-b b { text-align: right; }
 .exf-bar { height: 7px; background: var(--track, #e4e8ef); border-radius: 4px; overflow: hidden; }
 .exf-bar > div { height: 100%; background: var(--primary); border-radius: 4px; }
+/* Exportar: secciones en pestañas verticales, resumen fijo, estado de los modelos */
+.st-key-exp_secs [data-testid="stTabs"] > div { display: grid; grid-template-columns: 190px minmax(0, 1fr); column-gap: 18px; align-items: start; }
+.st-key-exp_secs [data-testid="stTabs"] > div > div:first-child { grid-column: 1; grid-row: 1 / span 20; position: sticky; top: 4rem; }
+.st-key-exp_secs [data-testid="stTabs"] > div > [role="tabpanel"] { grid-column: 2; grid-row: 1; min-width: 0; }
+.st-key-exp_secs [data-testid="stTabs"] [role="tablist"] { flex-direction: column; gap: 4px; }
+.st-key-exp_secs [data-testid="stTabs"] [role="tab"] { justify-content: flex-start; padding: 10px 12px; border-radius: 9px; height: auto; margin: 0; }
+.st-key-exp_secs [data-testid="stTabs"] [role="tab"][aria-selected="true"] { background: var(--primary-soft); }
+.st-key-exp_secs [data-testid="stTabs"] [role="tab"][aria-selected="true"] p { color: var(--primary); font-weight: 700; }
+.st-key-exp_secs [data-baseweb="tab-highlight"], .st-key-exp_secs [data-baseweb="tab-border"] { display: none; }
+[data-testid="stLayoutWrapper"]:has(> .st-key-exp_res), [data-testid="stColumn"]:has(> div > .st-key-exp_res) { height: 100%; }
+.st-key-exp_res { position: sticky; top: 4rem; }
+.exp-sec { font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
+.exp-st { font-size: 12.5px; color: var(--text2); }
+.exp-prev { background: var(--primary-soft); color: var(--text); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; margin-bottom: 10px; }
+[class*="st-key-exp_estado_"] { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.st-key-exp_estado_ninguno { background: var(--ok-bg); } .st-key-exp_estado_ninguno strong { color: var(--ok); }
+.st-key-exp_estado_vigente { background: var(--primary-soft); } .st-key-exp_estado_vigente strong { color: var(--primary); }
+.st-key-exp_estado_cambiado { background: var(--warn-bg); } .st-key-exp_estado_cambiado strong { color: var(--warn); }
+[class*="st-key-exp_estado_"] [data-testid="stButton"] button { padding: 0; min-height: 0; color: var(--err); }
 
 /* ── Cabecera de bloque (preview) ── */
 .bloque-header { background: var(--card2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;

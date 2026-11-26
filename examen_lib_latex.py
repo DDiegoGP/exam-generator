@@ -10,7 +10,7 @@ CFG_OBJETIVOS_SHEET = "Cfg_Objetivos"
 DATOS_SHEET         = "Datos"
 # An_Examenes / An_Preguntas: registro de exámenes y análisis agregado (ver analisis_lib.py)
 CFG_SHEETS          = {CFG_BLOQUES_SHEET, CFG_TEMAS_SHEET, CFG_GENERAL_SHEET, DATOS_SHEET, CFG_OBJETIVOS_SHEET,
-                       "An_Examenes", "An_Preguntas", "Cfg_Recetas", "Desarrollo"}
+                       "An_Examenes", "An_Preguntas", "Cfg_Recetas", "Desarrollo", "Cfg_Presets"}
 DATOS_COLS         = ["ID", "Nombre", "Símbolo", "Valor", "Unidades", "Categoría"]
 from docx.shared import Inches, RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -627,6 +627,8 @@ _STY_FONTS = {
     'libertine': r'\usepackage{libertine}' '\n' r'\usepackage[libertine]{newtxmath}',
     'helvet':    r'\usepackage{helvet}' '\n' r'\renewcommand{\familydefault}{\sfdefault}',
     'garamond':  r'\usepackage{garamondx}',
+    'fira':      r'\usepackage[sfdefault,lf]{FiraSans}',
+    'sourcesans': r'\usepackage[default]{sourcesanspro}',
 }
 
 # ── Fuentes Word (nombre de fuente) ────────────────────────────────────────
@@ -637,6 +639,8 @@ _WORD_FONTS = {
     'libertine': 'Cambria',
     'helvet':    'Arial',
     'garamond':  'Garamond',
+    'fira':      'Calibri',
+    'sourcesans': 'Calibri',
 }
 
 
@@ -1918,7 +1922,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
     # ── Opciones del paquete .sty (color, fuente, layout) ───────────────────
     _pkg_opts = [cfg.get('color_scheme', 'azul')]
     _font_key = cfg.get('tipografia', 'libertine')
-    if _font_key in ('cm', 'palatino', 'times', 'libertine', 'helvet', 'garamond'):
+    if _font_key in ('cm', 'palatino', 'times', 'libertine', 'helvet', 'garamond', 'fira', 'sourcesans'):
         _pkg_opts.append(_font_key)
     # Espaciado: nuevo selector; fallback a modo_compacto bool para compat
     _espaciado = cfg.get('espaciado', '')
@@ -2063,6 +2067,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
             _esp_map = {'5 líneas': '4cm', '10 líneas': '7cm',
                         'media cara': '11cm', 'cara completa': '20cm'}
             _estilo_sol = cfg.get('estilo_sol', 'caja')
+            _paut = {'lineas': '{lineas}', 'cuadricula': '{cuadricula}'}.get(cfg.get('pautado', 'libre'), '')
             import json as _json
             for ci, c in enumerate(fund_data):
                 esp    = c.get('espacio', 'Automático')
@@ -2138,7 +2143,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                             if _apt_sol:
                                 bloque_fund += _render_sol_block(_apt_sol, _modo_c, _estilo_sol)
                         else:
-                            bloque_fund += f'\\espaciorespuesta[{_apt_esp}]\n'
+                            bloque_fund += f'\\espaciorespuesta[{_apt_esp}]{_paut}\n'
                     bloque_fund += '\\end{enumerate}\n'
                 else:
                     # ── Pregunta sin subapartados ─────────────────────────────
@@ -2149,7 +2154,7 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                             _sol_modo = c.get('solucion_modo', _modo_c)
                             bloque_fund += _render_sol_block(_sol_texto, _sol_modo, _estilo_sol)
                     else:
-                        bloque_fund += f'\\espaciorespuesta[{h_base}]\n'
+                        bloque_fund += f'\\espaciorespuesta[{h_base}]{_paut}\n'
 
                 bloque_fund += '\\end{minipage}\n\n'
             bloque_fund += '\\end{enumerate}\n'
@@ -2183,7 +2188,9 @@ def generar_latex_strings(master, nombre, cfg, modo_solucion=False) -> dict:
                 _d = format_datos_latex(p.get('datos', ''), _datos_df_g)
                 if _d:
                     bloque_test += _d + '\n'
-                if _show_info:
+                if modo_solucion and p.get('_info_sol'):
+                    bloque_test += '\\infosol{' + _escape_latex(str(p['_info_sol'])) + '}\n'
+                elif _show_info:
                     _b = _escape_latex(str(p.get('bloque', ''))) if sol_bloque else '---'
                     _t = _escape_latex(str(p.get('Tema',   ''))) if sol_tema   else '---'
                     _d = _escape_latex(str(p.get('dificultad', ''))) if sol_dif else '---'

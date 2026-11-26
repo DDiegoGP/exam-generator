@@ -5,7 +5,7 @@
 % ============================================================================
 % OPCIONES DEL PAQUETE
 %   Color:   [azul] (defecto) | [ucm] | [byn]
-%   Fuente:  [libertine] (defecto) | [palatino] | [times] | [helvet] | [garamond] | [cm]
+%   Fuente:  [libertine] (defecto) | [palatino] | [times] | [helvet] | [garamond] | [cm] | [fira] | [sourcesans]
 %   Layout:  [compacto] | [dos_por_hoja]
 %
 % Ejemplo:   \usepackage[ucm,palatino,compacto]{estilo_examen_moderno_v2}
@@ -36,6 +36,8 @@
 \DeclareOption{helvet}{\def\@fuente{helvet}}
 \DeclareOption{garamond}{\def\@fuente{garamond}}
 \DeclareOption{cm}{\def\@fuente{cm}}
+\DeclareOption{fira}{\def\@fuente{fira}}
+\DeclareOption{sourcesans}{\def\@fuente{sourcesans}}
 \DeclareOption{compacto}{\@compactotrue}
 \DeclareOption{muy_compacto}{\@muycompactotrue\@compactotrue}
 \DeclareOption{cabecera_compacta}{\@cabeceracompactatrue}
@@ -76,6 +78,8 @@
 \def\@fuente@times{times}
 \def\@fuente@helvet{helvet}
 \def\@fuente@garamond{garamond}
+\def\@fuente@fira{fira}
+\def\@fuente@sourcesans{sourcesans}
 
 \ifx\@fuente\@fuente@libertine
     \usepackage{libertine}
@@ -89,7 +93,11 @@
     \renewcommand{\familydefault}{\sfdefault}
 \else\ifx\@fuente\@fuente@garamond
     \usepackage{garamondx}
-\fi\fi\fi\fi\fi
+\else\ifx\@fuente\@fuente@fira
+    \usepackage[sfdefault,lf]{FiraSans}
+\else\ifx\@fuente\@fuente@sourcesans
+    \usepackage[default]{sourcesanspro}
+\fi\fi\fi\fi\fi\fi\fi
 % [cm]: Computer Modern — defecto de LaTeX, sin acción
 
 % ============================================================================
@@ -433,6 +441,14 @@
             \end{minipage}%
         }%
     \else
+    \def\@espr@cuad{cuadricula}%
+    \ifx\@espr@mode\@espr@cuad
+        % --- Caja con cuadrícula de 5 mm (TikZ) ---
+        \noindent\begin{tikzpicture}
+            \draw[step=5mm, color=gray!25, line width=0.25pt] (0, 0) grid (\linewidth, #1);
+            \draw[color=gray!60, line width=0.5pt] (0, 0) rectangle (\linewidth, #1);
+        \end{tikzpicture}%
+    \else
         % --- Caja con líneas horizontales (TikZ) ---
         \noindent\begin{tikzpicture}
             \draw[color=gray!60, line width=0.5pt]
@@ -445,6 +461,7 @@
                 }%
             \fi
         \end{tikzpicture}%
+    \fi
     \fi
     \par\vspace{2mm}%
 }
@@ -476,6 +493,13 @@
         \textit{Bloque: #1 \textperiodcentered{} Tema: #2 \textperiodcentered{} Dif.: #3}%
     }}%
     \par\vspace{0.5mm}%
+}
+
+% Información de la pregunta en la versión con soluciones (bloque y tema con nombre, dificultad, ID)
+\newcommand{\infosol}[1]{%
+    \par\vspace{0.8mm}%
+    {\setlength{\fboxsep}{1.6pt}\colorbox{primario!7}{\scriptsize\textcolor{primario!85!black}{\sffamily #1}}}%
+    \par\vspace{0.8mm}%
 }
 
 % ============================================================================
