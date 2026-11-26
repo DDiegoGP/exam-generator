@@ -144,6 +144,72 @@ def _docx(data: bytes) -> tuple:
     return ver, [q for q in out if len(q["ops"]) >= 2]
 
 
+def _es_rojo(c) -> bool:
+    c = tuple(c) if isinstance(c, (list, tuple)) else ()
+    return len(c) >= 3 and c[0] > 0.55 and c[1] < 0.35 and c[2] < 0.35
+
+
+def _pdf(data: bytes) -> tuple:
+    """PDF de texto de un examen: (versión o '', [{label, enun, ops, bis, ok, bloque, tema}]).
+    Admite una o dos columnas (también «dos páginas por hoja»); la correcta se reconoce si está
+    en rojo, en negrita o con asterisco (versión con soluciones)."""
+    import pdfplumber
+    ver, out = "", []
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        for pg in pdf.pages:
+            W = pg.width
+            ws = pg.extract_words(extra_attrs=["non_stroking_color", "fontname"], x_tolerance=1.5, keep_blank_chars=False)
+            if not ver:
+                cab = unicodedata.normalize("NFC", " ".join(w["text"] for w in ws[:60]))
+                m = re.search(r"(?:Versi[oó]n|Modelo)\s*([A-F])\b", cab)
+                ver = m.group(1) if m else ""
+            cruzan = sum(1 for w in ws if w["x0"] < W / 2 - 5 and w["x1"] > W / 2 + 5)
+            izq = sum(1 for w in ws if w["x1"] <= W / 2)
+            cols = [(0, W / 2), (W / 2, W)] if ws and cruzan <= 0.02 * len(ws) and 0.15 < izq / len(ws) < 0.85 else [(0, W)]
+            for x0, x1 in cols:
+                col = sorted([w for w in ws if x0 <= (w["x0"] + w["x1"]) / 2 < x1], key=lambda w: (round(w["top"]), w["x0"]))
+                lineas = []
+                for w in col:
+                    if lineas and abs(lineas[-1][0] - w["top"]) <= 3:
+                        lineas[-1][1].append(w)
+                    else:
+                        lineas.append([w["top"], [w]])
+                for _, wl in lineas:
+                    wl.sort(key=lambda w: w["x0"])
+                    t = unicodedata.normalize("NFC", " ".join(w["text"] for w in wl).strip())
+                    rojo = any(_es_rojo(w.get("non_stroking_color")) for w in wl)
+                    negr = sum(1 for w in wl if "bold" in str(w.get("fontname", "")).lower()) > len(wl) / 2
+                    mb = re.match(r"^Bloque:\s*(.+?)\s*·\s*Tema:\s*([\w.]+)", t)
+                    if mb:
+                        if out:
+                            out[-1]["bloque"], out[-1]["tema"] = mb.group(1).strip(), mb.group(2)
+                        continue
+                    if re.match(r"^(P[aá]gina|P[aá]g\.)\s*\d", t) or (t.isupper() and len(t) > 3) or re.match(r"^(Versi[oó]n|Modelo)\s*[A-F]$", t):
+                        continue
+                    m = re.match(r"^(\d{1,3})\s*(\(bis\)|bis)?\s*[.)]-?\s*(.+)$", t)
+                    if m and (m.group(2) or int(m.group(1)) == sum(1 for q in out if not q["bis"]) + 1):
+                        out.append({"label": m.group(1) + (" bis" if m.group(2) else ""), "enun": m.group(3), "ops": [],
+                                    "bis": bool(m.group(2)), "ok": "", "bloque": "", "tema": ""})
+                        continue
+                    if not out:
+                        continue
+                    q = out[-1]
+                    mo = re.match(r"^([a-dA-D])\s*[).]\s*(.*)$", t)
+                    if mo and len(q["ops"]) < 4 and mo.group(1).lower() == "abcd"[len(q["ops"])]:
+                        txt = mo.group(2)
+                        if rojo or negr or txt.startswith("*") or txt.endswith("*"):
+                            q["ok"] = LETRAS[len(q["ops"])]
+                        q["ops"].append(txt.strip("* ").strip())
+                    elif q["ops"]:
+                        q["ops"][-1] = (q["ops"][-1][:-1] + t) if q["ops"][-1].endswith("-") else q["ops"][-1] + " " + t
+                    else:
+                        q["enun"] = (q["enun"][:-1] + t) if q["enun"].endswith("-") else q["enun"] + " " + t
+    qs = [q for q in out if len(q["ops"]) >= 2]
+    if sum(1 for q in qs if q["ok"]) == len(qs):        # todas «marcadas» = no hay marca real (p. ej. todo en negrita)
+        pass
+    return ver, qs
+
+
 def leer(nombre: str, data: bytes) -> dict:
     """Reconoce un archivo. Devuelve {tipo, desc, datos}."""
     ext = nombre.lower().rsplit(".", 1)[-1]
@@ -170,13 +236,14 @@ def leer(nombre: str, data: bytes) -> dict:
             if qs:
                 return {"tipo": "tex", "datos": qs, "desc": f"Texto completo y correcta · {len(qs)} preguntas"
                         + ("" if all(q["ok"] for q in qs) else " (sin la correcta marcada en algunas)")}
-        elif ext == "docx":
-            ver, qs = _docx(data)
+        elif ext in ("docx", "pdf"):
+            ver, qs = _docx(data) if ext == "docx" else _pdf(data)
             if qs:
                 nb = sum(q["bis"] for q in qs)
-                return {"tipo": "docx", "datos": {"ver": ver or "A", "qs": qs},
-                        "desc": f"Examen final · modelo {ver or 'A (supuesto)'} · {len(qs) - nb} preguntas"
-                                + (f" + {nb} «bis»" if nb else "")}
+                n_ok = sum(1 for q in qs if q.get("ok"))
+                return {"tipo": "docx", "datos": {"ver": ver or "", "qs": qs, "ext": ext, "con_ok": n_ok >= 0.8 * len(qs)},
+                        "desc": f"Examen ({ext.upper()}) · modelo {ver or '? (se supone por orden)'} · {len(qs) - nb} preguntas"
+                                + (f" + {nb} «bis»" if nb else "") + (" · con la correcta marcada" if n_ok >= 0.8 * len(qs) else "")}
     except Exception as e:
         return {"tipo": "error", "datos": None, "desc": f"No se ha podido leer: {e}"}
     return {"tipo": "otro", "datos": None, "desc": "No reconocido (se ignora)"}
@@ -198,12 +265,26 @@ def elegir(archivos: list) -> dict:
     i_meta = mejor("meta", lambda i: (len(archivos[i]["datos"]), max(len(x) for x in archivos[i]["datos"].values())))
     i_cla = mejor("claves", lambda i: (len(archivos[i]["datos"]), max(len(x) for x in archivos[i]["datos"].values())))
     i_tex = mejor("tex", lambda i: (sum(1 for q in archivos[i]["datos"] if q["ok"]), len(archivos[i]["datos"])))
+    # documentos (Word o PDF): uno por modelo; sin versión reconocida → A, B… por orden
+    usadas = {archivos[i]["datos"]["ver"] for i in idx["docx"] if archivos[i]["datos"]["ver"]}
+    libres = [L for L in "ABCDEF" if L not in usadas]
+    for i in idx["docx"]:
+        if not archivos[i]["datos"]["ver"]:
+            archivos[i]["datos"]["ver"] = libres.pop(0) if libres else "A"
+    doc_de = {}
+    for i in idx["docx"]:
+        v = archivos[i]["datos"]["ver"]
+        j = doc_de.get(v)
+        if j is None or (archivos[i]["datos"].get("con_ok") and not archivos[j]["datos"].get("con_ok")):
+            doc_de[v] = i
     hay_doc = bool(idx["docx"])
     papel = []
     for i, a in enumerate(archivos):
         t = a["tipo"]
         if t == "docx":
-            papel.append((f"orden y opciones del modelo {a['datos']['ver']}", "m"))
+            v = a["datos"]["ver"]
+            papel.append((f"orden, opciones{' y correcta' if a['datos'].get('con_ok') else ''} del modelo {v}", "m")
+                         if doc_de.get(v) == i else (f"no se usa: hay otro documento del modelo {v}", "n"))
         elif t == "meta":
             papel.append(("qué pregunta es cada una" + (" · orden de los otros modelos" if len(a["datos"]) > 1 else ""), "f")
                          if i == i_meta else ("no se usa: hay otro METADATA más completo", "n"))
@@ -220,7 +301,7 @@ def elegir(archivos: list) -> dict:
     return {"meta": archivos[i_meta]["datos"] if i_meta is not None else {},
             "claves": archivos[i_cla]["datos"] if i_cla is not None else {},
             "tex": archivos[i_tex]["datos"] if i_tex is not None else [],
-            "docs": [archivos[i]["datos"] for i in idx["docx"]], "papel": papel}
+            "docs": [archivos[doc_de[v]]["datos"] for v in sorted(doc_de)], "papel": papel}
 
 
 # ── base de datos ─────────────────────────────────────────────────────────────
@@ -253,6 +334,10 @@ def _perm(ops_examen: list, ops_bd: list) -> str:
 
 
 # ── montar el examen ──────────────────────────────────────────────────────────
+def _nom_doc(d) -> str:
+    return "PDF" if d.get("ext") == "pdf" else "Word"
+
+
 def montar(archivos: list, df_bd: pd.DataFrame) -> dict:
     """Combina los archivos reconocidos. Devuelve {ref, items, modelos{v: {...}}, avisos}."""
     el = elegir(archivos)
@@ -275,6 +360,7 @@ def montar(archivos: list, df_bd: pd.DataFrame) -> dict:
     meta_all = [m for v in meta.values() for m in v]
     pos = 0
     for q in base:
+        q["ok_doc"], q["bloque_doc"], q["tema_doc"] = q.get("ok", ""), q.get("bloque", ""), q.get("tema", "")
         q["pos"] = None if q["bis"] else pos
         pos += 0 if q["bis"] else 1
         # correcta según el .tex o el METADATA nuevo (por texto)
@@ -315,8 +401,8 @@ def montar(archivos: list, df_bd: pd.DataFrame) -> dict:
                      if q["id"] and q["ops"] else "ABCD")
         q["anadir"] = q["estado"] == "nueva"
         q["vincular"] = q["estado"] != "nueva"     # para «cambiada»: vincular (True) o añadir como nueva (False)
-        q["bloque"] = (m_hit or {}).get("bloque") or (idx.rows[pid]["bloque"] if pid else "")
-        q["tema"] = (m_hit or {}).get("tema") or (str(idx.rows[pid].get("Tema", "")) if pid else "")
+        q["bloque"] = (m_hit or {}).get("bloque") or q["bloque_doc"] or (idx.rows[pid]["bloque"] if pid else "")
+        q["tema"] = (m_hit or {}).get("tema") or q["tema_doc"] or (str(idx.rows[pid].get("Tema", "")) if pid else "")
         q["dificultad"] = (m_hit or {}).get("dificultad") or (idx.rows[pid].get("dificultad", "") if pid else "Media")
         q["etiqueta"] = "plan anterior" if q["bis"] else ""
         # letra correcta en este examen
@@ -326,6 +412,8 @@ def montar(archivos: list, df_bd: pd.DataFrame) -> dict:
             q["ok"] = LETRAS[j] if sc[j] >= 0.8 else ""
         else:
             q["ok"] = ""
+        if q["ok_doc"]:          # la correcta marcada en el propio examen (PDF de soluciones) manda
+            q["ok"] = q["ok_doc"]
     items = [q for q in base if not q["bis"]]
     n = len(items)
 
@@ -351,11 +439,37 @@ def montar(archivos: list, df_bd: pd.DataFrame) -> dict:
     coinc = sum(1 for q, k in zip(items, k_ref) if q["ok"] and q["ok"] in k)
     con_ok = sum(1 for q in items if q["ok"])
     modelos[ref] = {"orden": list(range(n)), "clave": list(k_ref[:n]) + [""] * (n - len(k_ref)), "opciones": "exactas",
-                    "fuente": "Word final" if docs else ("_SOL.tex" if tex else "metadatos"),
+                    "fuente": (_nom_doc(docs[0]) + f" del modelo {ref}" if docs else ("_SOL.tex" if tex else "metadatos")),
                     "coincide": (coinc, con_ok)}
 
-    # 3) otros modelos (de las claves): orden deducido de los metadatos o por desplazamiento
-    for v in sorted(set(claves) - {ref}):
+    # 3a) otros modelos con su propio documento (Word o PDF): orden y opciones exactos
+    for d in docs[1:]:
+        v = d["ver"]
+        qv = [q for q in d["qs"] if not q["bis"]]
+        libres_i, orden, perms_ref, clave_v = set(range(n)), [], [], []
+        for j, q in enumerate(qv):
+            i = max(libres_i, key=lambda i: sim(items[i]["enun"], q["enun"])) if libres_i else 0
+            libres_i.discard(i)
+            orden.append(i)
+            pr_ = _perm(q["ops"], items[i]["ops"]) if items[i]["ops"] else "ABCD"
+            perms_ref.append(pr_)
+            if q.get("ok"):
+                clave_v.append(q["ok"])
+            elif claves.get(v) and j < len(claves[v]):
+                clave_v.append(claves[v][j])
+            else:      # la correcta del modelo de referencia, en la posición que ocupa en este modelo
+                Lr = (k_ref[i] or "?")[0]
+                clave_v.append(LETRAS[pr_.index(Lr)] if Lr in pr_ else "")
+        kc_v = claves.get(v) or []
+        co = sum(1 for j, k in enumerate(clave_v) if j < len(kc_v) and k and k[0] in kc_v[j])
+        modelos[v] = {"orden": orden, "clave": clave_v + [""] * (n - len(clave_v)), "opciones": "exactas",
+                      "perms_ref": perms_ref, "fuente": _nom_doc(d) + f" del modelo {v}",
+                      "coincide": (co, len(kc_v)) if kc_v else (len(clave_v), len(clave_v))}
+        if len(qv) != n:
+            avisos.append(f"El documento del modelo {v} tiene {len(qv)} preguntas y el del {ref} {n}.")
+
+    # 3b) otros modelos solo con clave: orden deducido de los metadatos o por desplazamiento
+    for v in sorted(set(claves) - set(modelos)):
         kv = claves[v]
         best = None
         m_v = meta.get(v) or []
@@ -399,6 +513,10 @@ def registro(res: dict, elegidos: list, nombre: str, curso: str, convocatoria: s
             pos.append(ids[i])
             if m["opciones"] == "desconocidas" or not q.get("ops"):
                 pr.append("????")
+            elif m.get("perms_ref"):      # opciones de este modelo → letras del modelo de referencia → letras de la BD
+                qp = q.get("perm") or "ABCD"
+                pr.append("".join(qp[LETRAS.index(c)] if c in LETRAS and LETRAS.index(c) < len(qp) else "?"
+                                  for c in m["perms_ref"][j]).ljust(4, "?"))
             else:
                 pr.append(q.get("perm") or "ABCD")
             if v == sorted(elegidos)[0]:

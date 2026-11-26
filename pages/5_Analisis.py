@@ -85,7 +85,7 @@ st.markdown("""<style>
 .an-row { font-size:.86rem; line-height:1.35; color:var(--text,#2c3e50); }
 .an-row small { color:var(--muted,#6c757d); }
 .an-est { border-radius:10px; padding:9px 12px; font-size:.85rem; }
-.an-est.b { background:var(--ok-bg,#e3f1e8); color:var(--ok,#1e6b3c); } .an-est.m { background:var(--err-bg,#fbe7e4); color:var(--err,#a3261a); }
+.an-est.b { background:var(--ok-bg,#e3f1e8); color:var(--ok,#1e6b3c); } .an-est.w { background:var(--warn-bg,#fdf0d5); color:var(--warn,#7a4f00); } .an-est.m { background:var(--err-bg,#fbe7e4); color:var(--err,#a3261a); }
 .st-key-an_nocuadra { background:var(--err-bg,#fbe7e4); border:1px solid var(--err,#a3261a); border-radius:12px; padding:14px 18px; margin:8px 0 14px; }
 .st-key-an_nocuadra p { color:var(--text,#2c3e50); }
 .an-frase { background:var(--card2,#f5f7fa); border-radius:10px; padding:11px 14px; margin:4px 0 12px; font-size:.95rem; line-height:1.55; }
@@ -368,7 +368,11 @@ if n_tot:
                          f"<br>cuadran con el corrector en {n_ok}/{n_tot}"
                          + (f" · {len(_fuera)} del modelo {', '.join(sorted(_fuera['Ver'].astype(str).unique()))} fuera" if not _fuera.empty else "")
                          + "</div>", unsafe_allow_html=True)
-if n_tot and n_ok < 0.9 * n_tot and not _ss.get(f"an_igual_{ex_id}_{vista}"):
+_mantenida = base_m in (_cont.get("clave_del_examen") or [])
+if n_tot and n_ok < n_tot and _mantenida:
+    _estado_box.markdown(f"<div class='an-est w'><b>Clave del examen</b><br>cuadra con el corrector en {n_ok}/{n_tot}: "
+                         "se mantuvo a propósito (mira Alumnos)</div>", unsafe_allow_html=True)
+if n_tot and n_ok < 0.9 * n_tot and not _mantenida and not _ss.get(f"an_igual_{ex_id}_{vista}"):
     with st.container(key="an_nocuadra"):
         st.markdown(f"**Las notas no cuadran con el corrector ({n_ok} de {n_tot} alumnos).** Con la clave registrada los "
                     "alumnos sacan notas distintas de las del corrector: casi seguro la clave o el orden de las opciones no "

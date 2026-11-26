@@ -115,8 +115,8 @@ def _imp_paso1():
         if h2.button("Cancelar", key="imp_cancel1", use_container_width=True):
             _imp_reset(); st.rerun()
         c1, c2 = st.columns(2, gap="medium")
-        ups = c1.file_uploader("Archivos del examen: METADATA, claves, _SOL.tex y el Word final si lo hay",
-                               type=["csv", "xlsx", "xls", "tex", "docx"], accept_multiple_files=True, key="imp_files",
+        ups = c1.file_uploader("Archivos del examen: lo que tengas (PDF o Word de cada modelo, METADATA, claves, _SOL.tex)",
+                               type=["csv", "xlsx", "xls", "tex", "docx", "pdf"], accept_multiple_files=True, key="imp_files",
                                help="Puedes arrastrar todos los que tengas: la app elige cuál usar para cada cosa.")
         corr = c2.file_uploader("Excel del corrector (opcional, recomendado)", type=["xls", "xlsx"], key="imp_corr_up",
                                 help="Sirve para comprobar que la clave reproduce sus notas. Solo se lee en memoria: "
@@ -135,10 +135,10 @@ def _imp_paso1():
         if arch:
             el = IMP.elegir(arch)
             if not el["docs"]:
-                st.markdown("<div class='imp-warn'><b>Falta el Word final.</b> Sin él se usará el orden de preguntas y "
-                            "opciones del _SOL.tex o de los metadatos. Si el examen se retocó o se volvió a barajar antes "
-                            "de imprimirlo, la clave no será la buena. Súbelo si lo tienes; si no, el paso 3 comprobará "
-                            "la clave con el corrector.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='imp-warn'><b>Falta el examen tal como se imprimió</b> (el PDF o el Word de cada "
+                            "modelo). Sin él se usará el orden de preguntas y opciones del _SOL.tex o de los metadatos. Si el "
+                            "examen se retocó o se volvió a exportar antes de imprimirlo, la clave no será la buena. Súbelo si lo "
+                            "tienes; si no, el paso 3 comprobará la clave con el corrector.</div>", unsafe_allow_html=True)
             st.markdown("<div class='imp-f imp-h'><span>Archivo</span><span>Contiene</span><span>Se usa para</span></div>"
                         + "".join(f"<div class='imp-f'><code>{u.name}</code><span>{a['desc']}</span>"
                                   f"<span class='tag tag-{p[1]}'>{p[0]}</span></div>"
@@ -306,6 +306,9 @@ def _imp_paso3(res):
                         n2, _ = A.cuadran(M, A.aceptadas(k_cl, dec_), T)
                         if prop and n2 >= 0.9 * tot and len(prop) <= 8:
                             st.markdown(f"Con estos {len(prop)} cambios cuadran **{n2}/{tot}**:")
+                            st.caption("Ojo: «Usar la clave del corrector» copia también sus errores. Si el corrector se "
+                                       "equivocó en alguna (la correcta es la del examen impreso), mantén la del examen: "
+                                       "en el Análisis verás qué alumnos cambian de nota.")
                             st.markdown("".join(
                                 f"<div class='imp-cb'><b>{j + 1}</b><span>{_bank.get(res['items'][m['orden'][j]].get('id') or '', {}).get('enunciado', res['items'][m['orden'][j]]['enun'])[:70]}</span>"
                                 f"<code>{m['clave'][j] or '—'}</code><b class='ok'>{A.DECISIONES.get(tp, tp) if tp != 'cambiar' else L}</b></div>"
@@ -319,17 +322,18 @@ def _imp_paso3(res):
                                         m.setdefault("decisiones", {})[j] = (tp, L)
                                 _ss.pop(f"imp_prop_{v}", None)
                                 st.rerun()
-                            if b2.button("Mantener la del archivo", key=f"imp_mant_{v}", use_container_width=True):
+                            if b2.button("Mantener la del examen", key=f"imp_mant_{v}", use_container_width=True):
                                 _ss[f"imp_prop_{v}"] = []
                                 st.rerun()
                         elif prop == [] and _ss.get(f"imp_prop_{v}") == []:
-                            st.caption("Se mantiene la clave del archivo.")
+                            st.caption("Se mantiene la clave del examen.")
                         else:
                             st.markdown(f"<div class='imp-warn'>Ninguna clave razonable reproduce las notas del corrector en "
                                         f"este modelo. <b>No conviene analizarlo</b>: sus {tot} alumnos quedarían mal.</div>",
                                         unsafe_allow_html=True)
-                defecto = bool(bien) or (not tot and not m.get("propuesto"))
-                if st.checkbox(f"Analizar el modelo {v}", value=defecto, key=f"imp_m_{v}_{bool(bien)}"):
+                mant = _ss.get(f"imp_prop_{v}") == []
+                defecto = bool(bien) or mant or (not tot and not m.get("propuesto"))
+                if st.checkbox(f"Analizar el modelo {v}", value=defecto, key=f"imp_m_{v}_{bool(bien)}_{mant}"):
                     elegidos.append(v)
         st.caption("Los alumnos de los modelos que no marques no se analizan.")
         nuevas = _nuevas(res)
@@ -368,6 +372,10 @@ def _imp_registrar(res, elegidos, nuevas):
         if reimp:      # volver a importar: se sustituye el registro y su análisis guardado
             A.borrar_examen(dd, reimp)
         fila, extra = IMP.registro(res, elegidos, d["nom"], d["cur"], d["con"], d["fec"])
+        _mant = [v for v in elegidos if _ss.get(f"imp_prop_{v}") == []]
+        if _mant:          # clave del examen mantenida a propósito aunque no cuadre con el corrector
+            _c = json.loads(fila["Contenido"]); _c["clave_del_examen"] = _mant
+            fila["Contenido"] = json.dumps(_c, ensure_ascii=False)
         A.upsert_examen(dd, fila)
         if extra:      # respuestas dobles, buenas para todos y anuladas → decisiones del análisis
             pr = A.get_resultados(dd)
